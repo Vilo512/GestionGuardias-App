@@ -536,20 +536,9 @@ async function initApp() {
     try {
         const { data: { session } } = await supabaseClient.auth.getSession();
         await handleSession(session);
-        
-	supabaseClient.auth.onAuthStateChange(async (event, newSession) => {
+        supabaseClient.auth.onAuthStateChange(async (event, newSession) => {
             if (event === 'INITIAL_SESSION') return; 
             await handleSession(newSession);
-            // Silenciamos los eventos de fondo (ej: Supabase renovando el token tras inactividad)
-            if (event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-                authSession = newSession; // Solo actualizamos la llave maestra en memoria, sin tocar la UI
-                return; 
-            }
-            
-            // Solo lanzamos la carga visual pesada si de verdad el usuario hace Login o Logout
-            if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
-                await handleSession(newSession);
-            }
         });
     } catch (err) {
         setStatus("Error de sesión", true);
@@ -1679,22 +1668,16 @@ function openMercadoModal(y, m, d, dk, dayShifts) {
             html += `<div style="display:flex; justify-content:space-between; align-items:center; border:1px solid #e2e8f0; padding:8px; border-radius:8px; margin-bottom:8px;">`;
             html += `<div><span style="font-size:0.85rem; font-weight:bold;">${u}</span> <span class="shift-badge" style="background:${getServiceColor(dayShifts[u])}; margin-left:4px;">${dayShifts[u]}</span></div>`;
 
-	if (!past) {
-        html += `<div style="margin-top:1rem; padding-top:1rem; border-top:1px dashed #cbd5e1;"><h4 style="margin-bottom:0.5rem; color:#64748b;">Comprar a Externo (Añadir guardia)</h4><div style="display:flex; gap:8px; flex-wrap:wrap;">`;
-        
-        // CORRECCIÓ: Obtenim només els serveis que corresponen al teu Pla en aquesta data concreta
-        let myPlanOnDate = getPlanForUserOnDate(currentUserProfile, dk);
-        let myServices = myPlanOnDate ? myPlanOnDate.servicios : [];
-        
-        if (myServices.length === 0) {
-            html += `<span style="font-size:0.8rem; color:#64748b;">No tens serveis configurats per a aquesta data.</span>`;
-        } else {
-            myServices.forEach(svc => { 
-                html += `<button class="primary" style="flex:1; background:${svc.color}; font-size:0.8rem;" onclick="executeBuyRequest('${dk}', '${svc.nombre}', 'Externo')">+ ${svc.nombre}</button>`; 
-            });
-        	}
-        	html += `</div></div>`;
-    		}
+            if (past) {
+                html += `<span style="font-size:0.75rem; color:#94a3b8; font-weight:bold;">Pasada</span>`;
+            } else {
+                let iCanTake = canUserTakeShift(loggedInUser, u, dk, dayShifts[u]);
+                if (iCanTake) {
+                    html += `<div style="display:flex; gap:4px;"><button class="merc icon-btn" onclick="executeBuyRequest('${dk}', '${dayShifts[u]}', '${u}')">Comprar</button><button class="primary icon-btn" style="background:var(--adu);" onclick="renderMercadoCambiarAjena('${dk}', '${dayShifts[u]}', '${u}')">Cambiar</button></div>`;
+                } else {
+                    html += `<span style="font-size:0.75rem; color:var(--fest); font-weight:bold; background:#fee2e2; padding:2px 6px; border-radius:4px;">Nivel Incompatible</span>`;
+                }
+            }
             html += `</div>`;
         }
     }
