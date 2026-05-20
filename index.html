@@ -537,46 +537,45 @@ async function initApp() {
         const { data: { session } } = await supabaseClient.auth.getSession();
         await handleSession(session);
         
-        // Control de eventos estricto: Bloqueamos las ráfagas de actualizaciones secundarias
+        // 1. FILTRO DE EVENTOS ULTRA-ESTRICTO
         supabaseClient.auth.onAuthStateChange(async (event, newSession) => {
-            // Silenciamos por completo actualizaciones de token o de tablas de perfiles de fondo
+            // Guardamos las credenciales en la sombra, JAMÁS tocamos la interfaz ni ponemos carteles de carga
             if (event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-                authSession = newSession; // Guardamos la credencial en memoria de forma silenciosa
+                authSession = newSession;
                 return; 
             }
             
-            // SÓLO permitimos alterar el estado visual si hay un inicio o cierre de sesión explícito
+            // Solo alteramos la UI si hay un Login o Logout manual y explícito
             if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
                 await handleSession(newSession);
             }
         });
 
-        // Activamos el motor para evitar que la pestaña entre en modo "Sleep"
-        activarAntiSuspension();
+        // 2. EL RESUCITADOR DE PESTAÑAS (Caza el cambio de pestaña)
+        document.addEventListener('visibilitychange', async () => {
+            if (document.visibilityState === 'visible' && authSession) {
+                // Al volver a la pestaña, forzamos un pulso silencioso de sincronización en segundo plano
+                const b = document.getElementById('status-badge');
+                if (b && b.textContent === 'Verificando perfil...') {
+                    b.textContent = 'Conectado ✅';
+                    b.className = 'status-ok';
+                }
+                
+                // Descargamos los datos en la sombra sin activar pantallas de bloqueo eternas
+                try {
+                    const { data: { session } } = await supabaseClient.auth.getSession();
+                    if (session) {
+                        authSession = session;
+                        // Sincronizamos la memoria del calendario discretamente
+                        const { data: profs } = await supabaseClient.from('perfiles').select('*').eq('promocion_id', currentUserProfile?.promocion_id).eq('estado', 'aprobado');
+                        if (profs) globalProfiles = profs;
+                    }
+                } catch (e) { console.log("Error silencioso de reconexión:", e); }
+            }
+        });
 
     } catch (err) {
         setStatus("Error de sesión", true);
-    }
-}
-
-function activarAntiSuspension() {
-    // Genera micro-tareas de lectura ligeras cada 45 segundos para mantener el hilo activo en el navegador
-    setInterval(() => {
-        if (typeof supabaseClient !== 'undefined' && authSession) {
-            const _ = !!supabaseClient.auth.user;
-        }
-    }, 45000);
-
-    // API Wake Lock nativa: Solicita mantener el contexto de ejecución activo si el navegador lo soporta
-    if ('wakeLock' in navigator) {
-        let wakeLock = null;
-        const requestWakeLock = async () => {
-            try { wakeLock = await navigator.wakeLock.request('screen'); } catch (err) {}
-        };
-        requestWakeLock();
-        document.addEventListener('visibilitychange', () => {
-            if (wakeLock !== null && document.visibilityState === 'visible') { requestWakeLock(); }
-        });
     }
 }
 
@@ -595,6 +594,15 @@ async function handleSession(session) {
 
 async function syncUserProfile(user) {
   try {
+    // Si ya tenemos el perfil cargado y con grupo, hacemos la recarga en la sombra sin congelar la pantalla
+    if (currentUserProfile && currentUserProfile.promocion_id) {
+        const { data } = await supabaseClient.from('perfiles').select('*').eq('id', user.id).single();
+        if (data) currentUserProfile = data;
+        await evaluarEstadoUsuario();
+        return;
+    }
+
+    // Solo muestra el estado de carga si es el arranque inicial en frío
     setStatus('Verificando perfil...');
     const { data, error } = await supabaseClient.from('perfiles').select('*').eq('id', user.id).single();
 
