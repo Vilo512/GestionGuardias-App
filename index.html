@@ -480,6 +480,8 @@ function normalizeConfig(config) {
             if (!s.reglasObligatorias) s.reglasObligatorias = [];
 			// PARCHE DE COLOR: Garantizar un código HEX válido para el selector HTML5
             if (!s.color || !/^#[0-9A-F]{6}$/i.test(s.color)) s.color = '#3b82f6';
+			// NUEVO: Regla de intercambio por defecto (Permitir a mi año y superiores)
+            if (!s.reglaIntercambio) s.reglaIntercambio = 'superior';
         });
     });
     return config;
@@ -684,71 +686,61 @@ function renderUserHeader() {
 }
 
 // ==========================================
-// NÚCLEO 3.5: MOTOR DE SIMULACIÓN TEMPORAL
+// NÚCLEO 3.5: MOTOR DE SIMULACIÓN TEMPORAL Y MERCADILLO
 // ==========================================
-function getPlanForUserOnDate(userProfile, dateKey) {
-    // 1. Fallback seguro por si la config no ha cargado bien
-    if (!promoConfig.planes || promoConfig.planes.length === 0) {
-        return { nombre: "Plan Base", servicios: promoConfig.servicios || [] };
-    }
+function getUserLevelOnDate(userProfile, dateKey) {
+    if (!userProfile || !userProfile.fecha_inicio_residencia || !userProfile.fecha_cambio_contrato) return 1;
     
-    // 2. Si el usuario no tiene fechas definidas, le damos el primer plan (R1) por defecto
-    if (!userProfile || !userProfile.fecha_inicio_residencia || !userProfile.fecha_cambio_contrato) {
-        return promoConfig.planes[0];
-    }
-
     const targetParts = dateKey.split('_');
     const targetDate = new Date(parseInt(targetParts[0]), parseInt(targetParts[1]) - 1, parseInt(targetParts[2]));
-
+    
     const startParts = userProfile.fecha_inicio_residencia.split('-');
     const startDate = new Date(parseInt(startParts[0]), parseInt(startParts[1]) - 1, parseInt(startParts[2]));
-
-    // 3. Si la fecha consultada es ANTERIOR a su inicio de residencia, no era residente
-    if (targetDate < startDate) return null;
+    
+    if (targetDate < startDate) return 0; // Fecha anterior a ser residente
 
     const cambioParts = userProfile.fecha_cambio_contrato.split('-');
-    const cambioMonth = parseInt(cambioParts[1]) - 1;
-    const cambioDay = parseInt(cambioParts[2]);
+    const targetChangeDate = new Date(targetDate.getFullYear(), parseInt(cambioParts[1]) - 1, parseInt(cambioParts[2]));
 
-    // 4. Calcular los "Saltos de Contrato"
     let level = targetDate.getFullYear() - startDate.getFullYear() + 1;
-    const targetChangeDate = new Date(targetDate.getFullYear(), cambioMonth, cambioDay);
+    if (targetDate < targetChangeDate) level--; // Aún no ha cruzado su fecha este año
+    
+    return Math.max(1, level);
+}
 
-    // Si en el año consultado todavía no ha llegado el día de cambio, le restamos 1 nivel
-    if (targetDate < targetChangeDate) {
-        level--;
-    }
-
-    level = Math.max(1, level); // Asegurar que el mínimo histórico es R1 (Nivel 1)
-
-    // 5. Devolver el plan correspondiente (Índice 0 = R1, Índice 1 = R2...)
-    // Si es R5 pero solo hay 4 planes creados en Ajustes, se le aplica el último disponible por seguridad.
+function getPlanForUserOnDate(userProfile, dateKey) {
+    if (!promoConfig.planes || promoConfig.planes.length === 0) return { nombre: "Plan Base", servicios: promoConfig.servicios || [] };
+    
+    const level = getUserLevelOnDate(userProfile, dateKey);
+    if (level === 0) return null; 
+    
     const planIndex = Math.min(level - 1, promoConfig.planes.length - 1);
     return promoConfig.planes[planIndex];
 }
 
-// Devuelve todos los servicios únicos configurados en cualquier plan
-function getAllUniqueServices() {
-    let unique = []; let names = new Set();
-    if (!promoConfig.planes) return [];
-    promoConfig.planes.forEach(plan => {
-        plan.servicios.forEach(s => {
-            if (!names.has(s.nombre)) { names.add(s.nombre); unique.push(s); }
-        });
-    });
-    return unique;
-}
+// VALIDADOR CRUZADO PARA EL MERCADILLO
+function canUserTakeShift(targetUserName, sourceUserName, dateKey, svcName) {
+    if (targetUserName === 'Externo' || sourceUserName === 'Externo') return true; 
 
-// Busca el color de un servicio inspeccionando los planes
-function getServiceColor(svcName) {
-    if (!promoConfig.planes) return '#3b82f6';
-    for (let plan of promoConfig.planes) {
-        let svc = plan.servicios.find(s => s.nombre === svcName);
-        if (svc && svc.color) return svc.color;
-    }
-    return '#3b82f6';
+    const targetProfile = globalProfiles.find(p => p.nombre_mostrar === targetUserName) || (targetUserName === loggedInUser ? currentUserProfile : null);
+    const sourceProfile = globalProfiles.find(p => p.nombre_mostrar === sourceUserName) || (sourceUserName === loggedInUser ? currentUserProfile : null);
+    
+    if (!targetProfile || !sourceProfile) return true; // Si no hay datos (ej. un usuario borrado), se permite por retrocompatibilidad
+
+    const targetLevel = getUserLevelOnDate(targetProfile, dateKey);
+    const sourceLevel = getUserLevelOnDate(sourceProfile, dateKey);
+
+    const sourcePlanIndex = Math.min(sourceLevel - 1, (promoConfig.planes || []).length - 1);
+    const sourcePlan = promoConfig.planes ? promoConfig.planes[sourcePlanIndex] : null;
+    if (!sourcePlan) return true;
+
+    const svcConfig = sourcePlan.servicios.find(s => s.nombre === svcName);
+    if (!svcConfig) return true; 
+
+    if (svcConfig.reglaIntercambio === 'solo_mismo') return targetLevel === sourceLevel;
+    if (svcConfig.reglaIntercambio === 'superior') return targetLevel >= sourceLevel;
+    return true; // 'cualquiera'
 }
-	
 // ==========================================
 // NÚCLEO 4: MOTOR DE SALIENTES DINÁMICO
 // ==========================================
@@ -1646,15 +1638,15 @@ function openMercadoModal(y, m, d, dk, dayShifts) {
     else html += `<button class="primary" style="width:100%; margin-bottom:10px;" onclick="renderMercadoVender('${dk}','${myShift}')">💵 Vender guardia</button><button class="merc" style="width:100%;" onclick="renderMercadoCambiar('${dk}','${myShift}')">🔄 Cambiar por otra fecha / residente</button>`;
   } else {
     let canBuy = false;
-    for (let u in dayShifts) {
-      if (u !== 'VRE' && !u.startsWith('VRE_') && u !== loggedInUser) {
-        canBuy = true;
-        html += `<div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; padding:8px; border:1px solid #cbd5e1; border-radius:8px; margin-bottom:8px;"><span>Guardia de <b>${u}</b> (${dayShifts[u]})</span>`;
-        if (past) html += `<span style="font-size:0.75rem; color:#94a3b8; font-weight:bold;">Pasada</span>`;
-        else html += `<div style="display:flex; gap:4px;"><button class="merc icon-btn" onclick="executeBuyRequest('${dk}', '${dayShifts[u]}', '${u}')">Comprar</button><button class="primary icon-btn" style="background:var(--adu);" onclick="renderMercadoCambiarAjena('${dk}', '${dayShifts[u]}', '${u}')">Cambiar</button></div>`;
-        html += `</div>`;
-      }
-    }
+		if (past) html += `<span style="font-size:0.75rem; color:#94a3b8; font-weight:bold;">Pasada</span>`;
+            else {
+                let iCanTake = canUserTakeShift(loggedInUser, u, dk, dayShifts[u]);
+                if (iCanTake) {
+                    html += `<div style="display:flex; gap:4px;"><button class="merc icon-btn" onclick="executeBuyRequest('${dk}', '${dayShifts[u]}', '${u}')">Comprar</button><button class="primary icon-btn" style="background:var(--adu);" onclick="renderMercadoCambiarAjena('${dk}', '${dayShifts[u]}', '${u}')">Cambiar</button></div>`;
+                } else {
+                    html += `<span style="font-size:0.75rem; color:var(--fest); font-weight:bold; background:#fee2e2; padding:2px 6px; border-radius:4px;">Nivel Incompatible</span>`;
+                }
+            }
     if(!canBuy) html += `<p style="font-size:0.85rem; color:#64748b; margin-bottom:1rem;">No hay guardias de compañeros disponibles en este día.</p>`;
     
     if (!past) {
@@ -1670,12 +1662,62 @@ function openMercadoModal(y, m, d, dk, dayShifts) {
   modal.innerHTML = html; document.body.appendChild(modal);
 }
 
-function renderMercadoVender(dk, svc) { const res = getAllResidents().filter(r => r !== loggedInUser); document.getElementById('mercado-dynamic').innerHTML = `<h4 style="margin-bottom:1rem;">Vender guardia de ${svc}</h4><label style="font-size:0.85rem; color:#64748b;">¿A quién se la vendes?</label><select id="vender-to-user"><option value="">-- Selecciona --</option><option value="Externo">👽 Otro Residente (Externo)</option>${res.map(r => `<option value="${r}">${r}</option>`).join('')}</select><button class="primary" style="width:100%" onclick="executeSellRequest('${dk}', '${svc}')">Confirmar Venta</button>`; }
+function renderMercadoVender(dk, svc) { 
+    // Filtramos para que solo aparezcan compañeros que cumplen las reglas de nivel
+    const res = getAllResidents().filter(r => r !== loggedInUser && canUserTakeShift(r, loggedInUser, dk, svc)); 
+    document.getElementById('mercado-dynamic').innerHTML = `<h4 style="margin-bottom:1rem;">Vender guardia de ${svc}</h4><label style="font-size:0.85rem; color:#64748b;">¿A quién se la vendes?</label><select id="vender-to-user"><option value="">-- Selecciona --</option><option value="Externo">👽 Otro Residente (Externo)</option>${res.map(r => `<option value="${r}">${r}</option>`).join('')}</select><button class="primary" style="width:100%" onclick="executeSellRequest('${dk}', '${svc}')">Confirmar Venta</button>`; 
+}
 function executeSellRequest(dk, svc) { const target = document.getElementById('vender-to-user').value; if (!target) return alert("Selecciona a quién vender."); const trade = { id: Date.now(), type: 'venta', requester: loggedInUser, target: target, d1: dk, s1: svc, timestamp: new Date().toLocaleString('es-ES') }; let conflicts = checkTradeConflicts(trade); if (conflicts.length > 0) { if (!confirm("⚠️ ATENCIÓN: Conflictos:\n\n" + conflicts.join("\n") + "\n\n¿Proponer de todos modos?")) return; } if (target === 'Externo') { trade.status = 'approved'; alert("Venta a externo realizada."); } else { trade.status = 'pending'; alert(`Solicitud enviada a ${target}.`); } if(!state.trades) state.trades = []; state.trades.push(trade); saveState(); document.getElementById('mercado-modal').remove(); renderAll(); }
 function renderMercadoCambiar(dk, svc) { document.getElementById('mercado-dynamic').innerHTML = `<h4 style="margin-bottom:1rem;">Cambiar guardia de ${svc}</h4><label style="font-size:0.85rem; color:#64748b;">1. Fecha objetivo:</label><input type="date" id="cambio-date" onchange="loadCambioTargets('${dk}', '${svc}')"><div id="cambio-targets-area" style="margin-top:1rem;"></div>`; }
-function loadCambioTargets(myDk, mySvc) { const dateVal = document.getElementById('cambio-date').value; if (!dateVal) return; const [y, mStr, dStr] = dateVal.split('-'); const targetDk = `${y}_${mStr}_${dStr}`; if (isPastDate(targetDk)) return document.getElementById('cambio-targets-area').innerHTML = `<p style="color:var(--fest); font-size:0.85rem;">No puedes seleccionar el pasado.</p>`; const computed = getComputedShifts(); const dayShifts = computed[targetDk] || {}; let html = `<label style="font-size:0.85rem; color:#64748b;">2. ¿Con quién la cambias?</label><select id="cambio-to-user"><option value="">-- Selecciona --</option><option value="Externo|">👽 Mover a este día (Externo)</option>`; for (let u in dayShifts) { if (u !== loggedInUser && !u.startsWith('VRE')) html += `<option value="${u}|${dayShifts[u]}">🔄 ${u} (Su ${dayShifts[u]})</option>`; } html += `</select><button class="merc" style="width:100%; margin-top:10px;" onclick="proxySwapRequest('${myDk}', '${mySvc}', '${targetDk}')">Solicitar Cambio</button>`; document.getElementById('cambio-targets-area').innerHTML = html; }
+function loadCambioTargets(myDk, mySvc) { 
+	const dateVal = document.getElementById('cambio-date').value; 
+	if (!dateVal) return; const [y, mStr, dStr] = dateVal.split('-'); 
+		const targetDk = `${y}_${mStr}_${dStr}`; 
+	if (isPastDate(targetDk)) return document.getElementById('cambio-targets-area').innerHTML = `<p style="color:var(--fest); font-size:0.85rem;">No puedes seleccionar el pasado.</p>`; 
+		const computed = getComputedShifts(); 
+		const dayShifts = computed[targetDk] || {}; 
+	let html = `<label style="font-size:0.85rem; color:#64748b;">2. ¿Con quién la cambias?</label><select id="cambio-to-user"><option value="">-- Selecciona opción --</option>`; 
+    html += `<option value="Externo|">👽 Mover a este día (Otro Residente Externo)</option>`; 
+    for (let u in dayShifts) { 
+        if (u !== loggedInUser && !u.startsWith('VRE')) {
+            // Doble validación: Él puede coger la mía, y yo la suya
+            if (canUserTakeShift(u, loggedInUser, myDk, mySvc) && canUserTakeShift(loggedInUser, u, targetDk, dayShifts[u])) {
+                html += `<option value="${u}|${dayShifts[u]}">🔄 ${u} (Su ${dayShifts[u]})</option>`; 
+            }
+        } 
+    } 
+    html += `</select><button class="merc" style="width:100%; margin-top:10px;" onclick="proxySwapRequest('${myDk}', '${mySvc}', '${targetDk}')">Solicitar Cambio</button>`; 
+    document.getElementById('cambio-targets-area').innerHTML = html; 
+}
 function proxySwapRequest(myDk, mySvc, targetDk) { const val = document.getElementById('cambio-to-user').value; if (!val) return alert("Selecciona opción."); const [targetUser, targetSvc] = val.split('|'); executeSwapRequestDirect(myDk, mySvc, targetDk, targetSvc, targetUser); }
-function renderMercadoCambiarAjena(targetDk, targetSvc, targetUser) { const computed = getComputedShifts(); let myFutureShifts = []; for (let dk in computed) { if (!isPastDate(dk) && computed[dk][loggedInUser]) myFutureShifts.push({dk: dk, svc: computed[dk][loggedInUser]}); } let html = `<h4 style="margin-bottom:1rem; color:var(--adu);">Ofrecer cambio a ${targetUser}</h4><div style="background:#f8fafc; padding:8px; border-radius:8px; margin-bottom:1rem; font-size:0.85rem; border:1px solid #cbd5e1;">Te quedarías su: <b>${targetSvc} (${formatDK(targetDk)})</b></div>`; if (myFutureShifts.length === 0) { html += `<p style="font-size:0.85rem; color:var(--fest); font-weight:bold;">No tienes guardias futuras para ofrecer.</p>`; } else { html += `<label style="font-size:0.85rem; color:#64748b;">¿Qué guardia tuya ofreces?</label><select id="cambio-ajena-sel"><option value="">-- Selecciona tu guardia --</option>${myFutureShifts.map(s => `<option value="${s.dk}|${s.svc}">${formatDK(s.dk)} - ${s.svc}</option>`).join('')}</select><button class="primary" style="width:100%; margin-top:10px; background:var(--adu);" onclick="executeSwapRequestAjena('${targetDk}', '${targetSvc}', '${targetUser}')">Enviar Propuesta</button>`; } document.getElementById('mercado-dynamic').innerHTML = html; }
+function renderMercadoCambiarAjena(targetDk, targetSvc, targetUser) { 
+    const container = document.getElementById('mercado-dynamic'); 
+    
+    // 1. ¿Puedo yo hacer la suya? (Filtro de entrada)
+    if (!canUserTakeShift(loggedInUser, targetUser, targetDk, targetSvc)) {
+        container.innerHTML = `<p style="color:var(--fest); padding:10px; background:#fee2e2; border-radius:8px;">⚠️ Tu nivel actual no te permite asumir esta guardia de ${targetSvc}.</p>`;
+        return;
+    }
+
+    const computed = getComputedShifts(); let myFutureShifts = []; 
+    for (let dk in computed) { 
+        if (!isPastDate(dk) && computed[dk][loggedInUser]) { 
+            // 2. ¿Puede él hacer la mía?
+            if (canUserTakeShift(targetUser, loggedInUser, dk, computed[dk][loggedInUser])) {
+                myFutureShifts.push({dk: dk, svc: computed[dk][loggedInUser]}); 
+            }
+        } 
+    } 
+    
+    let html = `<h4 style="margin-bottom:1rem; color:var(--adu);">Ofrecer cambio a ${targetUser}</h4><div style="background:#f8fafc; padding:8px; border-radius:8px; margin-bottom:1rem; font-size:0.85rem; border:1px solid #cbd5e1;">Te quedarías su: <b>${targetSvc} (${formatDK(targetDk)})</b></div>`; 
+    
+    if (myFutureShifts.length === 0) { 
+        html += `<p style="font-size:0.85rem; color:var(--fest); font-weight:bold;">No tienes guardias compatibles para ofrecerle a cambio.</p>`; 
+    } else { 
+        html += `<label style="font-size:0.85rem; color:#64748b;">¿Qué guardia tuya le ofreces a cambio?</label><select id="cambio-ajena-sel"><option value="">-- Selecciona tu guardia compatible --</option>${myFutureShifts.map(s => `<option value="${s.dk}|${s.svc}">${formatDK(s.dk)} - ${s.svc}</option>`).join('')}</select><button class="primary" style="width:100%; margin-top:10px; background:var(--adu);" onclick="executeSwapRequestAjena('${targetDk}', '${targetSvc}', '${targetUser}')">Enviar Propuesta de Cambio</button>`; 
+    } 
+    container.innerHTML = html; 
+}
 function executeSwapRequestAjena(targetDk, targetSvc, targetUser) { const val = document.getElementById('cambio-ajena-sel').value; if(!val) return alert("Selecciona tu guardia."); const [myDk, mySvc] = val.split('|'); executeSwapRequestDirect(myDk, mySvc, targetDk, targetSvc, targetUser); }
 function executeSwapRequestDirect(myDk, mySvc, targetDk, targetSvc, targetUser) { const trade = { id: Date.now(), type: 'cambio', requester: loggedInUser, target: targetUser, d1: myDk, s1: mySvc, d2: targetDk, s2: targetSvc, timestamp: new Date().toLocaleString('es-ES') }; let conflicts = checkTradeConflicts(trade); if (conflicts.length > 0) { if (!confirm("⚠️ Conflictos:\n" + conflicts.join("\n") + "\n¿Proponer de todos modos?")) return; } if (targetUser === 'Externo') { trade.status = 'approved'; alert("Cambio con externo realizado."); } else { trade.status = 'pending'; alert(`Solicitud enviada a ${targetUser}.`); } if(!state.trades) state.trades = []; state.trades.push(trade); saveState(); document.getElementById('mercado-modal').remove(); renderAll(); }
 function executeBuyRequest(dk, svc, targetUser) { if (targetUser !== 'Externo' && !confirm(`¿Comprar ${svc} a ${targetUser}?`)) return; if (targetUser === 'Externo' && !confirm(`¿Añadir guardia de ${svc} desde Externo?`)) return; const trade = { id: Date.now(), type: 'compra', requester: loggedInUser, target: targetUser, d1: dk, s1: svc, timestamp: new Date().toLocaleString('es-ES') }; let conflicts = checkTradeConflicts(trade); if (conflicts.length > 0) { if (!confirm("⚠️ Conflictos:\n" + conflicts.join("\n") + "\n¿Solicitar de todos modos?")) return; } if (targetUser === 'Externo') { trade.status = 'approved'; alert("Comprada a externo."); } else { trade.status = 'pending'; alert(`Solicitud enviada a ${targetUser}.`); } if(!state.trades) state.trades = []; state.trades.push(trade); saveState(); document.getElementById('mercado-modal').remove(); renderAll(); }
@@ -1734,6 +1776,15 @@ function renderAdminAjustes() {
                 <input type="checkbox" id="cfg-hab-${pIdx}-${i}" ${svc.requiereHabilitacion ? 'checked' : ''} style="width:auto; margin:0;">
                 🔒 Requiere Habilitación Manual (Secretaría)
              </label>
+          </div>
+
+		  <div style="margin-bottom:15px; padding:10px; background:#f8fafc; border-radius:6px; border:1px dashed #cbd5e1;">
+             <label style="font-size:0.85rem; font-weight:bold; display:block; margin-bottom:6px;">🤝 Reglas del Mercadillo (Intercambio)</label>
+             <select id="cfg-intercambio-${pIdx}-${i}" style="margin:0; padding:6px; font-size:0.85rem; width:100%; border:1px solid #cbd5e1; border-radius:4px;">
+                 <option value="superior" ${svc.reglaIntercambio === 'superior' ? 'selected' : ''}>Permitir intercambios entre el mismo año y superiores</option>
+                 <option value="solo_mismo" ${svc.reglaIntercambio === 'solo_mismo' ? 'selected' : ''}>Bloquear intercambios SÓLO entre la misma promoción</option>
+                 <option value="cualquiera" ${svc.reglaIntercambio === 'cualquiera' ? 'selected' : ''}>Permitir intercambios a todos sin restricción (PELIGRO: R pequeños podrían hacer estas guardias, ¡asegúrate que es lo que pretendes!)</option>
+             </select>
           </div>
 
           <div style="margin-bottom:15px;">
@@ -1796,6 +1847,7 @@ function adminAddService(pIdx) {
       requiereHabilitacion: false, 
       generaSaliente: { laborable: true, vispera: true, fin_de_semana: false, festivo_intersemanal: false },
       reglasObligatorias: []
+			reglaIntercambio: 'superior'
   });
   renderAdminAjustes();
 }
@@ -1826,6 +1878,7 @@ function syncConfigFromUI() {
       const plazas = document.getElementById(`cfg-plazas-${pIdx}-${i}`); if(plazas) svc.plazasPorDia = parseInt(plazas.value) || 1;
       const col = document.getElementById(`cfg-col-${pIdx}-${i}`); if(col) svc.color = col.value;
       const hab = document.getElementById(`cfg-hab-${pIdx}-${i}`); if(hab) svc.requiereHabilitacion = hab.checked;
+			const inter = document.getElementById(`cfg-intercambio-${pIdx}-${i}`); if(inter) svc.reglaIntercambio = inter.value;
       
       const sLab = document.getElementById(`cfg-sal-lab-${pIdx}-${i}`); if(sLab) svc.generaSaliente.laborable = sLab.checked;
       const sVis = document.getElementById(`cfg-sal-vis-${pIdx}-${i}`); if(sVis) svc.generaSaliente.vispera = sVis.checked;
