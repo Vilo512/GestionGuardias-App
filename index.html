@@ -541,8 +541,7 @@ async function initApp() {
         const { data: { session } } = await supabaseClient.auth.getSession();
         await handleSession(session);
         
-        // Dejamos que Supabase gestione sus tokens internamente en silencio.
-        // Solo reaccionamos visualmente si el usuario hace Login o Logout intencionadamente.
+        // Escucha limpia de eventos: solo reacciona de forma pesada ante login/logout explícitos
         supabaseClient.auth.onAuthStateChange(async (event, newSession) => {
             if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
                 await handleSession(newSession);
