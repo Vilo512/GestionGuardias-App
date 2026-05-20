@@ -537,40 +537,42 @@ async function initApp() {
         const { data: { session } } = await supabaseClient.auth.getSession();
         await handleSession(session);
         
-        // 1. FILTRO DE EVENTOS ULTRA-ESTRICTO
+        // 1. CONTROL ESTRICTO DE EVENTOS DE SESIÓN
         supabaseClient.auth.onAuthStateChange(async (event, newSession) => {
-            // Guardamos las credenciales en la sombra, JAMÁS tocamos la interfaz ni ponemos carteles de carga
             if (event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-                authSession = newSession;
+                authSession = newSession; // Sincroniza credenciales en la sombra sin tocar la UI
                 return; 
             }
-            
-            // Solo alteramos la UI si hay un Login o Logout manual y explícito
             if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
                 await handleSession(newSession);
             }
         });
 
-        // 2. EL RESUCITADOR DE PESTAÑAS (Caza el cambio de pestaña)
+        // 2. EL DESFIBRILADOR DE CONEXIÓN (Al cambiar y volver de pestaña)
         document.addEventListener('visibilitychange', async () => {
-            if (document.visibilityState === 'visible' && authSession) {
-                // Al volver a la pestaña, forzamos un pulso silencioso de sincronización en segundo plano
-                const b = document.getElementById('status-badge');
-                if (b && b.textContent === 'Verificando perfil...') {
-                    b.textContent = 'Conectado ✅';
-                    b.className = 'status-ok';
-                }
-                
-                // Descargamos los datos en la sombra sin activar pantallas de bloqueo eternas
+            if (document.visibilityState === 'visible') {
+                // Forzamos a Supabase a refrescar el estado de la sesión de manera activa
                 try {
-                    const { data: { session } } = await supabaseClient.auth.getSession();
-                    if (session) {
+                    const { data: { session }, error } = await supabaseClient.auth.refreshSession();
+                    if (error || !session) {
+                        // Si el token se ha corrompido del todo en el limbo, pedimos una nueva sesión limpia
+                        const { data: backup } = await supabaseClient.auth.getSession();
+                        if (backup.session) {
+                            authSession = backup.session;
+                        }
+                    } else {
                         authSession = session;
-                        // Sincronizamos la memoria del calendario discretamente
-                        const { data: profs } = await supabaseClient.from('perfiles').select('*').eq('promocion_id', currentUserProfile?.promocion_id).eq('estado', 'aprobado');
-                        if (profs) globalProfiles = profs;
                     }
-                } catch (e) { console.log("Error silencioso de reconexión:", e); }
+                    
+                    // Actualizamos visualmente el badge a conectado por si se había quedado "zombi"
+                    const b = document.getElementById('status-badge');
+                    if (b) {
+                        b.textContent = 'Conectado ✅';
+                        b.className = 'status-ok';
+                    }
+                } catch (e) {
+                    console.log("Error silencioso al reanimar Supabase:", e);
+                }
             }
         });
 
