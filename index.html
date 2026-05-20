@@ -449,7 +449,7 @@ async function saveState() {
   if (!currentUserProfile || !currentUserProfile.promocion_id) return; 
   setStatus('Guardando...');
   try {
-    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout de red")), 6000));
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout de red")), 3000));
     const peticionGuardado = supabaseClient.from('estados_promocion').upsert({ promocion_id: currentUserProfile.promocion_id, datos: state });
     
     const { error } = await Promise.race([peticionGuardado, timeout]);
