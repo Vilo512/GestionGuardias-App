@@ -536,9 +536,18 @@ async function initApp() {
     try {
         const { data: { session } } = await supabaseClient.auth.getSession();
         await handleSession(session);
+        
         supabaseClient.auth.onAuthStateChange(async (event, newSession) => {
-            if (event === 'INITIAL_SESSION') return; 
-            await handleSession(newSession);
+            // Silenciamos eventos de fondo y actualizaciones de perfil repetitivas para evitar bucles de UI
+            if (event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+                authSession = newSession;
+                return; 
+            }
+            
+            // Solo se activa la carga pesada en acciones explícitas de Login/Logout
+            if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
+                await handleSession(newSession);
+            }
         });
     } catch (err) {
         setStatus("Error de sesión", true);
@@ -1398,7 +1407,29 @@ function toggleFilter() {
   }
   renderAll();
 }
+	
+// ==========================================
+// AYUDANTES DEL MOTOR TEMPORAL (EXTRACTORES)
+// ==========================================
+function getAllUniqueServices() {
+    let unique = []; let names = new Set();
+    if (!promoConfig.planes) return [];
+    promoConfig.planes.forEach(plan => {
+        plan.servicios.forEach(s => {
+            if (!names.has(s.nombre)) { names.add(s.nombre); unique.push(s); }
+        });
+    });
+    return unique;
+}
 
+function getServiceColor(svcName) {
+    if (!promoConfig.planes) return '#3b82f6';
+    for (let plan of promoConfig.planes) {
+        let svc = plan.servicios.find(s => s.nombre === svcName);
+        if (svc && svc.color) return svc.color;
+    }
+    return '#3b82f6';
+}
 // ==========================================
 // RENDERIZADOR DEL CALENDARIO ORIGINAL
 // ==========================================
