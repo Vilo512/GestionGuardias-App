@@ -1630,16 +1630,24 @@ function openMercadoModal(y, m, d, dk, dayShifts) {
   let html = `<div class="modal"><h3 style="color:var(--merc); border-bottom:2px solid var(--merc); padding-bottom:5px; margin-bottom:1rem;">🛒 Mercadillo: ${d}/${m+1}/${y}</h3><div id="mercado-dynamic">`;
   
   if (myShift) {
-    // Busca el color dinámico del servicio que tienes seleccionado
-    const sColor = promoConfig.servicios.find(s => s.nombre === myShift)?.color || 'var(--dark)';
+    const sColor = getServiceColor(myShift);
     html += `<div style="background:#f1f5f9; padding:10px; border-radius:8px; margin-bottom:1rem;"><strong>Tienes guardia de:</strong> <span class="shift-badge" style="background:${sColor}; display:inline-block; margin-left:8px; padding: 4px 8px;">${myShift}</span></div>`;
     
     if (past) html += `<p style="color:#64748b; font-size:0.85rem; font-weight:bold; text-align:center;">Esta guardia ya se ha realizado en el mundo real.</p>`;
     else html += `<button class="primary" style="width:100%; margin-bottom:10px;" onclick="renderMercadoVender('${dk}','${myShift}')">💵 Vender guardia</button><button class="merc" style="width:100%;" onclick="renderMercadoCambiar('${dk}','${myShift}')">🔄 Cambiar por otra fecha / residente</button>`;
   } else {
     let canBuy = false;
-		if (past) html += `<span style="font-size:0.75rem; color:#94a3b8; font-weight:bold;">Pasada</span>`;
-            else {
+    
+    // Bucle restaurado: Evaluamos a cada compañero que tiene guardia este día
+    for (let u in dayShifts) {
+        if (u !== loggedInUser && !u.startsWith('VRE')) {
+            canBuy = true;
+            html += `<div style="display:flex; justify-content:space-between; align-items:center; border:1px solid #e2e8f0; padding:8px; border-radius:8px; margin-bottom:8px;">`;
+            html += `<div><span style="font-size:0.85rem; font-weight:bold;">${u}</span> <span class="shift-badge" style="background:${getServiceColor(dayShifts[u])}; margin-left:4px;">${dayShifts[u]}</span></div>`;
+
+            if (past) {
+                html += `<span style="font-size:0.75rem; color:#94a3b8; font-weight:bold;">Pasada</span>`;
+            } else {
                 let iCanTake = canUserTakeShift(loggedInUser, u, dk, dayShifts[u]);
                 if (iCanTake) {
                     html += `<div style="display:flex; gap:4px;"><button class="merc icon-btn" onclick="executeBuyRequest('${dk}', '${dayShifts[u]}', '${u}')">Comprar</button><button class="primary icon-btn" style="background:var(--adu);" onclick="renderMercadoCambiarAjena('${dk}', '${dayShifts[u]}', '${u}')">Cambiar</button></div>`;
@@ -1647,13 +1655,16 @@ function openMercadoModal(y, m, d, dk, dayShifts) {
                     html += `<span style="font-size:0.75rem; color:var(--fest); font-weight:bold; background:#fee2e2; padding:2px 6px; border-radius:4px;">Nivel Incompatible</span>`;
                 }
             }
+            html += `</div>`;
+        }
+    }
+
     if(!canBuy) html += `<p style="font-size:0.85rem; color:#64748b; margin-bottom:1rem;">No hay guardias de compañeros disponibles en este día.</p>`;
     
     if (!past) {
         html += `<div style="margin-top:1rem; padding-top:1rem; border-top:1px dashed #cbd5e1;"><h4 style="margin-bottom:0.5rem; color:#64748b;">Comprar a Externo (Añadir guardia)</h4><div style="display:flex; gap:8px; flex-wrap:wrap;">`;
-        // Genera los botones de Externo dinámicamente según los servicios del hospital
-        promoConfig.servicios.forEach(svc => { 
-            html += `<button class="primary" style="flex:1; background:${svc.color}; font-size:0.8rem;" onclick="executeBuyRequest('${dk}', '${svc.nombre}', 'Externo')">+ ${svc.nombre}</button>`; 
+        getAllUniqueServices().forEach(svc => { 
+            html += `<button class="primary" style="flex:1; background:${getServiceColor(svc.nombre)}; font-size:0.8rem;" onclick="executeBuyRequest('${dk}', '${svc.nombre}', 'Externo')">+ ${svc.nombre}</button>`; 
         });
         html += `</div></div>`;
     }
@@ -1663,24 +1674,23 @@ function openMercadoModal(y, m, d, dk, dayShifts) {
 }
 
 function renderMercadoVender(dk, svc) { 
-    // Filtramos para que solo aparezcan compañeros que cumplen las reglas de nivel
     const res = getAllResidents().filter(r => r !== loggedInUser && canUserTakeShift(r, loggedInUser, dk, svc)); 
     document.getElementById('mercado-dynamic').innerHTML = `<h4 style="margin-bottom:1rem;">Vender guardia de ${svc}</h4><label style="font-size:0.85rem; color:#64748b;">¿A quién se la vendes?</label><select id="vender-to-user"><option value="">-- Selecciona --</option><option value="Externo">👽 Otro Residente (Externo)</option>${res.map(r => `<option value="${r}">${r}</option>`).join('')}</select><button class="primary" style="width:100%" onclick="executeSellRequest('${dk}', '${svc}')">Confirmar Venta</button>`; 
 }
 function executeSellRequest(dk, svc) { const target = document.getElementById('vender-to-user').value; if (!target) return alert("Selecciona a quién vender."); const trade = { id: Date.now(), type: 'venta', requester: loggedInUser, target: target, d1: dk, s1: svc, timestamp: new Date().toLocaleString('es-ES') }; let conflicts = checkTradeConflicts(trade); if (conflicts.length > 0) { if (!confirm("⚠️ ATENCIÓN: Conflictos:\n\n" + conflicts.join("\n") + "\n\n¿Proponer de todos modos?")) return; } if (target === 'Externo') { trade.status = 'approved'; alert("Venta a externo realizada."); } else { trade.status = 'pending'; alert(`Solicitud enviada a ${target}.`); } if(!state.trades) state.trades = []; state.trades.push(trade); saveState(); document.getElementById('mercado-modal').remove(); renderAll(); }
+
 function renderMercadoCambiar(dk, svc) { document.getElementById('mercado-dynamic').innerHTML = `<h4 style="margin-bottom:1rem;">Cambiar guardia de ${svc}</h4><label style="font-size:0.85rem; color:#64748b;">1. Fecha objetivo:</label><input type="date" id="cambio-date" onchange="loadCambioTargets('${dk}', '${svc}')"><div id="cambio-targets-area" style="margin-top:1rem;"></div>`; }
 function loadCambioTargets(myDk, mySvc) { 
-	const dateVal = document.getElementById('cambio-date').value; 
-	if (!dateVal) return; const [y, mStr, dStr] = dateVal.split('-'); 
-		const targetDk = `${y}_${mStr}_${dStr}`; 
-	if (isPastDate(targetDk)) return document.getElementById('cambio-targets-area').innerHTML = `<p style="color:var(--fest); font-size:0.85rem;">No puedes seleccionar el pasado.</p>`; 
-		const computed = getComputedShifts(); 
-		const dayShifts = computed[targetDk] || {}; 
-	let html = `<label style="font-size:0.85rem; color:#64748b;">2. ¿Con quién la cambias?</label><select id="cambio-to-user"><option value="">-- Selecciona opción --</option>`; 
+    const dateVal = document.getElementById('cambio-date').value; 
+    if (!dateVal) return; const [y, mStr, dStr] = dateVal.split('-'); 
+    const targetDk = `${y}_${mStr}_${dStr}`; 
+    if (isPastDate(targetDk)) return document.getElementById('cambio-targets-area').innerHTML = `<p style="color:var(--fest); font-size:0.85rem;">No puedes seleccionar el pasado.</p>`; 
+    const computed = getComputedShifts(); 
+    const dayShifts = computed[targetDk] || {}; 
+    let html = `<label style="font-size:0.85rem; color:#64748b;">2. ¿Con quién la cambias?</label><select id="cambio-to-user"><option value="">-- Selecciona opción --</option>`; 
     html += `<option value="Externo|">👽 Mover a este día (Otro Residente Externo)</option>`; 
     for (let u in dayShifts) { 
         if (u !== loggedInUser && !u.startsWith('VRE')) {
-            // Doble validación: Él puede coger la mía, y yo la suya
             if (canUserTakeShift(u, loggedInUser, myDk, mySvc) && canUserTakeShift(loggedInUser, u, targetDk, dayShifts[u])) {
                 html += `<option value="${u}|${dayShifts[u]}">🔄 ${u} (Su ${dayShifts[u]})</option>`; 
             }
@@ -1690,27 +1700,22 @@ function loadCambioTargets(myDk, mySvc) {
     document.getElementById('cambio-targets-area').innerHTML = html; 
 }
 function proxySwapRequest(myDk, mySvc, targetDk) { const val = document.getElementById('cambio-to-user').value; if (!val) return alert("Selecciona opción."); const [targetUser, targetSvc] = val.split('|'); executeSwapRequestDirect(myDk, mySvc, targetDk, targetSvc, targetUser); }
+
 function renderMercadoCambiarAjena(targetDk, targetSvc, targetUser) { 
     const container = document.getElementById('mercado-dynamic'); 
-    
-    // 1. ¿Puedo yo hacer la suya? (Filtro de entrada)
     if (!canUserTakeShift(loggedInUser, targetUser, targetDk, targetSvc)) {
         container.innerHTML = `<p style="color:var(--fest); padding:10px; background:#fee2e2; border-radius:8px;">⚠️ Tu nivel actual no te permite asumir esta guardia de ${targetSvc}.</p>`;
         return;
     }
-
     const computed = getComputedShifts(); let myFutureShifts = []; 
     for (let dk in computed) { 
         if (!isPastDate(dk) && computed[dk][loggedInUser]) { 
-            // 2. ¿Puede él hacer la mía?
             if (canUserTakeShift(targetUser, loggedInUser, dk, computed[dk][loggedInUser])) {
                 myFutureShifts.push({dk: dk, svc: computed[dk][loggedInUser]}); 
             }
         } 
     } 
-    
     let html = `<h4 style="margin-bottom:1rem; color:var(--adu);">Ofrecer cambio a ${targetUser}</h4><div style="background:#f8fafc; padding:8px; border-radius:8px; margin-bottom:1rem; font-size:0.85rem; border:1px solid #cbd5e1;">Te quedarías su: <b>${targetSvc} (${formatDK(targetDk)})</b></div>`; 
-    
     if (myFutureShifts.length === 0) { 
         html += `<p style="font-size:0.85rem; color:var(--fest); font-weight:bold;">No tienes guardias compatibles para ofrecerle a cambio.</p>`; 
     } else { 
@@ -1719,6 +1724,7 @@ function renderMercadoCambiarAjena(targetDk, targetSvc, targetUser) {
     container.innerHTML = html; 
 }
 function executeSwapRequestAjena(targetDk, targetSvc, targetUser) { const val = document.getElementById('cambio-ajena-sel').value; if(!val) return alert("Selecciona tu guardia."); const [myDk, mySvc] = val.split('|'); executeSwapRequestDirect(myDk, mySvc, targetDk, targetSvc, targetUser); }
+
 function executeSwapRequestDirect(myDk, mySvc, targetDk, targetSvc, targetUser) { const trade = { id: Date.now(), type: 'cambio', requester: loggedInUser, target: targetUser, d1: myDk, s1: mySvc, d2: targetDk, s2: targetSvc, timestamp: new Date().toLocaleString('es-ES') }; let conflicts = checkTradeConflicts(trade); if (conflicts.length > 0) { if (!confirm("⚠️ Conflictos:\n" + conflicts.join("\n") + "\n¿Proponer de todos modos?")) return; } if (targetUser === 'Externo') { trade.status = 'approved'; alert("Cambio con externo realizado."); } else { trade.status = 'pending'; alert(`Solicitud enviada a ${targetUser}.`); } if(!state.trades) state.trades = []; state.trades.push(trade); saveState(); document.getElementById('mercado-modal').remove(); renderAll(); }
 function executeBuyRequest(dk, svc, targetUser) { if (targetUser !== 'Externo' && !confirm(`¿Comprar ${svc} a ${targetUser}?`)) return; if (targetUser === 'Externo' && !confirm(`¿Añadir guardia de ${svc} desde Externo?`)) return; const trade = { id: Date.now(), type: 'compra', requester: loggedInUser, target: targetUser, d1: dk, s1: svc, timestamp: new Date().toLocaleString('es-ES') }; let conflicts = checkTradeConflicts(trade); if (conflicts.length > 0) { if (!confirm("⚠️ Conflictos:\n" + conflicts.join("\n") + "\n¿Solicitar de todos modos?")) return; } if (targetUser === 'Externo') { trade.status = 'approved'; alert("Comprada a externo."); } else { trade.status = 'pending'; alert(`Solicitud enviada a ${targetUser}.`); } if(!state.trades) state.trades = []; state.trades.push(trade); saveState(); document.getElementById('mercado-modal').remove(); renderAll(); }
 // ==========================================
@@ -1846,7 +1852,7 @@ function adminAddService(pIdx) {
       nombre: "Nuevo Servicio", cupoMensualTotal: 1, plazasPorDia: 1, color: "#94a3b8", 
       requiereHabilitacion: false, 
       generaSaliente: { laborable: true, vispera: true, fin_de_semana: false, festivo_intersemanal: false },
-      reglasObligatorias: []
+      reglasObligatorias: [],
 			reglaIntercambio: 'superior'
   });
   renderAdminAjustes();
