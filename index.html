@@ -317,7 +317,7 @@
           </div>
           <div id="admin-config-container"></div>
           <button class="primary icon-btn" style="background:var(--adu); margin-top:1rem; width:100%; padding:0.8rem; font-size:1rem;" onclick="adminAddPlan()">+ Añadir Nuevo Plan de Guardia (Ej: R2)</button>
-        </div>
+    </div>
 
         <div id="aview-seguridad" style="display:none;">
           <h3>Seguridad y Destrucción</h3>
@@ -963,19 +963,40 @@ function getUserProgress(user, y, m) {
         progress[svc.nombre] = { countTotal, missingTotal, missingRules, rulesOk };
         if (missingTotal > 0) messages.push(`<b>${missingTotal} ${svc.nombre}</b>`);
     });
+// INYECCIÓN: Validación Transversal de Festivos
+    let totalFestivosHechos = 0;
+    for (let d = 1; d <= getDaysInMonth(y, m); d++) {
+        const tag = getDayTag(y, m, d);
+        if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
+            const dk = formatDateKey(y, m, d);
+            // Si el usuario tiene CUALQUIER guardia asignada en este día festivo, suma
+            if (state.shifts[dk] && state.shifts[dk][user]) {
+                totalFestivosHechos++;
+            }		
+        }
+    }
 
-    return { progress, isFinished, messages };
-}
+    const analisisMes = calcularViabilidadFestivosMensual(y, m);
+    // Si la matemática del mes obliga a hacer más de lo configurado, elevamos el listón automáticamente
+    const minimoRealEsteMes = analisisMes.minimoExigible; 
 
+    let festivosRulesOk = totalFestivosHechos >= minimoRealEsteMes;
+    if (!festivosRulesOk) {
+        isFinished = false;
+        messages.push(`⚠️ Te faltan festivos globales (Llevas ${totalFestivosHechos}/${minimoRealEsteMes})`);
+    }
+
+    return { progress, isFinished, messages, totalFestivosHechos, minimoRealEsteMes };
+		}
 function getCurrentTurn(y, m) {
   const rot = getRotation(y, m).flat(); const monthKey = getRotationKey(y, m); const skipped = state.skippedTurns[monthKey] || [];
   for (const r of rot) {
     if (!r.trim() || skipped.includes(r)) continue; 
     const pData = getUserProgress(r, y, m);
     if (!pData.isFinished) return r; 
-  }
+  	}
   return null; 
-}
+	}
 
 // ==========================================
 // CORE: MOTOR DEL MERCADILLO
@@ -2277,7 +2298,40 @@ function editorRemoveGroup(gi) { syncEditorData(); editingGroups.splice(gi, 1); 
 async function saveCustomMonth() { syncEditorData(); state.customRotations[getRotationKey(curDate.getFullYear(), curDate.getMonth())] = editingGroups; await saveState(); renderAll(); alert("Orden guardado."); }
 async function saveAsNewBase() { syncEditorData(); state.baseGroups = editingGroups; state.baseMonth = curDate.getMonth(); state.baseYear = curDate.getFullYear(); delete state.customRotations[getRotationKey(curDate.getFullYear(), curDate.getMonth())]; await saveState(); renderAll(); alert("Nueva base fijada."); }
 async function clearCustomMonth() { delete state.customRotations[getRotationKey(curDate.getFullYear(), curDate.getMonth())]; await saveState(); editingGroups = null; renderAll(); alert("Restaurado."); }
-
+function calcularViabilidadFestivosMensual(ano, mes) {
+    const totalDias = getDaysInMonth(ano, mes);
+    let huecosFestivosObligatorios = 0;
+    
+    // 1. Contar cuántas plazas de festivo hay que cubrir obligatoriamente este mes
+    for (let d = 1; d <= totalDias; d++) {
+        const tag = getDayTag(ano, mes, d);
+        if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
+            const dk = formatDateKey(ano, mes, d);
+            
+            // Inspeccionamos los servicios activos para ver sus plazas de fin de semana
+            getAllUniqueServices().forEach(svc => {
+                // Si el servicio requiere habilitación y el día no está habilitado, no cuenta
+                if (svc.requiereHabilitacion && !state.pedWhitelist[dk]) return;
+                
+                // Si es Balaguer o HUAV y tiene plazas obligatorias asignadas
+                huecosFestivosObligatorios += (svc.plazasPorDia || 1);
+            });
+        }
+    }
+    
+    const totalResidentes = getAllResidents().length;
+    if (totalResidentes === 0) return { cargaMedia: 0, viable: true };
+    
+    const cargaMedia = huecosFestivosObligatorios / totalResidentes;
+    const minimoExigible = Math.floor(cargaMedia); // El mínimo real que todos van a tener que hacer obligao
+    
+    return {
+        huecosFestivosObligatorios,
+        cargaMedia: cargaMedia.toFixed(2),
+        minimoExigible: Math.max(promoConfig.minGlobalFestivos || 1, minimoExigible),
+        necesitaRepartoEquitativo: cargaMedia > (promoConfig.minGlobalFestivos || 1)
+    };
+}
 </script>
 </body>
 </html>
