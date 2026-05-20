@@ -142,7 +142,8 @@
         </div>
         <button onclick="changeMonth(1)">Sig ▶</button>
       </div>
-      
+		
+      <div id="alerta-carga-mensual"></div>
       <div id="turn-banner"></div>
       
       <div class="cal-grid">
@@ -1598,6 +1599,7 @@ function renderMainCalendar() {
     cell.onclick = () => openShiftModal(y, m, d, dateKey);
     grid.appendChild(cell);
   }
+	renderAlertaCargaMensual();
 }
 
 // ==========================================
