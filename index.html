@@ -104,11 +104,17 @@
     <div class="card" style="text-align:center; max-width: 600px; margin: 0 auto; border: 2px solid var(--adu);">
       <h3 style="color:var(--adu); margin-bottom: 1rem;">👋 ¡Hola, <span id="onb-name"></span>!</h3>
       <p style="color:#64748b; margin-bottom: 1.5rem; font-size: 0.95rem;">Selecciona tu centro y servicio para unirte a tu promoción.</p>
-      <div style="background:#f8fafc; padding: 1.5rem; border-radius: 8px; border: 1px solid #cbd5e1; margin-bottom: 1.5rem; text-align: left;">
+	  <div style="background:#f8fafc; padding: 1.5rem; border-radius: 8px; border: 1px solid #cbd5e1; margin-bottom: 1.5rem; text-align: left;">
         <label style="font-size: 0.8rem; font-weight: bold;">1. Selecciona Hospital</label>
         <select id="sel-hospital" onchange="onHospitalChange()"><option value="">Cargando hospitales...</option></select>
-        <label style="font-size: 0.8rem; font-weight: bold;">2. Selecciona Servicio / Promoción</label>
+        
+        <label style="font-size: 0.8rem; font-weight: bold;">2. Especialidad (Contenedor Único)</label>
         <select id="sel-servicio" disabled><option value="">Primero elige un hospital</option></select>
+
+        <label style="font-size: 0.8rem; font-weight: bold; margin-top: 10px; display: block;">3. Fecha de INICIO de Residencia (R1)</label>
+        <p style="font-size: 0.75rem; color: #64748b; margin-bottom: 4px;">Atención: Esta fecha es fija y calculará tu plan de guardias para los próximos 4-5 años.</p>
+        <input type="date" id="onb-fecha-inicio" style="margin-bottom: 1rem;">
+
         <button class="primary" style="width:100%; margin-top: 10px;" onclick="solicitarUnirse()">Solicitar Acceso</button>
       </div>
       <div style="padding-top: 1rem; border-top: 1px dashed #cbd5e1;">
@@ -1766,9 +1772,6 @@ function loadCambioTargets(myDk, mySvc) { const dateVal = document.getElementByI
 function proxySwapRequest(myDk, mySvc, targetDk) { const val = document.getElementById('cambio-to-user').value; if (!val) return alert("Selecciona una opción de cambio."); const [targetUser, targetSvc] = val.split('|'); executeSwapRequestDirect(myDk, mySvc, targetDk, targetSvc, targetUser); }
 function renderMercadoCambiarAjena(targetDk, targetSvc, targetUser) { const container = document.getElementById('mercado-dynamic'); const computed = getComputedShifts(); let myFutureShifts = []; for (let dk in computed) { if (!isPastDate(dk) && computed[dk][loggedInUser]) { myFutureShifts.push({dk: dk, svc: computed[dk][loggedInUser]}); } } let html = `<h4 style="margin-bottom:1rem; color:var(--adu);">Ofrecer cambio a ${targetUser}</h4><div style="background:#f8fafc; padding:8px; border-radius:8px; margin-bottom:1rem; font-size:0.85rem; border:1px solid #cbd5e1;">Te quedarías su: <b>${targetSvc} (${formatDK(targetDk)})</b></div>`; if (myFutureShifts.length === 0) { html += `<p style="font-size:0.85rem; color:var(--fest); font-weight:bold;">No tienes guardias futuras programadas para ofrecerle a cambio.</p>`; } else { html += `<label style="font-size:0.85rem; color:#64748b;">¿Qué guardia tuya le ofreces a cambio?</label><select id="cambio-ajena-sel"><option value="">-- Selecciona una de tus guardias --</option>${myFutureShifts.map(s => `<option value="${s.dk}|${s.svc}">${formatDK(s.dk)} - ${s.svc}</option>`).join('')}</select><button class="primary" style="width:100%; margin-top:10px; background:var(--adu);" onclick="executeSwapRequestAjena('${targetDk}', '${targetSvc}', '${targetUser}')">Enviar Propuesta de Cambio</button>`; } container.innerHTML = html; }
 function executeSwapRequestAjena(targetDk, targetSvc, targetUser) { const val = document.getElementById('cambio-ajena-sel').value; if(!val) return alert("Selecciona una guardia tuya para ofrecer."); const [myDk, mySvc] = val.split('|'); executeSwapRequestDirect(myDk, mySvc, targetDk, targetSvc, targetUser); }
-// ==========================================
-// GESTIÓN DE USUARIOS Y DATALIST
-// ==========================================
 // ==========================================
 // GESTIÓN DE USUARIOS, DELEGADOS Y ABDICACIÓN
 // ==========================================
