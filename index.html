@@ -2548,6 +2548,66 @@ function getCurrentTurn(y, m) {
 // ==========================================
 // CALCULADORA DE FASES Y SUBASTAS (JUSTICIA)
 // ==========================================
+// ==========================================
+// CALCULADORA DE FASES Y SUBASTAS (JUSTICIA)
+// ==========================================
+function getAnalisisFestivos(y, m) {
+    let huecosFestivosObligatorios = 0;
+    const totalDias = getDaysInMonth(y, m);
+    
+    // Asumimos el plan del usuario actual para calcular la carga (normalmente R1 y R2 comparten necesidades globales)
+    const uProfile = currentUserProfile;
+    const miPlan = promoConfig.planes?.find(p => p.nombre === uProfile?.plan_asociado) || promoConfig.planes?.[0];
+    const minimoBase = miPlan ? (miPlan.minGlobalFestivos || 1) : 1;
+
+    if (!miPlan) return { estado: 'libre', exceso: 0, nominados: [], minimoBase };
+
+    for (let d = 1; d <= totalDias; d++) {
+        const tag = getDayTag(y, m, d);
+        if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
+            const dk = formatDateKey(y, m, d);
+            miPlan.servicios.forEach(svc => {
+                if (svc.requiereHabilitacion && !state.pedWhitelist[dk]) return;
+                huecosFestivosObligatorios += (svc.plazasPorDia || 1);
+            });
+        }
+    }
+
+    const residentes = getAllResidents();
+    const totalResidents = residentes.length;
+    if (totalResidents === 0) return { estado: 'libre', exceso: 0, nominados: [], minimoBase };
+
+    const huecosBase = minimoBase * totalResidents;
+    const excesoReal = huecosFestivosObligatorios - huecosBase;
+
+    if (excesoReal <= 0) return { estado: 'libre', exceso: 0, nominados: [], minimoBase };
+
+    // Calcular nominados por justicia histórica
+    const historico = getHistoricoFestivosResidentes();
+    const residentesOrdenados = [...residentes].sort((a, b) => historico[a] - historico[b]);
+    const nominados = residentesOrdenados.slice(0, Math.ceil(excesoReal));
+
+    // Determinar Fase de Subasta o Crítica
+    let estado = 'critico';
+    let diasParaCierre = 0;
+    
+    if (excesoReal <= 2) {
+        // Cierra el día 15 del mes ANTERIOR
+        const fechaCierre = new Date(y, m - 1, 15);
+        const hoy = new Date();
+        hoy.setHours(0,0,0,0);
+        
+        if (hoy < fechaCierre) {
+            estado = 'subasta_abierta';
+            diasParaCierre = Math.ceil((fechaCierre - hoy) / (1000 * 60 * 60 * 24));
+        } else {
+            estado = 'subasta_cerrada';
+        }
+    }
+
+    return { estado, exceso: excesoReal, nominados, minimoBase, diasParaCierre, historico };
+}
+
 function getCurrentTurn(y, m) {
     const mk = getRotationKey(y, m); // 🛠️ CORREGIDO: Usamos el nombre nativo de tu app
     if (!state.configMes || !state.configMes[mk]) return null;
