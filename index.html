@@ -376,7 +376,8 @@ let loggedInUser = null;
 let currentAdminView = 'pediatria';
 let editingGroups = null; 
 let showOnlyMine = false; 
-let promoConfig = { servicios: [] }; 
+let promoConfig = { servicios: [] };
+let globalProfiles = []; // Almacena las fechas de inicio/cambio de todos los residentes activos
 
 // ==========================================
 // UTILIDADES (Fechas y Etiquetas ICS)
@@ -490,23 +491,18 @@ async function loadPromoConfig() {
     const { data, error } = await supabaseClient.from('promociones').select('configuracion').eq('id', currentUserProfile.promocion_id).single();
     if (data && data.configuracion) promoConfig = normalizeConfig(data.configuracion);
     else promoConfig = normalizeConfig({});
-    
-    // PARCHE TEMPORAL (PUENTE AL PASO 3): 
-    // Para que el calendario no se rompa hoy, volcamos el primer plan en .servicios
-    if (promoConfig.planes && promoConfig.planes.length > 0) {
-        promoConfig.servicios = promoConfig.planes[0].servicios;
-    } else {
-        promoConfig.servicios = [];
-    }
   } catch (e) { console.error("Error cargando config", e); promoConfig = normalizeConfig({}); }
 }
-
+	
 async function loadState() {
   if (!currentUserProfile || !currentUserProfile.promocion_id) return;
   setStatus('Cargando calendario...');
   try {
+    // Descargamos los perfiles aprobados para nutrir al simulador temporal
+    const { data: profs } = await supabaseClient.from('perfiles').select('*').eq('promocion_id', currentUserProfile.promocion_id).eq('estado', 'aprobado');
+    globalProfiles = profs || [];
+
     const { data, error } = await supabaseClient.from('estados_promocion').select('datos').eq('promocion_id', currentUserProfile.promocion_id).single();
-        
     if (error && error.code !== 'PGRST116') throw error; 
     
     if (data && data.datos) {
@@ -518,14 +514,14 @@ async function loadState() {
       if (!state.trades) state.trades = [];
     } else {
       state.shifts = {}; state.customRotations = {}; state.pedWhitelist = {}; state.festivos = {}; state.trades = [];
-      state.baseGroups = [['Residente 1', 'Residente 2']];
+      state.baseGroups = [[currentUserProfile.nombre_mostrar]];
     }
     setStatus('Sincronizado ✅');
     renderAll();
   } catch (err) {
     console.error("Error al cargar:", err);
     setStatus('Error de red ❌', true);
-    alert("La conexión con el servidor ha fallado. Por favor, recarga la página (F5).");
+    alert("La conexión con el servidor ha fallado.");
   }
 }
 // ==========================================
@@ -730,6 +726,28 @@ function getPlanForUserOnDate(userProfile, dateKey) {
     const planIndex = Math.min(level - 1, promoConfig.planes.length - 1);
     return promoConfig.planes[planIndex];
 }
+
+// Devuelve todos los servicios únicos configurados en cualquier plan
+function getAllUniqueServices() {
+    let unique = []; let names = new Set();
+    if (!promoConfig.planes) return [];
+    promoConfig.planes.forEach(plan => {
+        plan.servicios.forEach(s => {
+            if (!names.has(s.nombre)) { names.add(s.nombre); unique.push(s); }
+        });
+    });
+    return unique;
+}
+
+// Busca el color de un servicio inspeccionando los planes
+function getServiceColor(svcName) {
+    if (!promoConfig.planes) return '#3b82f6';
+    for (let plan of promoConfig.planes) {
+        let svc = plan.servicios.find(s => s.nombre === svcName);
+        if (svc && svc.color) return svc.color;
+    }
+    return '#3b82f6';
+}
 	
 // ==========================================
 // NÚCLEO 4: MOTOR DE SALIENTES DINÁMICO
@@ -851,11 +869,16 @@ function getUserProgress(user, y, m) {
     let isFinished = true; 
     let messages = [];
 
-    promoConfig.servicios.forEach(svc => {
+    // Buscamos la ficha temporal de este residente concreto en la caché
+    const uProfile = globalProfiles.find(p => p.nombre_mostrar === user) || currentUserProfile;
+    const referenceDk = formatDateKey(y, m, 15);
+    const activePlan = getPlanForUserOnDate(uProfile, referenceDk);
+    const serviciosActivos = activePlan ? activePlan.servicios : [];
+
+    serviciosActivos.forEach(svc => {
         let countTotal = 0;
         let shiftsByTag = { 'laborable': 0, 'vispera': 0, 'fin_de_semana': 0, 'festivo_intersemanal': 0 };
         
-        // Contar guardias reales
         for (let d = 1; d <= getDaysInMonth(y, m); d++) {
             const dk = formatDateKey(y, m, d);
             if (state.shifts[dk] && state.shifts[dk][user] === svc.nombre) {
@@ -868,19 +891,16 @@ function getUserProgress(user, y, m) {
         let missingRules = [];
         let rulesOk = true;
 
-        // Validar Reglas
         svc.reglasObligatorias.forEach(rule => {
             let matchingShifts = 0;
             rule.etiquetas.forEach(tag => matchingShifts += shiftsByTag[tag]);
             let missingForRule = Math.max(0, rule.minimo - matchingShifts);
             
             if (missingForRule > 0) {
-                // Válvula de escape
                 if (hasAvailableLegalSlots(user, y, m, svc, rule)) {
                     missingRules.push(rule);
                     rulesOk = false;
                 } else {
-                    // ¡REGLA PERDONADA! No hay huecos físicos/legales.
                     missingRules.push({ ...rule, forgiven: true });
                 }
             }
@@ -1107,6 +1127,9 @@ async function guardarFechaGraduacion() {
         currentUserProfile.fecha_cambio_contrato = dummyDate;
         alert("Día y mes de cambio actualizados correctamente.");
         setStatus('Sincronizado ✅');
+
+		// Cirugía técnica: Refresca el chivato visual inmediatamente sin F5
+        renderGruposView();
     }
 }
 	
@@ -1449,11 +1472,11 @@ function renderMainCalendar() {
     
     let html = `<div class="day-number">${d}</div>`;
     
-    promoConfig.servicios.forEach(svc => {
+	getAllUniqueServices().forEach(svc => {
         let assigned = Object.keys(dayShifts).filter(u => dayShifts[u] === svc.nombre);
         if (showOnlyMine && loggedInUser) assigned = assigned.filter(u => u === loggedInUser);
         assigned.forEach(u => {
-            html += `<div class="shift-badge" style="background:${svc.color};">👤 ${getInitials(u)}</div>`;
+            html += `<div class="shift-badge" style="background:${getServiceColor(svc.nombre)};">👤 ${getInitials(u)}</div>`;
         });
     });
     
@@ -1467,27 +1490,32 @@ function renderMainCalendar() {
 // EL MODAL DINÁMICO (Capa 2 y Multi-Slot)
 // ==========================================
 function openShiftModal(y, m, d, dateKey) {
- if (!isAdmin && !loggedInUser) { alert("⚠️ Inicia sesión para usar el calendario."); loginWithGoogle(); return; }
+  if (!isAdmin && !loggedInUser) { alert("⚠️ Inicia sesión para usar el calendario."); loginWithGoogle(); return; }
   const dayShifts = state.shifts[dateKey] || {};
   const monthKey = getRotationKey(y, m);
   const turnUser = getCurrentTurn(y, m); 
   const isMyTurn = turnUser === loggedInUser;
   const isUserPending = !!(state.pendingExceptions && state.pendingExceptions[monthKey] && state.pendingExceptions[monthKey][loggedInUser]);
+  
+  // DETERMINACIÓN DIARIA: ¿Qué plan tengo yo HOY en el calendario?
+  const myPlanOnDate = getPlanForUserOnDate(currentUserProfile, dateKey);
+  const serviciosDisponibles = myPlanOnDate ? myPlanOnDate.servicios : [];
   const pDataFull = getUserProgress(loggedInUser, y, m).progress;
   const theTag = getDayTag(y, m, d);
 
   const modal = document.createElement('div'); modal.className = 'modal-overlay'; modal.id = 'shift-modal';
   let html = `<div class="modal"><h3 style="margin-bottom:0.5rem;">${d} de ${MONTHS[m]} ${y}</h3>`;
   if (isAdmin) html += `<p style="margin-bottom:1.5rem; color:var(--fest); font-weight:bold;">👑 MODO ADMIN (Control Total)</p>`;
-  else html += `<p style="margin-bottom:1.5rem; color:#64748b; font-size:0.9rem;">Usuario actual: <b>${loggedInUser}</b></p>`;
+  else html += `<p style="margin-bottom:1.5rem; color:#64748b; font-size:0.9rem;">Usuario actual: <b>${loggedInUser}</b> (Evaluando: ${myPlanOnDate ? myPlanOnDate.nombre : 'Sin Plan'})</p>`;
   
-  promoConfig.servicios.forEach((svc, svcIdx) => {
+  // Cambiamos el bucle para que recorra SOLO tus servicios autorizados para esta fecha
+  serviciosDisponibles.forEach((svc, svcIdx) => {
     html += `<div class="shift-option" style="flex-direction:column; align-items:stretch;"><div class="shift-option-header"><strong style="color:${svc.color};">${svc.nombre}</strong></div>`;
     const holders = Object.keys(dayShifts).filter(u => dayShifts[u] === svc.nombre);
     
     if (isAdmin) {
         holders.forEach(h => { html += `<div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;"><span style="font-size:0.85rem; color:#64748b;">Asignado: <b>${h}</b></span><button class="danger icon-btn" onclick="adminForceRemove('${dateKey}', '${h}', ${y}, ${m}, ${d})">Quitar</button></div>`; });
-        html += `<div style="display:flex; gap:4px; margin-top:12px; border-top:1px solid #e2e8f0; padding-top:8px;"><select id="force-sel-${svcIdx}" style="margin:0; padding:4px; font-size:0.8rem;"><option value="">Añadir Residente...</option>${getAllResidents().map(r => `<option value="${r}">${r}</option>`).join('')}</select><button class="primary" onclick="adminForceAssign('${dateKey}', '${svc.nombre}', ${y}, ${m}, ${d}, 'force-sel-${svcIdx}')">Poner</button></div>`;
+        html += `<div style="display:flex; gap:4px; margin-top:12px; border-top:1px solid #e2e8f0; padding-top:8px;"><select id="force-sel-${svcIdx}" style="margin:0; padding:4px; font-size:0.8rem;"><option value="">Añadir Residente...</option>${getAllResidents().map(r => `<option value="${r}">${r}</option>`).join('')}</select><button class="primary" style="background:var(--dark); color:white;" onclick="adminForceAssign('${dateKey}', '${svc.nombre}', ${y}, ${m}, ${d}, 'force-sel-${svcIdx}')">Poner</button></div>`;
     } else {
         const isMine = dayShifts[loggedInUser] === svc.nombre;
         let isIllegal = false; let tempShifts = JSON.parse(JSON.stringify(state.shifts || {}));
@@ -1505,7 +1533,6 @@ function openShiftModal(y, m, d, dateKey) {
         else if (holders.length >= svc.plazasPorDia && !isMine) { disabled = true; reason = `Completo (${holders.length}/${svc.plazasPorDia}).`; }
         else if (isMyTurn && !isMine && !isUserPending) {
             if (pData && pData.countTotal >= svc.cupoMensualTotal) { disabled = true; reason = "Cupo mensual completado."; }
-            // Lógica de Prevención de errores de etiqueta
             if (!disabled && pData && pData.missingTotal === 1 && !pData.rulesOk) {
                  let breaksRule = pData.missingRules.some(r => !r.forgiven && !r.etiquetas.includes(theTag));
                  if (breaksRule) { disabled = true; reason = "Debes elegir un día que cumpla tus reglas pendientes."; }
