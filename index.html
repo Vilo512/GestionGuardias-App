@@ -2488,7 +2488,8 @@ function getAnalisisFestivos(y, m) {
     
     // Asumimos el plan del usuario actual para calcular la carga (normalmente R1 y R2 comparten necesidades globales)
     const uProfile = currentUserProfile;
-    const miPlan = promoConfig.planes?.find(p => p.nombre === uProfile?.plan_asociado) || promoConfig.planes?.[0];
+	const referenceDk = formatDateKey(y, m, 15);
+    const miPlan = getPlanForUserOnDate(uProfile, referenceDk) || promoConfig.planes?.[0];
     const minimoBase = miPlan ? (miPlan.minGlobalFestivos || 1) : 1;
 
     if (!miPlan) return { estado: 'libre', exceso: 0, nominados: [], minimoBase };
@@ -2650,6 +2651,10 @@ function renderPerfilUsuario() {
     if (!state.bajasLargas) state.bajasLargas = [];
     const misBajas = state.bajasLargas.filter(b => b.user === uProfile.nombre_mostrar);
 
+	const hoyDK = formatDateKey(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+    const planActivoHoy = getPlanForUserOnDate(uProfile, hoyDK);
+    const nombrePlanHoy = planActivoHoy ? planActivoHoy.nombre : 'Sin Plan (Fecha Futura)';
+
     // 3. Renderizar el HTML de la sección Perfil
     container.innerHTML = `
     <div style="padding: 20px; max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px;">
@@ -2659,9 +2664,9 @@ function renderPerfilUsuario() {
                 <h2 style="color: var(--dark); margin-bottom: 4px;">👋 ¡Hola, ${uProfile.nombre_mostrar}!</h2>
                 <p style="color: #64748b; font-size: 0.9rem;">Gestión de contrato, bajas prolongadas y auditoría de carga docente.</p>
             </div>
-            <div style="background: #e0f2fe; color: #0369a1; padding: 6px 12px; border-radius: 20px; font-weight: bold; font-size: 0.85rem;">
-                📍 Plan: ${uProfile.plan_asociado || 'No asignado'}
-            </div>
+			<div style="background: #e0f2fe; color: #0369a1; padding: 6px 12px; border-radius: 20px; font-weight: bold; font-size: 0.85rem;">
+			    📍 Plan Actual: ${nombrePlanHoy}
+			</div>
         </div>
 
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px;">
