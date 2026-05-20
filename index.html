@@ -2494,6 +2494,29 @@ function renderAlertaCargaMensual() {
         container.innerHTML = '';
     }
 }
+
+// ==========================================
+// CALCULADOR DEL TURNO ACTUAL
+// ==========================================
+function getCurrentTurn(y, m) {
+    const groups = getRotation(y, m);
+    const monthKey = getRotationKey(y, m);
+    const skipped = state.skippedTurns[monthKey] || [];
+    
+    // Recorre los grupos en orden para ver quién no ha terminado sus guardias
+    for (let g of groups) {
+        for (let res of g) {
+            if (skipped.includes(res)) continue; // Si ha sido saltado, pasamos al siguiente
+            
+            const pData = getUserProgress(res, y, m);
+            if (!pData.isFinished) {
+                return res; // Este es el primero que aún tiene guardias pendientes
+            }
+        }
+    }
+    return null; // Si el bucle termina, todos han acabado
+}
+	
 </script>
 </body>
 </html>
