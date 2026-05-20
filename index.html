@@ -96,7 +96,8 @@
     <button class="tab" onclick="nav('merc')" id="tab-merc">Mercadillo 🛒</button>
     <button class="tab" onclick="nav('rot')" id="tab-rot">Rotación</button>
     <button class="tab" onclick="nav('grupos')" id="tab-grupos">Grupos 🏥</button> 
-	<button class="tab" onclick="nav('help')" id="tab-help">Cómo usar 📖</button>
+		<button class="tab" onclick="nav('help')" id="tab-help">Cómo usar 📖</button>
+		<button onclick="cambiarPestaña('perfil')" class="nav-btn">👤 Mi Perfil</button>
     <button class="tab" onclick="nav('admin')" id="tab-admin" style="display:none;">Admin 🔒</button>
   </div>
   
@@ -368,7 +369,8 @@ let state = {
   exceptionReasons: ['Baja médica', 'Vacaciones', 'Saliente guardia externa'],
   exceptionLogs: [],
   pendingExceptions: {},
-  trades: [] 
+  trades: [],
+	bajasLargas: [],
 };
 
 let curDate = new Date(2026, 0, 1);
@@ -1406,6 +1408,9 @@ function nav(tab) {
   // Si entra en grupos, renderizamos la vista
   if (tab === 'grupos') renderGruposView();
   else if (tab !== 'help') renderAll();
+	if (nombre === 'perfil') {
+    renderPerfilUsuario();
+	}
 }
 
 function navAdmin(sub) {
@@ -2449,6 +2454,18 @@ function renderAlertaCargaMensual() {
         container.innerHTML = ''; return;
     }
 
+    if (analisis.estado === 'subasta_resuelta') {
+        const heroes = analisis.voluntarios.length > 0 ? ` (¡Gracias a ${analisis.voluntarios.join(', ')} por cubrir el exceso!)` : '';
+        container.innerHTML = `
+        <div style="background: #ecfccb; border: 2px solid #84cc16; color: #3f6212; padding: 15px; border-radius: 12px; margin-bottom: 20px; font-size: 0.9rem; line-height: 1.5;">
+            <div style="display:flex; align-items:center; gap:8px; font-weight: bold; font-size: 1rem; margin-bottom: 6px;">
+                🎉 ¡Exceso de Festivos Cubierto!
+            </div>
+            El mes tenía huecos extra, pero la promoción ya los ha asumido${heroes}. El motor vuelve a su estado normal.
+        </div>`;
+        return;
+    }
+
     const nombresImplicados = analisis.nominados.map(r => `<b>${r}</b> (${analisis.historico[r]} globales)`).join(', ');
 
     if (analisis.estado === 'critico' || analisis.estado === 'subasta_cerrada') {
@@ -2458,7 +2475,7 @@ function renderAlertaCargaMensual() {
             <div style="display:flex; align-items:center; gap:8px; font-weight: bold; font-size: 1rem; margin-bottom: 6px;">
                 ${titulo}
             </div>
-            Este mes tiene <b>${Math.ceil(analisis.exceso)} festivo(s) de exceso</b> matemáticamente ineludibles. 
+            Este mes tiene <b>${Math.ceil(analisis.exceso)} festivo(s) de exceso pendientes</b>. 
             El sistema exige que ${nombresImplicados} <b>asuman +1 festivo obligatorio</b> en su asignación por justicia distributiva (tienen el menor histórico del grupo).
         </div>`;
     } else if (analisis.estado === 'subasta_abierta') {
@@ -2467,32 +2484,65 @@ function renderAlertaCargaMensual() {
             <div style="display:flex; align-items:center; gap:8px; font-weight: bold; font-size: 1rem; margin-bottom: 6px;">
                 📢 Subasta Voluntaria Abierta (Quedan ${analisis.diasParaCierre} días)
             </div>
-            Hay <b>${Math.ceil(analisis.exceso)} festivo(s) de exceso</b> este mes. Cualquier residente puede adjudicárselos voluntariamente ahora mismo. 
-            Si quedan desiertos al cerrar el plazo, el motor se los exigirá forzosamente a los residentes con menos histórico: ${nombresImplicados}.
+            Quedan <b>${Math.ceil(analisis.exceso)} festivo(s) de exceso</b> este mes. Cualquier residente puede adjudicárselos voluntariamente ahora mismo. 
+            Si siguen desiertos al cerrar el plazo, el motor se los exigirá forzosamente a: ${nombresImplicados}.
         </div>`;
     }
 }
-
 // ==========================================
 // CALCULADOR DEL TURNO ACTUAL
 // ==========================================
 function getCurrentTurn(y, m) {
-    const groups = getRotation(y, m);
-    const monthKey = getRotationKey(y, m);
-    const skipped = state.skippedTurns[monthKey] || [];
+    const mk = formatMonthKey(y, m);
+    if (!state.configMes[mk]) return null;
     
-    // Recorre los grupos en orden para ver quién no ha terminado sus guardias
-    for (let g of groups) {
-        for (let res of g) {
-            if (skipped.includes(res)) continue; // Si ha sido saltado, pasamos al siguiente
+    const orden = state.configMes[mk].ordenSeleccion || [];
+    if (orden.length === 0) return null;
+    
+    // 💡 FILTRO DE BAJAS: Solo consideramos residentes activos para la ronda de turnos de este mes
+    const activosMes = getResidentesActivosEnMes(y, m);
+    
+    // Obtenemos los límites del plan del mes
+    const uProfile = currentUserProfile;
+    const miPlan = promoConfig.planes?.find(p => p.nombre === uProfile?.plan_asociado) || promoConfig.planes?.[0];
+    const maxGuardias = miPlan ? (miPlan.maxGuardiasMes || 5) : 5;
+    const minFestivos = miPlan ? (miPlan.minGlobalFestivos || 1) : 1;
+
+    // Recorremos los "grupos de prioridad" (Turno 1, Turno 2...)
+    for (let ronda = 1; ronda <= maxGuardias; ronda++) {
+        for (let i = 0; i < orden.length; i++) {
+            const residente = orden[i];
             
-            const pData = getUserProgress(res, y, m);
-            if (!pData.isFinished) {
-                return res; // Este es el primero que aún tiene guardias pendientes
+            // 🛑 SI EL RESIDENTE ESTÁ DE BAJA ESTE MES, SE SALTA AUTOMÁTICAMENTE
+            if (!activosMes.includes(residente)) {
+                continue; 
+            }
+            
+            // Si el usuario se ha pausado manualmente el mes en la interfaz, lo respetamos
+            if (state.configMes[mk].pausados && state.configMes[mk].pausados[residente]) {
+                continue;
+            }
+            
+            // Calculamos qué lleva asignado en este momento
+            const prog = getUserProgress(residente, y, m);
+            
+            // Evaluamos si le toca rellenar en esta ronda
+            if (prog.total < ronda) {
+                // Validación extra: Si el mes está en modo bloqueo crítico/subasta cerrada, 
+                // forzamos a que el residente complete sus festivos obligatorios antes de seguir sumando normales
+                const analisis = getAnalisisFestivos(y, m);
+                if ((analisis.estado === 'critico' || analisis.estado === 'subasta_cerrada') && analisis.nominados.includes(residente)) {
+                    if (prog.festivos < (minimoBase + 1) && prog.total < maxGuardias) {
+                        return residente;
+                    }
+                }
+                
+                return residente;
             }
         }
     }
-    return null; // Si el bucle termina, todos han acabado
+    
+    return null; // Todo el mundo ha completado sus rondas o el mes está cerrado
 }
 
 // ==========================================
@@ -2502,7 +2552,6 @@ function getAnalisisFestivos(y, m) {
     let huecosFestivosObligatorios = 0;
     const totalDias = getDaysInMonth(y, m);
     
-    // Asumimos el plan del usuario actual para calcular la carga (normalmente R1 y R2 comparten necesidades globales)
     const uProfile = currentUserProfile;
     const miPlan = promoConfig.planes?.find(p => p.nombre === uProfile?.plan_asociado) || promoConfig.planes?.[0];
     const minimoBase = miPlan ? (miPlan.minGlobalFestivos || 1) : 1;
@@ -2520,39 +2569,302 @@ function getAnalisisFestivos(y, m) {
         }
     }
 
-    const residentes = getAllResidents();
+    // 💡 FILTRO DE BAJAS: Solo contamos los residentes ACTIVOS en este mes específico
+    const residentes = getResidentesActivosEnMes(y, m);
     const totalResidents = residentes.length;
     if (totalResidents === 0) return { estado: 'libre', exceso: 0, nominados: [], minimoBase };
 
     const huecosBase = minimoBase * totalResidents;
-    const excesoReal = huecosFestivosObligatorios - huecosBase;
+    let excesoReal = huecosFestivosObligatorios - huecosBase;
 
-    if (excesoReal <= 0) return { estado: 'libre', exceso: 0, nominados: [], minimoBase };
+    // Si los números cuadran perfectos desde el principio, es un mes libre
+    if (excesoReal <= 0) return { estado: 'libre', exceso: 0, nominados: [], minimoBase, historico: {} };
 
-    // Calcular nominados por justicia histórica
-    const historico = getHistoricoFestivosResidentes(y, m);
+    // Rastreamos quién ha cogido ya festivos este mes
+    let festivosAsignadosPorResidente = {};
+    residentes.forEach(r => festivosAsignadosPorResidente[r] = 0);
+
+    for (let d = 1; d <= totalDias; d++) {
+        const tag = getDayTag(y, m, d);
+        if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
+            const dk = formatDateKey(y, m, d);
+            if (state.shifts[dk]) {
+                Object.keys(state.shifts[dk]).forEach(user => {
+                    if (festivosAsignadosPorResidente[user] !== undefined) {
+                        festivosAsignadosPorResidente[user]++;
+                    }
+                });
+            }
+        }
+    }
+
+    // Restamos al exceso los festivos que ya han sido cubiertos por voluntarios (o forzados)
+    let excesosYaCubiertos = 0;
+    let voluntarios = [];
+    residentes.forEach(r => {
+        if (festivosAsignadosPorResidente[r] > minimoBase) {
+            let aportacion = festivosAsignadosPorResidente[r] - minimoBase;
+            excesosYaCubiertos += aportacion;
+            voluntarios.push(r);
+        }
+    });
+
+    excesoReal = Math.max(0, excesoReal - excesosYaCubiertos);
+
+    // Si ya no quedan excesos colgados, la subasta o la crisis se ha resuelto
+    if (excesoReal === 0) return { estado: 'subasta_resuelta', exceso: 0, nominados: [], minimoBase, voluntarios, historico: {} };
+
+    // Si sigue habiendo exceso, buscamos a quién le toca pagar los platos rotos (Justicia de Año de Residencia)
+    const historico = getHistoricoFestivosResidentes(y, m); 
     const residentesOrdenados = [...residentes].sort((a, b) => historico[a] - historico[b]);
     const nominados = residentesOrdenados.slice(0, Math.ceil(excesoReal));
 
-    // Determinar Fase de Subasta o Crítica
     let estado = 'critico';
     let diasParaCierre = 0;
     
-    if (excesoReal <= 2) {
-        // Cierra el día 15 del mes ANTERIOR
+    const excesoOriginal = huecosFestivosObligatorios - huecosBase;
+
+    if (excesoOriginal <= 2) {
         const fechaCierre = new Date(y, m - 1, 15);
         const hoy = new Date();
         hoy.setHours(0,0,0,0);
         
-        if (hoy < fechaCierre) {
-            estado = 'subasta_abierta';
+        if (hoy < fechaCierre) { 
+						estado = 'subasta_abierta';
             diasParaCierre = Math.ceil((fechaCierre - hoy) / (1000 * 60 * 60 * 24));
         } else {
             estado = 'subasta_cerrada';
         }
     }
 
-    return { estado, exceso: excesoReal, nominados, minimoBase, diasParaCierre, historico };
+    return { estado, exceso: excesoReal, nominados, minimoBase, diasParaCierre, historico, voluntarios };
+}
+	
+// ==========================================
+// FILTRO DE RESIDENTES ACTIVOS POR MES (BAJAS)
+// ==========================================
+function getResidentesActivosEnMes(y, m) {
+    const todos = getAllResidents();
+    if (!state.bajasLargas) state.bajasLargas = [];
+
+    // Creamos la fecha de inicio y fin del mes que estamos evaluando
+    const inicioMes = new Date(y, m, 1);
+    const finMes = new Date(y, m + 1, 0);
+
+    return todos.filter(residente => {
+        // Buscamos si este residente tiene alguna baja aprobada que solape con este mes
+        const tieneBaja = state.bajasLargas.some(baja => {
+            if (baja.user !== residente || baja.estado !== 'aprobada') return false;
+            
+            const bInicio = new Date(baja.fechaInicio);
+            const bFin = new Date(baja.fechaFin);
+            
+            // Si la baja se cruza en cualquier punto con el mes, se solapa
+            return (bInicio <= finMes && bFin >= inicioMes);
+        });
+
+        return !tieneBaja; // Si tiene baja, queda fuera de los activos del mes
+    });
+}
+function renderPerfilUsuario() {
+    const container = document.getElementById('contenido-principal'); // O el ID de tu contenedor de pestañas
+    if (!container) return;
+
+    const uProfile = currentUserProfile;
+    if (!uProfile) {
+        container.innerHTML = `<div style="padding:20px;">⚠️ No se ha detectado ningún perfil de usuario activo.</div>`;
+        return;
+    }
+
+    // 1. Calcular estadísticas de guardias del usuario en el año de residencia actual
+    let totalGuardiasAño = 0;
+    let desgloseServicios = {};
+    
+    if (state.shifts) {
+        Object.keys(state.shifts).forEach(dk => {
+            // Usamos la función que creamos en el paso anterior para validar el año de residencia de la guardia
+            const nivelGuardia = getUserLevelOnDate(uProfile, dk);
+            const nivelObjetivo = getUserLevelOnDate(uProfile, formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1));
+            
+            // Solo contamos si pertenece al año de residencia actual en curso
+            if (nivelGuardia === nivelObjetivo && state.shifts[dk][uProfile.nombre_mostrar]) {
+                totalGuardiasAño++;
+                const tipoServicio = state.shifts[dk][uProfile.nombre_mostrar].servicio || 'General';
+                desgloseServicios[tipoServicio] = (desgloseServicios[tipoServicio] || 0) + 1;
+            }
+        });
+    }
+
+    // 2. Filtrar las bajas del propio usuario
+    if (!state.bajasLargas) state.bajasLargas = [];
+    const misBajas = state.bajasLargas.filter(b => b.user === uProfile.nombre_mostrar);
+
+    // 3. Renderizar el HTML de la sección Perfil
+    container.innerHTML = `
+    <div style="padding: 20px; max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px;">
+        
+        <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+            <div>
+                <h2 style="color: var(--dark); margin-bottom: 4px;">👋 ¡Hola, ${uProfile.nombre_mostrar}!</h2>
+                <p style="color: #64748b; font-size: 0.9rem;">Gestión de contrato, bajas prolongadas y auditoría de carga docente.</p>
+            </div>
+            <div style="background: #e0f2fe; color: #0369a1; padding: 6px 12px; border-radius: 20px; font-weight: bold; font-size: 0.85rem;">
+                📍 Plan: ${uProfile.plan_asociado || 'No asignado'}
+            </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px;">
+            
+            <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between;">
+                <div>
+                    <h3 style="margin-bottom: 12px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">🪪 Datos de Contrato</h3>
+                    <div style="margin-bottom: 12px;">
+                        <label style="font-size: 0.8rem; font-weight: bold; color: #64748b; display: block; margin-bottom: 4px;">Fecha de Cambio de Contrato:</label>
+                        <input type="date" id="perfil-fecha-contrato" value="${uProfile.fecha_cambio_contrato || ''}" style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
+                    </div>
+                    <p style="font-size: 0.8rem; color: #94a3b8; line-height: 1.4;">* Esta fecha determina de forma automatizada cuándo se resetea tu contador de Justicia Histórica al pasar de año (ej. de R1 a R2).</p>
+                </div>
+                <button onclick="guardarFechaContratoPerfil()" style="width:100%; margin-top: 16px; background: var(--adu); color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer;">💾 Actualizar Contrato</button>
+            </div>
+
+            <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <h3 style="margin-bottom: 12px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">📊 Balance Año de Residencia</h3>
+                <div style="text-align: center; margin-bottom: 16px; padding: 12px; background: #f8fafc; border-radius: 8px;">
+                    <span style="font-size: 2rem; font-weight: bold; color: var(--dark);">${totalGuardiasAño}</span>
+                    <p style="font-size: 0.8rem; color: #64748b; margin-top: 2px;">Guardias Totales Realizadas</p>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 8px; max-height: 120px; overflow-y: auto;">
+                    ${Object.keys(desgloseServicios).length === 0 ? '<p style="text-align:center; color:#94a3b8; font-size:0.85rem; padding-top:10px;">No hay guardias registradas este año.</p>' : ''}
+                    ${Object.keys(desgloseServicios).map(srv => `
+                        <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.85rem; padding: 4px 0; border-bottom: 1px dashed #e2e8f0;">
+                            <span style="font-weight:500;">🔹 ${srv}</span>
+                            <span style="background:#f1f5f9; padding:2px 8px; border-radius:12px; font-weight:bold;">${desgloseServicios[srv]}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        </div>
+
+        <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+            <h3 style="margin-bottom: 16px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">🏥 Gestión de Bajas Prolongadas / Rotaciones Externas</h3>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 20px; background: #f8fafc; padding: 15px; border-radius: 8px;">
+                <div>
+                    <label style="font-size: 0.8rem; font-weight: bold; color: #475569; display: block; margin-bottom: 4px;">Fecha Inicio:</label>
+                    <input type="date" id="baja-fecha-inicio" style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
+                </div>
+                <div>
+                    <label style="font-size: 0.8rem; font-weight: bold; color: #475569; display: block; margin-bottom: 4px;">Fecha Fin (Inclusive):</label>
+                    <input type="date" id="baja-fecha-fin" style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
+                </div>
+                <div>
+                    <label style="font-size: 0.8rem; font-weight: bold; color: #475569; display: block; margin-bottom: 4px;">Motivo / Tipo de Excepción:</label>
+                    <input type="text" id="baja-motivo" placeholder="Ej: IT Médica, Paternidad, Rotación Externa..." style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
+                </div>
+                <div style="display: flex; align-items: flex-end;">
+                    <button onclick="solicitarBajaPerfil()" style="width:100%; background: #10b981; color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: background 0.2s;">➕ Solicitar Excepción</button>
+                </div>
+            </div>
+
+            <h4 style="font-size:0.9rem; color:#475569; margin-bottom:8px;">Tus Solicitudes de Suspensión Temporal:</h4>
+            <div style="overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left;">
+                    <thead>
+                        <tr style="background: #f1f5f9; color: #475569;">
+                            <th style="padding: 10px; border-bottom: 2px solid #e2e8f0;">Periodo</th>
+                            <th style="padding: 10px; border-bottom: 2px solid #e2e8f0;">Motivo</th>
+                            <th style="padding: 10px; border-bottom: 2px solid #e2e8f0;">Estado del Motor</th>
+                            <th style="padding: 10px; border-bottom: 2px solid #e2e8f0;">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${misBajas.length === 0 ? `<tr><td colspan="4" style="text-align:center; padding:15px; color:#94a3b8;">No has registrado periodos de baja prolongada.</td></tr>` : ''}
+                        ${misBajas.map(bj => {
+                            const badgeColor = bj.estado === 'aprobada' ? 'background:#dcfce7; color:#166534;' : 'background:#fef9c3; color:#713f12;';
+                            const badgeTexto = bj.estado === 'aprobada' ? '✅ Excluido de Rotación' : '⏳ Pendiente de Validación';
+                            return `
+                            <tr style="border-bottom: 1px solid #e2e8f0;">
+                                <td style="padding: 10px; font-weight:500;">📅 ${bj.fechaInicio} al ${bj.fechaFin}</td>
+                                <td style="padding: 10px; color:#64748b;">${bj.motivo}</td>
+                                <td style="padding: 10px;"><span style="padding:3px 8px; border-radius:12px; font-size:0.75rem; font-weight:bold; ${badgeColor}">${badgeTexto}</span></td>
+                                <td style="padding: 10px;"><button onclick="eliminarBajaPerfil(${bj.id})" style="background:none; border:none; color:#ef4444; cursor:pointer; font-weight:bold;">🗑️ Eliminar</button></td>
+                            </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    `;
+}
+// A) GUARDAR LA FECHA DE CAMBIO DE CONTRATO DESDE EL PERFIL
+async function guardarFechaContratoPerfil() {
+    const nuevaFecha = document.getElementById('perfil-fecha-contrato').value;
+    if (!nuevaFecha) return alert("Por favor, introduce una fecha válida.");
+
+    const uProfile = currentUserProfile;
+    // Buscamos el perfil en el array global y lo actualizamos
+    const pIdx = globalProfiles.findIndex(p => p.nombre_mostrar === uProfile.nombre_mostrar);
+    if (pIdx !== -1) {
+        globalProfiles[pIdx].fecha_cambio_contrato = nuevaFecha;
+        
+        // Ejecutamos el guardado en la tabla de perfiles de Supabase
+        try {
+            const { error } = await supabase
+                .from('perfiles_residentes') // Usa el nombre exacto de tu tabla de perfiles
+                .update({ fecha_cambio_contrato: nuevaFecha })
+                .eq('nombre_mostrar', uProfile.nombre_mostrar);
+                
+            if (error) throw error;
+            alert("¡Fecha de contrato actualizada con éxito! El motor recalculará tus años de residencia.");
+            renderPerfilUsuario();
+        } catch (err) {
+            console.error("Error al actualizar perfil:", err);
+            alert("Error al guardar en Supabase. Se mantendrá localmente durante esta sesión.");
+        }
+    }
+}
+
+// B) SOLICITAR UNA NUEVA BAJA PROLONGADA
+async function solicitarBajaPerfil() {
+    const fInicio = document.getElementById('baja-fecha-inicio').value;
+    const fFin = document.getElementById('baja-fecha-fin').value;
+    const motivo = document.getElementById('baja-motivo').value.trim();
+
+    if (!fInicio || !fFin || !motivo) {
+        return alert("Por favor, rellena todos los campos para solicitar la suspensión temporal.");
+    }
+    if (new Date(fInicio) > new Date(fFin)) {
+        return alert("La fecha de inicio no puede ser posterior a la fecha de fin.");
+    }
+
+    const nuevaBaja = {
+        id: Date.now(),
+        user: currentUserProfile.nombre_mostrar,
+        fechaInicio: fInicio,
+        fechaFin: fFin,
+        motivo: motivo,
+        estado: 'aprobada' // Lo ponemos auto-aprobada por defecto si confías en la promoción, o 'pendiente' si quieres filtrarla en Admin
+    };
+
+    if (!state.bajasLargas) state.bajasLargas = [];
+    state.bajasLargas.push(nuevaBaja);
+
+    // Guardamos el estado de la promoción actualizado en Supabase
+    await pushLocalStateToSupabase(); 
+    alert("Periodo de excepción registrado. El motor te saltará automáticamente en los meses afectados.");
+    renderPerfilUsuario();
+}
+
+// C) ELIMINAR UNA BAJA REGISTRADA
+async function eliminarBajaPerfil(idBaja) {
+    if (!confirm("¿Seguro que deseas eliminar este periodo de baja y volver a activarte en la rotación?")) return;
+
+    state.bajasLargas = state.bajasLargas.filter(b => b.id !== idBaja);
+    
+    await pushLocalStateToSupabase();
+    renderPerfilUsuario();
 }
 </script>
 </body>
