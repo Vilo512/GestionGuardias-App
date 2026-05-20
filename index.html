@@ -568,16 +568,9 @@ async function handleSession(session) {
 
 async function syncUserProfile(user) {
   try {
-    // Si ya tenemos el perfil cargado y con grupo, hacemos la recarga en la sombra sin congelar la pantalla
-    if (currentUserProfile && currentUserProfile.promocion_id) {
-        const { data } = await supabaseClient.from('perfiles').select('*').eq('id', user.id).single();
-        if (data) currentUserProfile = data;
-        await evaluarEstadoUsuario();
-        return;
-    }
-
-    // Solo muestra el estado de carga si es el arranque inicial en frío
+    // Restauramos el chivato visual para saber cuándo se consulta la base de datos
     setStatus('Verificando perfil...');
+    
     const { data, error } = await supabaseClient.from('perfiles').select('*').eq('id', user.id).single();
 
     if (error && error.code === 'PGRST116') {
@@ -585,11 +578,15 @@ async function syncUserProfile(user) {
       const { error: insertError } = await supabaseClient.from('perfiles').insert(newProfile);
       if (insertError) alert("Error al crear tu perfil en la base de datos.");
       else currentUserProfile = newProfile;
-    } else if (data) { currentUserProfile = data; }
+    } else if (data) { 
+      currentUserProfile = data; 
+    }
     
     setStatus('Conectado ✅');
     await evaluarEstadoUsuario(); 
-  } catch (err) { setStatus('Error ❌', true); }
+  } catch (err) { 
+    setStatus('Error ❌', true); 
+  }
 }
 
 async function evaluarEstadoUsuario() {
