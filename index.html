@@ -1020,6 +1020,30 @@ async function renderGruposView() {
     }
     listContainer.innerHTML = html;
 }
+
+// NUEVA FUNCIÓN: Guarda la fecha usando el año inerte 2000
+async function guardarFechaGraduacion() {
+    const dia = document.getElementById('input-dia-cambio').value;
+    const mes = document.getElementById('input-mes-cambio').value;
+    
+    // Usamos el año 2000 (bisiesto) como base para soportar 29 de Febrero y cumplir el formato DATE de Supabase
+    const dummyDate = `2000-${mes}-${dia}`;
+
+    setStatus('Guardando fecha...');
+    const { error } = await supabaseClient
+        .from('perfiles')
+        .update({ fecha_cambio_contrato: dummyDate })
+        .eq('id', currentUserProfile.id);
+
+    if (error) {
+        alert("Error al guardar en la base de datos: " + error.message);
+    } else {
+        currentUserProfile.fecha_cambio_contrato = dummyDate;
+        alert("Día y mes de cambio actualizados correctamente.");
+        setStatus('Sincronizado ✅');
+    }
+}
+	
 // ==========================================
 // FASE 1: PROTECCIÓN DE GRUPOS Y SUCESIÓN
 // ==========================================
