@@ -375,6 +375,7 @@ let state = {
   pendingExceptions: {},
   trades: [],
 	bajasLargas: [],
+	residentesFijos: [], // 💡 Almacenará los nombres de los residentes congelados al inicio
 };
 
 let curDate = new Date(2026, 0, 1);
@@ -2316,10 +2317,14 @@ async function adminAprobarUsuario(userId, userName) {
     const { error } = await supabaseClient.from('perfiles').update({ estado: 'aprobado' }).eq('id', userId);
     if(error) return alert("Error: " + error.message);
     
-    // Añadimos al final y reempaquetamos según la regla 3-4
-    let linear = (state.baseGroups || []).flat();
-    linear.push(userName);
-    state.baseGroups = reempaquetarGrupos(linear);
+    // 1. Convertimos los grupos actuales en una fila india única
+    let filaIndia = (state.baseGroups || []).flat();
+    
+    // 2. Insertamos al nuevo residente al final de la fila (mantiene el orden de los veteranos)
+    filaIndia.push(userName);
+    
+    // 3. Dejamos que las matemáticas tracen las nuevas fronteras 3-4
+    state.baseGroups = reempaquetarGrupos(filaIndia);
     
     await saveState(); await renderAccountsList(); setStatus('Sincronizado ✅');
 }
@@ -2328,10 +2333,12 @@ async function adminExpulsarUsuario(userId, userName) {
     if(!confirm(`¿Seguro que quieres expulsar a ${userName}?`)) return;
     await supabaseClient.from('perfiles').update({ promocion_id: null, estado: 'pendiente' }).eq('id', userId);
     
-    // Extirpamos al usuario y reempaquetamos para cerrar el hueco
-    let linear = (state.baseGroups || []).flat();
-    linear = linear.filter(n => n !== userName);
-    state.baseGroups = reempaquetarGrupos(linear);
+    // 1. Convertimos en fila india y extirpamos al que se va
+    let filaIndia = (state.baseGroups || []).flat();
+    filaIndia = filaIndia.filter(n => n !== userName);
+    
+    // 2. Las matemáticas cierran el hueco y retraza las fronteras
+    state.baseGroups = reempaquetarGrupos(filaIndia);
     
     await saveState(); renderAccountsList();
 }
@@ -2360,6 +2367,27 @@ function renderRotationView() {
     } else document.getElementById('admin-rot-tools').style.display = 'none'; 
 }
 
+async function toggleResidenteFijo(nombre) {
+    if (!state.residentesFijos) state.residentesFijos = [];
+    
+    let linear = editingGroups.flat();
+    
+    if (state.residentesFijos.includes(nombre)) {
+        // Descongelar
+        state.residentesFijos = state.residentesFijos.filter(n => n !== nombre);
+    } else {
+        // Congelar: Lo sacamos de donde esté y lo mandamos DIRECTO al inicio de la fila india
+        linear = linear.filter(n => n !== nombre);
+        linear.unshift(nombre);
+        state.residentesFijos.push(nombre);
+    }
+    
+    editingGroups = reempaquetarGrupos(linear);
+    state.baseGroups = JSON.parse(JSON.stringify(editingGroups)); // Sincronizamos la base
+    await saveState();
+    renderEditor();
+}
+	
 // ==========================================
 // RENDERIZADOR DEL EDITOR
 // ==========================================
@@ -2367,18 +2395,27 @@ function renderEditor() {
     const setupC = document.getElementById('setup-groups');
     setupC.innerHTML = '';
     let flatIdxCounter = 0;
+    
+    if (!state.residentesFijos) state.residentesFijos = [];
 
     editingGroups.forEach((g, i) => {
         const gdiv = document.createElement('div'); gdiv.className = 'rot-group';
         gdiv.innerHTML = `<div style="display:flex; justify-content:space-between; margin-bottom:8px; border-bottom:2px solid #cbd5e1; padding-bottom:4px;"><strong>Grupo ${i+1} <span style="color:#64748b; font-size:0.85rem;">(${g.length} personas)</span></strong></div>` +
         g.map((res) => {
             const currentFlat = flatIdxCounter++;
+            const esFijo = state.residentesFijos.includes(res);
+            
             return `
-            <div class="editor-row" style="background:white; padding:6px; border:1px solid #e2e8f0; border-radius:6px; margin-bottom:4px;">
-                <span style="display:inline-block; width:160px; font-weight:500; font-size:0.95rem; color:var(--dark);">${res}</span>
+            <div class="editor-row" style="background: ${esFijo ? '#fffbeb' : 'white'}; padding:6px; border:1px solid ${esFijo ? '#fef08a' : '#e2e8f0'}; border-radius:6px; margin-bottom:4px;">
+                <span style="display:inline-block; width:150px; font-weight:500; font-size:0.95rem; color:var(--dark);">
+                    ${res} ${esFijo ? '📌 <small style="color:#a16207; font-size:0.75rem; font-weight:bold;">(Fijo)</small>' : ''}
+                </span>
                 <div style="display:flex; gap:4px;">
-                    <button class="icon-btn" style="background:#f1f5f9;" onclick="moveResLinear(${currentFlat}, 'up')">⬆️</button>
-                    <button class="icon-btn" style="background:#f1f5f9;" onclick="moveResLinear(${currentFlat}, 'down')">⬇️</button>
+                    <button class="icon-btn" style="background: ${esFijo ? '#fef08a' : '#f1f5f9'}; border-color: ${esFijo ? '#ca8a04' : '#cbd5e1'};" onclick="toggleResidenteFijo('${res}')" title="Fijar al inicio de la rueda">📌</button>
+                    
+                    <button class="icon-btn" style="background:#f1f5f9; display:${esFijo ? 'none' : 'block'};" onclick="moveResLinear(${currentFlat}, 'up')">⬆️</button>
+                    <button class="icon-btn" style="background:#f1f5f9; display:${esFijo ? 'none' : 'block'};" onclick="moveResLinear(${currentFlat}, 'down')">⬇️</button>
+                    
                     <button class="danger icon-btn" onclick="editorRemoveMemberLinear(${currentFlat})">X</button>
                 </div>
             </div>`;
@@ -2388,8 +2425,11 @@ function renderEditor() {
 
     const btnContainer = document.createElement('div');
     btnContainer.innerHTML = `
-    <button class="primary" style="margin-top:10px; margin-bottom:10px; width:100%; background:var(--dark);" onclick="editorAddVirtual()">+ Añadir Residente Virtual (Manual)</button>
-    <button id="btn-shuffle" class="danger" style="margin-bottom:1rem; width:100%; border:2px dashed var(--fest);" onclick="adminAutoShuffleGroups()">🎲 Barajar y Re-balancear Todo (Aleatorio)</button>`;
+    <button class="primary" style="margin-top:10px; margin-bottom:15px; width:100%; background:var(--dark);" onclick="editorAddVirtual()">+ Añadir Residente Virtual (Al final de la fila)</button>
+    <div style="margin-top:20px; padding-top:15px; border-top:2px dashed #cbd5e1;">
+        <span style="font-size:0.75rem; color:#94a3b8; display:block; margin-bottom:6px;">⚠️ ZONA DE CONFIGURACIÓN INICIAL (SOLO AL CREAR EL CONTENEDOR):</span>
+        <button id="btn-shuffle" class="danger" style="width:100%; background:#94a3b8; border:none; color:white; font-size:0.8rem; padding:6px;" onclick="adminAutoShuffleGroups()">🎲 Sorteo Inicial: Barajar Fila Completa Respetando Fijos</button>
+    </div>`;
     setupC.appendChild(btnContainer);
 }
 // ==========================================
@@ -2397,21 +2437,38 @@ function renderEditor() {
 // ==========================================
 function moveResLinear(flatIdx, dir) {
     let linear = editingGroups.flat();
+    const usuarioActual = linear[flatIdx];
+    
+    if (!state.residentesFijos) state.residentesFijos = [];
+
+    // 🛑 Bloqueamos el movimiento si el residente actual está congelado
+    if (state.residentesFijos.includes(usuarioActual)) {
+        alert(`[${usuarioActual}] está marcado como Rotante Fijo al inicio por el Admin y no puede moverse.`);
+        return;
+    }
+    
     if (dir === 'up' && flatIdx > 0) {
+        // Tampoco dejamos que nadie adelante a un residente congelado que esté arriba
+        if (state.residentesFijos.includes(linear[flatIdx-1])) return; 
         [linear[flatIdx-1], linear[flatIdx]] = [linear[flatIdx], linear[flatIdx-1]];
     } else if (dir === 'down' && flatIdx < linear.length - 1) {
+        if (state.residentesFijos.includes(linear[flatIdx+1])) return;
         [linear[flatIdx+1], linear[flatIdx]] = [linear[flatIdx], linear[flatIdx+1]];
     }
+    
     editingGroups = reempaquetarGrupos(linear);
     renderEditor();
 }
 
 function editorAddVirtual() {
-    const nombreVirtual = prompt("Introduce el nombre del residente virtual (Ej: Aura):");
+    const nombreVirtual = prompt("Introduce el name del residente virtual (Ej: Aura):");
     if (!nombreVirtual || nombreVirtual.trim() === "") return;
-    let linear = editingGroups.flat();
-    linear.push(nombreVirtual.trim());
-    editingGroups = reempaquetarGrupos(linear);
+    
+    // Lo mismo: fila india, lo mete al final, y retrasa fronteras
+    let filaIndia = editingGroups.flat();
+    filaIndia.push(nombreVirtual.trim());
+    
+    editingGroups = reempaquetarGrupos(filaIndia);
     renderEditor();
 }
 
@@ -2426,18 +2483,25 @@ function editorRemoveMemberLinear(flatIdx) {
 // EL BOTÓN DEL CAOS (Aleatorio Real)
 // ==========================================
 async function adminAutoShuffleGroups() {
-    if (!confirm("⚠️ Se va a barajar a TODOS los residentes de forma 100% ALEATORIA y re-balancear los grupos. ¿Continuar?")) return;
+    if (!confirm("⚠️ Se va a barajar a los residentes. Los marcados como 'Fijos' se mantendrán al inicio de la rueda. ¿Continuar?")) return;
     
     let linear = getAllResidents(); 
+    if (!state.residentesFijos) state.residentesFijos = [];
     
-    // Algoritmo Fisher-Yates (aleatoriedad absoluta)
-    for (let i = linear.length - 1; i > 0; i--) {
+    // 🕵️‍♂️ Filtramos y extraemos a TODOS los que estén congelados
+    const fijosPresentes = linear.filter(n => state.residentesFijos.includes(n));
+    let restOfResidents = linear.filter(n => !state.residentesFijos.includes(n));
+    
+    // Barajamos solo al resto (Fisher-Yates)
+    for (let i = restOfResidents.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
-        [linear[i], linear[j]] = [linear[j], linear[i]];
+        [restOfResidents[i], restOfResidents[j]] = [restOfResidents[j], restOfResidents[i]];
     }
     
-    // Pasamos la lista barajada por el empaquetador automático
-    state.baseGroups = reempaquetarGrupos(linear);
+    // Volvemos a unificar la fila: Primero los fijos, luego el resto sorteado
+    const filaFinal = [...fijosPresentes, ...restOfResidents];
+    
+    state.baseGroups = reempaquetarGrupos(filaFinal);
     state.baseMonth = curDate.getMonth(); 
     state.baseYear = curDate.getFullYear();
     
