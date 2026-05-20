@@ -307,14 +307,16 @@
           <div id="accounts-list"></div>
         </div>
 
-        <div id="aview-ajustes" style="display:none;">
-          <h3>Motor de Reglas y Configuración del Hospital</h3>
-          <p style="margin-bottom:1rem; color:#64748b; font-size:0.9rem;">Define los servicios, los cupos, las plazas por guardia, los salientes y las reglas obligatorias personalizadas.</p>
-          <div id="admin-config-container"></div>
-          <div style="display:flex; justify-content:space-between; margin-top:1rem;">
-              <button class="primary icon-btn" style="background:var(--adu);" onclick="adminAddService()">+ Crear Nuevo Servicio</button>
-              <button class="primary" style="background:var(--dark); padding: 0.6rem 2rem;" onclick="adminSaveConfig()">💾 Guardar Motor de Reglas</button>
+		<div id="aview-ajustes" style="display:none;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:10px;">
+              <div>
+                  <h3 style="margin-bottom:0.2rem;">Planes de Guardia por Año</h3>
+                  <p style="color:#64748b; font-size:0.9rem; margin:0;">Configura qué servicios, cupos y reglas se aplican a cada nivel (R1, R2...).</p>
+              </div>
+              <button class="primary" style="background:var(--dark); padding: 0.6rem 1.5rem;" onclick="adminSaveConfig()">💾 Guardar Todos los Planes</button>
           </div>
+          <div id="admin-config-container"></div>
+          <button class="primary icon-btn" style="background:var(--adu); margin-top:1rem; width:100%; padding:0.8rem; font-size:1rem;" onclick="adminAddPlan()">+ Añadir Nuevo Plan de Guardia (Ej: R2)</button>
         </div>
 
         <div id="aview-seguridad" style="display:none;">
@@ -457,16 +459,25 @@ async function saveState() {
   }
 }
 
+// ==========================================
+// 2. PERSISTENCIA Y NORMALIZACIÓN DE CONFIG
+// ==========================================
 function normalizeConfig(config) {
-    if (!config.servicios) config.servicios = [];
-    config.servicios.forEach(s => {
-        if (s.cupoMensualTotal === undefined) s.cupoMensualTotal = s.cupo || 0;
-        if (s.plazasPorDia === undefined) s.plazasPorDia = s.soloAdmin ? 5 : 1; 
-        if (s.requiereHabilitacion === undefined) s.requiereHabilitacion = (s.nombre === 'Pediatría');
-        if (!s.generaSaliente) {
-            s.generaSaliente = { laborable: true, vispera: true, fin_de_semana: (s.nombre!=='PAC Balaguer'), festivo_intersemanal: (s.nombre!=='PAC Balaguer') };
-        }
-        if (!s.reglasObligatorias) s.reglasObligatorias = [];
+    // MIGRACIÓN: Si el contenedor venía de la versión antigua, metemos sus servicios en un "Plan R1"
+    if (!config.planes) {
+        config.planes = [{ id: 'plan-' + Date.now(), nombre: "Plan R1 (Año 1)", servicios: config.servicios || [] }];
+        delete config.servicios;
+    }
+
+    config.planes.forEach(plan => {
+        if (!plan.servicios) plan.servicios = [];
+        plan.servicios.forEach(s => {
+            if (s.cupoMensualTotal === undefined) s.cupoMensualTotal = s.cupo || 0;
+            if (s.plazasPorDia === undefined) s.plazasPorDia = s.soloAdmin ? 5 : 1; 
+            if (s.requiereHabilitacion === undefined) s.requiereHabilitacion = (s.nombre === 'Pediatría');
+            if (!s.generaSaliente) s.generaSaliente = { laborable: true, vispera: true, fin_de_semana: (s.nombre!=='PAC Balaguer'), festivo_intersemanal: (s.nombre!=='PAC Balaguer') };
+            if (!s.reglasObligatorias) s.reglasObligatorias = [];
+        });
     });
     return config;
 }
@@ -477,6 +488,14 @@ async function loadPromoConfig() {
     const { data, error } = await supabaseClient.from('promociones').select('configuracion').eq('id', currentUserProfile.promocion_id).single();
     if (data && data.configuracion) promoConfig = normalizeConfig(data.configuracion);
     else promoConfig = normalizeConfig({});
+    
+    // PARCHE TEMPORAL (PUENTE AL PASO 3): 
+    // Para que el calendario no se rompa hoy, volcamos el primer plan en .servicios
+    if (promoConfig.planes && promoConfig.planes.length > 0) {
+        promoConfig.servicios = promoConfig.planes[0].servicios;
+    } else {
+        promoConfig.servicios = [];
+    }
   } catch (e) { console.error("Error cargando config", e); promoConfig = normalizeConfig({}); }
 }
 
@@ -1593,82 +1612,109 @@ function renderAdminAjustes() {
   const container = document.getElementById('admin-config-container');
   let html = ``;
   
-  if (!promoConfig.servicios) promoConfig.servicios = [];
+  if (!promoConfig.planes) promoConfig.planes = [];
   
-  promoConfig.servicios.forEach((svc, i) => {
+  promoConfig.planes.forEach((plan, pIdx) => {
     html += `
-    <div class="cfg-card" id="cfg-card-${i}">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom:1px solid #e2e8f0; padding-bottom:10px;">
-         <input type="text" id="cfg-nom-${i}" value="${svc.nombre}" style="margin:0; font-size:1.1rem; font-weight:bold; border:none; background:transparent; max-width:200px;">
-         <button class="danger icon-btn" onclick="adminRemoveService(${i})">Borrar Servicio 🗑️</button>
-      </div>
-      
-      <div style="display:flex; gap:15px; flex-wrap:wrap; margin-bottom:15px;">
-         <div style="flex:1; min-width:120px;">
-            <label style="font-size:0.8rem; color:#64748b; display:block; margin-bottom:4px;">Cupo total/mes</label>
-            <input type="number" id="cfg-cupo-${i}" value="${svc.cupoMensualTotal}" min="0" style="margin:0;">
-         </div>
-         <div style="flex:1; min-width:120px;">
-            <label style="font-size:0.8rem; color:#64748b; display:block; margin-bottom:4px;">Plazas por día</label>
-            <input type="number" id="cfg-plazas-${i}" value="${svc.plazasPorDia}" min="1" style="margin:0;">
-         </div>
-         <div style="flex:1; min-width:80px;">
-            <label style="font-size:0.8rem; color:#64748b; display:block; margin-bottom:4px;">Color</label>
-            <input type="color" id="cfg-col-${i}" value="${svc.color}" style="width:100%; height:38px; padding:0; cursor:pointer; border:none;">
-         </div>
-      </div>
-      
-      <div style="margin-bottom:15px; padding:10px; background:#f8fafc; border-radius:6px; border:1px dashed #cbd5e1;">
-         <label style="font-size:0.85rem; font-weight:bold; display:flex; align-items:center; gap:8px;">
-            <input type="checkbox" id="cfg-hab-${i}" ${svc.requiereHabilitacion ? 'checked' : ''} style="width:auto; margin:0;">
-            🔒 Requiere Habilitación Manual (Secretaría)
-         </label>
-         <p style="font-size:0.75rem; color:#64748b; margin-top:4px;">Si marcas esto, nadie podrá elegir este servicio a menos que tú pintes el día de amarillo en la pestaña "Días Habil."</p>
-      </div>
+    <div style="background:#f1f5f9; border:2px solid #cbd5e1; border-radius:12px; padding:15px; margin-bottom:20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom:2px solid #94a3b8; padding-bottom:10px; flex-wrap:wrap; gap:10px;">
+            <input type="text" id="cfg-plan-nom-${pIdx}" value="${plan.nombre}" style="margin:0; font-size:1.2rem; font-weight:bold; color:var(--dark); border:1px solid transparent; background:transparent; max-width:250px;">
+            <div style="display:flex; gap:8px;">
+                <button class="primary icon-btn" style="background:var(--adu);" onclick="adminAddService(${pIdx})">+ Servicio al ${plan.nombre}</button>
+                <button class="danger icon-btn" onclick="adminRemovePlan(${pIdx})">Borrar Plan</button>
+            </div>
+        </div>`;
+    
+    if (plan.servicios.length === 0) {
+        html += `<p style="color:#64748b; font-size:0.85rem; font-style:italic; padding-bottom:10px;">No hay servicios en este plan.</p>`;
+    }
 
-      <div style="margin-bottom:15px;">
-         <label style="font-size:0.85rem; font-weight:bold; display:block; margin-bottom:6px;">💤 Matriz de Salientes (Genera saliente en...)</label>
-         <div style="display:flex; gap:10px; flex-wrap:wrap;">
-            <label style="font-size:0.8rem; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="cfg-sal-lab-${i}" ${svc.generaSaliente.laborable ? 'checked' : ''} style="width:auto; margin:0;"> Laborable</label>
-            <label style="font-size:0.8rem; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="cfg-sal-vis-${i}" ${svc.generaSaliente.vispera ? 'checked' : ''} style="width:auto; margin:0;"> Víspera/Vier</label>
-            <label style="font-size:0.8rem; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="cfg-sal-fin-${i}" ${svc.generaSaliente.fin_de_semana ? 'checked' : ''} style="width:auto; margin:0;"> Finde</label>
-            <label style="font-size:0.8rem; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="cfg-sal-fes-${i}" ${svc.generaSaliente.festivo_intersemanal ? 'checked' : ''} style="width:auto; margin:0;"> Festivo Inter.</label>
-         </div>
-      </div>
-      
-      <div>
-         <label style="font-size:0.85rem; font-weight:bold; display:block; margin-bottom:6px;">🛡️ Reglas Obligatorias Específicas</label>
-         <div id="cfg-rules-${i}">`;
-         
-         svc.reglasObligatorias.forEach((rule, rIdx) => {
-             html += `
-             <div style="background:#fefce8; border:1px solid #fef08a; padding:10px; border-radius:6px; margin-bottom:8px;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                   <span style="font-size:0.8rem; font-weight:bold; color:#854d0e;">Mínimo <input type="number" id="cfg-r-min-${i}-${rIdx}" value="${rule.minimo}" style="width:50px; padding:2px; margin:0; text-align:center;"> guardias en:</span>
-                   <button class="danger icon-btn" style="padding:2px 6px;" onclick="adminRemoveRule(${i}, ${rIdx})">X</button>
-                </div>
-                <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">
-                   <button class="tag-btn ${rule.etiquetas.includes('laborable') ? 'active' : ''}" onclick="adminToggleRuleTag(${i}, ${rIdx}, 'laborable')">Laborable</button>
-                   <button class="tag-btn ${rule.etiquetas.includes('vispera') ? 'active' : ''}" onclick="adminToggleRuleTag(${i}, ${rIdx}, 'vispera')">Víspera</button>
-                   <button class="tag-btn ${rule.etiquetas.includes('fin_de_semana') ? 'active' : ''}" onclick="adminToggleRuleTag(${i}, ${rIdx}, 'fin_de_semana')">Finde</button>
-                   <button class="tag-btn ${rule.etiquetas.includes('festivo_intersemanal') ? 'active' : ''}" onclick="adminToggleRuleTag(${i}, ${rIdx}, 'festivo_intersemanal')">Festivo</button>
-                </div>
-                <input type="text" id="cfg-r-msg-${i}-${rIdx}" value="${rule.mensaje}" placeholder="Mensaje de error para el usuario..." style="margin:0; font-size:0.8rem; padding:4px;">
-             </div>`;
-         });
+    plan.servicios.forEach((svc, i) => {
+        html += `
+        <div class="cfg-card" id="cfg-card-${pIdx}-${i}" style="border-left: 4px solid ${svc.color || 'var(--dark)'};">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom:1px solid #e2e8f0; padding-bottom:10px;">
+             <input type="text" id="cfg-nom-${pIdx}-${i}" value="${svc.nombre}" style="margin:0; font-size:1.1rem; font-weight:bold; border:none; background:transparent; max-width:200px;">
+             <button class="danger icon-btn" onclick="adminRemoveService(${pIdx}, ${i})">Borrar Servicio 🗑️</button>
+          </div>
+          
+          <div style="display:flex; gap:15px; flex-wrap:wrap; margin-bottom:15px;">
+             <div style="flex:1; min-width:120px;">
+                <label style="font-size:0.8rem; color:#64748b; display:block; margin-bottom:4px;">Cupo total/mes</label>
+                <input type="number" id="cfg-cupo-${pIdx}-${i}" value="${svc.cupoMensualTotal}" min="0" style="margin:0;">
+             </div>
+             <div style="flex:1; min-width:120px;">
+                <label style="font-size:0.8rem; color:#64748b; display:block; margin-bottom:4px;">Plazas por día</label>
+                <input type="number" id="cfg-plazas-${pIdx}-${i}" value="${svc.plazasPorDia}" min="1" style="margin:0;">
+             </div>
+             <div style="flex:1; min-width:80px;">
+                <label style="font-size:0.8rem; color:#64748b; display:block; margin-bottom:4px;">Color</label>
+                <input type="color" id="cfg-col-${pIdx}-${i}" value="${svc.color}" style="width:100%; height:38px; padding:0; cursor:pointer; border:none;">
+             </div>
+          </div>
+          
+          <div style="margin-bottom:15px; padding:10px; background:#f8fafc; border-radius:6px; border:1px dashed #cbd5e1;">
+             <label style="font-size:0.85rem; font-weight:bold; display:flex; align-items:center; gap:8px;">
+                <input type="checkbox" id="cfg-hab-${pIdx}-${i}" ${svc.requiereHabilitacion ? 'checked' : ''} style="width:auto; margin:0;">
+                🔒 Requiere Habilitación Manual (Secretaría)
+             </label>
+          </div>
 
-    html += `</div>
-         <button class="primary icon-btn" style="background:#64748b; font-size:0.75rem;" onclick="adminAddRule(${i})">+ Añadir Regla Obligatoria</button>
-      </div>
-    </div>`;
+          <div style="margin-bottom:15px;">
+             <label style="font-size:0.85rem; font-weight:bold; display:block; margin-bottom:6px;">💤 Matriz de Salientes</label>
+             <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                <label style="font-size:0.8rem; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="cfg-sal-lab-${pIdx}-${i}" ${svc.generaSaliente.laborable ? 'checked' : ''} style="width:auto; margin:0;"> Laborable</label>
+                <label style="font-size:0.8rem; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="cfg-sal-vis-${pIdx}-${i}" ${svc.generaSaliente.vispera ? 'checked' : ''} style="width:auto; margin:0;"> Víspera/Vier</label>
+                <label style="font-size:0.8rem; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="cfg-sal-fin-${pIdx}-${i}" ${svc.generaSaliente.fin_de_semana ? 'checked' : ''} style="width:auto; margin:0;"> Finde</label>
+                <label style="font-size:0.8rem; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="cfg-sal-fes-${pIdx}-${i}" ${svc.generaSaliente.festivo_intersemanal ? 'checked' : ''} style="width:auto; margin:0;"> Festivo Inter.</label>
+             </div>
+          </div>
+          
+          <div>
+             <label style="font-size:0.85rem; font-weight:bold; display:block; margin-bottom:6px;">🛡️ Reglas Obligatorias</label>
+             <div id="cfg-rules-${pIdx}-${i}">`;
+             
+             svc.reglasObligatorias.forEach((rule, rIdx) => {
+                 html += `
+                 <div style="background:#fefce8; border:1px solid #fef08a; padding:10px; border-radius:6px; margin-bottom:8px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                       <span style="font-size:0.8rem; font-weight:bold; color:#854d0e;">Mínimo <input type="number" id="cfg-r-min-${pIdx}-${i}-${rIdx}" value="${rule.minimo}" style="width:50px; padding:2px; margin:0; text-align:center;"> guardias en:</span>
+                       <button class="danger icon-btn" style="padding:2px 6px;" onclick="adminRemoveRule(${pIdx}, ${i}, ${rIdx})">X</button>
+                    </div>
+                    <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">
+                       <button class="tag-btn ${rule.etiquetas.includes('laborable') ? 'active' : ''}" onclick="adminToggleRuleTag(${pIdx}, ${i}, ${rIdx}, 'laborable')">Laborable</button>
+                       <button class="tag-btn ${rule.etiquetas.includes('vispera') ? 'active' : ''}" onclick="adminToggleRuleTag(${pIdx}, ${i}, ${rIdx}, 'vispera')">Víspera</button>
+                       <button class="tag-btn ${rule.etiquetas.includes('fin_de_semana') ? 'active' : ''}" onclick="adminToggleRuleTag(${pIdx}, ${i}, ${rIdx}, 'fin_de_semana')">Finde</button>
+                       <button class="tag-btn ${rule.etiquetas.includes('festivo_intersemanal') ? 'active' : ''}" onclick="adminToggleRuleTag(${pIdx}, ${i}, ${rIdx}, 'festivo_intersemanal')">Festivo</button>
+                    </div>
+                    <input type="text" id="cfg-r-msg-${pIdx}-${i}-${rIdx}" value="${rule.mensaje}" placeholder="Mensaje de error..." style="margin:0; font-size:0.8rem; padding:4px;">
+                 </div>`;
+             });
+
+        html += `</div>
+             <button class="primary icon-btn" style="background:#64748b; font-size:0.75rem;" onclick="adminAddRule(${pIdx}, ${i})">+ Añadir Regla</button>
+          </div>
+        </div>`;
+    });
+    
+    html += `</div>`; // Fin del plan
   });
   
   container.innerHTML = html;
 }
 
-function adminAddService() {
+function adminAddPlan() {
+    syncConfigFromUI();
+    let numPlanes = promoConfig.planes.length + 1;
+    promoConfig.planes.push({ id: 'plan-' + Date.now(), nombre: `Plan R${numPlanes}`, servicios: [] });
+    renderAdminAjustes();
+}
+function adminRemovePlan(pIdx) {
+    if(!confirm("¿Seguro que quieres borrar este PLAN entero y todos sus servicios?")) return;
+    syncConfigFromUI(); promoConfig.planes.splice(pIdx, 1); renderAdminAjustes();
+}
+function adminAddService(pIdx) {
   syncConfigFromUI();
-  promoConfig.servicios.push({ 
+  promoConfig.planes[pIdx].servicios.push({ 
       nombre: "Nuevo Servicio", cupoMensualTotal: 1, plazasPorDia: 1, color: "#94a3b8", 
       requiereHabilitacion: false, 
       generaSaliente: { laborable: true, vispera: true, fin_de_semana: false, festivo_intersemanal: false },
@@ -1676,39 +1722,43 @@ function adminAddService() {
   });
   renderAdminAjustes();
 }
-function adminRemoveService(i) { if(!confirm("¿Borrar servicio?")) return; syncConfigFromUI(); promoConfig.servicios.splice(i, 1); renderAdminAjustes(); }
+function adminRemoveService(pIdx, i) { if(!confirm("¿Borrar servicio?")) return; syncConfigFromUI(); promoConfig.planes[pIdx].servicios.splice(i, 1); renderAdminAjustes(); }
 
-function adminAddRule(svcIdx) {
+function adminAddRule(pIdx, svcIdx) {
     syncConfigFromUI();
-    promoConfig.servicios[svcIdx].reglasObligatorias.push({ id: Date.now(), minimo: 1, etiquetas: [], mensaje: "Debes cumplir esta regla." });
+    promoConfig.planes[pIdx].servicios[svcIdx].reglasObligatorias.push({ id: Date.now(), minimo: 1, etiquetas: [], mensaje: "Debes cumplir esta regla." });
     renderAdminAjustes();
 }
-function adminRemoveRule(svcIdx, ruleIdx) { syncConfigFromUI(); promoConfig.servicios[svcIdx].reglasObligatorias.splice(ruleIdx, 1); renderAdminAjustes(); }
-function adminToggleRuleTag(svcIdx, ruleIdx, tag) {
+function adminRemoveRule(pIdx, svcIdx, ruleIdx) { syncConfigFromUI(); promoConfig.planes[pIdx].servicios[svcIdx].reglasObligatorias.splice(ruleIdx, 1); renderAdminAjustes(); }
+function adminToggleRuleTag(pIdx, svcIdx, ruleIdx, tag) {
     syncConfigFromUI();
-    let tags = promoConfig.servicios[svcIdx].reglasObligatorias[ruleIdx].etiquetas;
+    let tags = promoConfig.planes[pIdx].servicios[svcIdx].reglasObligatorias[ruleIdx].etiquetas;
     if (tags.includes(tag)) tags.splice(tags.indexOf(tag), 1);
     else tags.push(tag);
     renderAdminAjustes();
 }
 
 function syncConfigFromUI() {
-  if(!promoConfig.servicios) return;
-  promoConfig.servicios.forEach((svc, i) => {
-    const nom = document.getElementById(`cfg-nom-${i}`); if(nom) svc.nombre = nom.value;
-    const cupo = document.getElementById(`cfg-cupo-${i}`); if(cupo) svc.cupoMensualTotal = parseInt(cupo.value) || 0;
-    const plazas = document.getElementById(`cfg-plazas-${i}`); if(plazas) svc.plazasPorDia = parseInt(plazas.value) || 1;
-    const col = document.getElementById(`cfg-col-${i}`); if(col) svc.color = col.value;
-    const hab = document.getElementById(`cfg-hab-${i}`); if(hab) svc.requiereHabilitacion = hab.checked;
-    
-    const sLab = document.getElementById(`cfg-sal-lab-${i}`); if(sLab) svc.generaSaliente.laborable = sLab.checked;
-    const sVis = document.getElementById(`cfg-sal-vis-${i}`); if(sVis) svc.generaSaliente.vispera = sVis.checked;
-    const sFin = document.getElementById(`cfg-sal-fin-${i}`); if(sFin) svc.generaSaliente.fin_de_semana = sFin.checked;
-    const sFes = document.getElementById(`cfg-sal-fes-${i}`); if(sFes) svc.generaSaliente.festivo_intersemanal = sFes.checked;
+  if(!promoConfig.planes) return;
+  promoConfig.planes.forEach((plan, pIdx) => {
+    const pNom = document.getElementById(`cfg-plan-nom-${pIdx}`); if (pNom) plan.nombre = pNom.value;
 
-    svc.reglasObligatorias.forEach((rule, rIdx) => {
-        const rMin = document.getElementById(`cfg-r-min-${i}-${rIdx}`); if(rMin) rule.minimo = parseInt(rMin.value) || 1;
-        const rMsg = document.getElementById(`cfg-r-msg-${i}-${rIdx}`); if(rMsg) rule.mensaje = rMsg.value;
+    plan.servicios.forEach((svc, i) => {
+      const nom = document.getElementById(`cfg-nom-${pIdx}-${i}`); if(nom) svc.nombre = nom.value;
+      const cupo = document.getElementById(`cfg-cupo-${pIdx}-${i}`); if(cupo) svc.cupoMensualTotal = parseInt(cupo.value) || 0;
+      const plazas = document.getElementById(`cfg-plazas-${pIdx}-${i}`); if(plazas) svc.plazasPorDia = parseInt(plazas.value) || 1;
+      const col = document.getElementById(`cfg-col-${pIdx}-${i}`); if(col) svc.color = col.value;
+      const hab = document.getElementById(`cfg-hab-${pIdx}-${i}`); if(hab) svc.requiereHabilitacion = hab.checked;
+      
+      const sLab = document.getElementById(`cfg-sal-lab-${pIdx}-${i}`); if(sLab) svc.generaSaliente.laborable = sLab.checked;
+      const sVis = document.getElementById(`cfg-sal-vis-${pIdx}-${i}`); if(sVis) svc.generaSaliente.vispera = sVis.checked;
+      const sFin = document.getElementById(`cfg-sal-fin-${pIdx}-${i}`); if(sFin) svc.generaSaliente.fin_de_semana = sFin.checked;
+      const sFes = document.getElementById(`cfg-sal-fes-${pIdx}-${i}`); if(sFes) svc.generaSaliente.festivo_intersemanal = sFes.checked;
+
+      svc.reglasObligatorias.forEach((rule, rIdx) => {
+          const rMin = document.getElementById(`cfg-r-min-${pIdx}-${i}-${rIdx}`); if(rMin) rule.minimo = parseInt(rMin.value) || 1;
+          const rMsg = document.getElementById(`cfg-r-msg-${pIdx}-${i}-${rIdx}`); if(rMsg) rule.mensaje = rMsg.value;
+      });
     });
   });
 }
@@ -1718,16 +1768,21 @@ async function adminSaveConfig() {
   setStatus('Guardando ajustes...');
   try {
       const { error } = await supabaseClient.from('promociones').update({ configuracion: promoConfig }).eq('id', currentUserProfile.promocion_id);
-      
       if (error) throw error;
       
-      alert("Configuración de servicios guardada en la nube correctamente."); 
+      alert("Planes de guardia guardados en la nube correctamente."); 
       setStatus('Sincronizado ✅'); 
-      renderAll(); // Refrescar UI con los nuevos settings
+      
+      // Actualizamos el parche temporal para que el calendario no falle
+      if (promoConfig.planes && promoConfig.planes.length > 0) {
+          promoConfig.servicios = promoConfig.planes[0].servicios;
+      }
+      
+      renderAll(); 
   } catch (err) {
       console.error("Error al guardar admin config:", err);
       setStatus('Error ❌', true); 
-      alert("Error al guardar: La conexión ha fallado. Revisa tu internet o recarga la página.");
+      alert("Error al guardar: La conexión ha fallado.");
   }
 }
 
