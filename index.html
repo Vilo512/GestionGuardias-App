@@ -1591,6 +1591,17 @@ function renderMainCalendar() {
         if (showOnlyMine && loggedInUser) assigned = assigned.filter(u => u === loggedInUser);
         assigned.forEach(u => {
             html += `<div class="shift-badge" style="background:${getServiceColor(svc.nombre)};">👤 ${getInitials(u)}</div>`;
+        });
+    });
+    
+    cell.innerHTML = html;
+    cell.onclick = () => openShiftModal(y, m, d, dateKey);
+    grid.appendChild(cell);
+  }
+
+  // 🌍 LLAMADA DE ASIGNACIÓN TRANSVERSAL INTEGRADA LIMPIAMENTE
+  renderAlertaCargaMensual();
+}
 
 // ==========================================
 // EL MODAL DINÁMICO (Capa 2 y Multi-Slot)
