@@ -614,7 +614,6 @@ function onHospitalChange() {
   // Cambiamos el texto para que quede claro que es un contenedor vitalicio
   selServ.innerHTML = '<option value="">-- Elige Especialidad y Año --</option>' + serviciosFiltrados.map(p => `<option value="${p.id}">${p.servicio} (Contenedor: ${p.nombre})</option>`).join('');
 }
-
 async function solicitarUnirse() {
   const promoId = document.getElementById('sel-servicio').value;
   const fechaInicio = document.getElementById('onb-fecha-inicio').value;
@@ -622,22 +621,12 @@ async function solicitarUnirse() {
   if (!promoId) return alert("Por favor, selecciona una especialidad.");
   if (!fechaInicio) return alert("Por favor, establece tu fecha real de inicio de residencia.");
 
-  setStatus('Enviando...');
-  const { error } = await supabaseClient.from('perfiles').update({ 
-      promocion_id: promoId, 
-      estado: 'pendiente',
-      fecha_inicio_residencia: fechaInicio,
-      fecha_cambio_contrato: fechaInicio // Por defecto, es igual al inicio
-  }).eq('id', currentUserProfile.id);
+  // Guardamos las fechas primero en memoria local para que ejecutarSalidaFinal las use indirectamente
+  currentUserProfile.fecha_inicio_residencia = fechaInicio;
+  currentUserProfile.fecha_cambio_contrato = fechaInicio;
 
-  if (error) { alert("Error: " + error.message); } 
-  else { 
-      currentUserProfile.promocion_id = promoId; 
-      currentUserProfile.estado = 'pendiente'; 
-      currentUserProfile.fecha_inicio_residencia = fechaInicio;
-      currentUserProfile.fecha_cambio_contrato = fechaInicio;
-      evaluarEstadoUsuario(); 
-  }
+  // Delegamos en el motor para que verifique si el grupo está vacío y te corone admin
+  await ejecutarSalidaFinal(promoId);
 }
 
 // En la función abrirCrearPromocion(), quita el prompt del "año/R1" ya que ahora es unificado
@@ -1021,9 +1010,9 @@ async function abandonarGrupo() {
     iniciarProcesoSalida(null); // null significa que solo sale, no cambia a otro
 }
 
-async function solicitarCambioGrupo(nuevoId) {
-    if(currentUserProfile.promocion_id && !confirm("Si solicitas acceso a este nuevo grupo, abandonarás el actual inmediatamente. ¿Continuar?")) return;
-    iniciarProcesoSalida(nuevoId); // Pasa el ID del nuevo grupo al que quiere ir
+async function solicitarCambioGrupo(destinoId) {
+  if (!confirm("¿Seguro que deseas solicitar el cambio a este grupo? Tu estado volverá a estar pendiente o se evaluará si está vacío.")) return;
+  await ejecutarSalidaFinal(destinoId);
 }
 
 // EL PUNTO DE CONTROL (La Radiografía)
@@ -1128,21 +1117,60 @@ async function ejecutarSucesionYSalir(destinoId, promoIdActual) {
     ejecutarSalidaFinal(destinoId !== 'null' ? destinoId : null);
 }
 
-// EL MOTOR FINAL DE SALIDA (Para todos los caminos)
+// ==========================================
+// PUERTA ÚNICA DE ENTRADA Y SALIDA (Unificada)
+// ==========================================
 async function ejecutarSalidaFinal(destinoId) {
-    setStatus(destinoId ? 'Cambiando de grupo...' : 'Saliendo del grupo...');
-    
-    // Al salir, perdemos los galones (volvemos a estado pendiente, y si hay destinoId lo ponemos)
+    setStatus(destinoId ? 'Procesando entrada...' : 'Saliendo del grupo...');
+
+    // 1. ESCÁNER DE HIBERNACIÓN (Solo si entramos a un nuevo grupo)
+    if (destinoId) {
+        const { data: poblacion } = await supabaseClient.from('perfiles')
+            .select('id').eq('promocion_id', destinoId).eq('estado', 'aprobado');
+
+        if (!poblacion || poblacion.length === 0) {
+            if (!confirm("ℹ️ El contenedor está vacío (hibernando). Al entrar, serás coronado automáticamente como Dueño/Administrador. ¿Aceptas el cargo?")) {
+                setStatus('Conectado ✅');
+                return; // Aborta la operación si le da miedo el poder
+            }
+
+            // A. PROTOCOLO PRIMER COLONO: Le damos la medalla y guardamos fechas
+            await supabaseClient.from('promociones').update({ creador_id: currentUserProfile.id }).eq('id', destinoId);
+
+            const { error } = await supabaseClient.from('perfiles').update({
+                promocion_id: destinoId,
+                estado: 'aprobado',
+                rol: 'admin',
+                fecha_inicio_residencia: currentUserProfile.fecha_inicio_residencia, 
+                fecha_cambio_contrato: currentUserProfile.fecha_cambio_contrato || null 
+            }).eq('id', currentUserProfile.id);
+
+            if (error) return alert("Error: " + error.message);
+
+            // Actualizamos la memoria local
+            currentUserProfile.promocion_id = destinoId;
+            currentUserProfile.estado = 'aprobado';
+            currentUserProfile.rol = 'admin';
+            isAdmin = true;
+
+            alert("¡Has despertado el contenedor! Ahora eres el Administrador principal.");
+            return evaluarEstadoUsuario();
+        }
+    }
+
+    // 2. EJECUCIÓN DE SALIDA O SOLICITUD NORMAL
+    // Esta parte cubre tanto la salida simple (destinoId = null) como la solicitud a un grupo ocupado
     const { error } = await supabaseClient.from('perfiles').update({ 
-        promocion_id: destinoId, 
-        estado: 'pendiente' 
-        // Nota: NO tocamos el rol aquí para evitar el error de Check Constraint. 
-        // Seguiremos teniendo la etiqueta 'admin', pero como ya no estamos en el grupo, no sirve de nada.
+        promocion_id: destinoId || null, 
+        estado: 'pendiente',
+        fecha_inicio_residencia: currentUserProfile.fecha_inicio_residencia, 
+        fecha_cambio_contrato: currentUserProfile.fecha_cambio_contrato || null 
     }).eq('id', currentUserProfile.id);
     
-    if (error) return alert("Error al salir: " + error.message);
+    if (error) return alert("Error al actualizar perfil: " + error.message);
     
-    currentUserProfile.promocion_id = destinoId;
+    // Actualizamos la memoria local
+    currentUserProfile.promocion_id = destinoId || null;
     currentUserProfile.estado = 'pendiente';
     isAdmin = false; 
     
