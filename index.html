@@ -859,15 +859,34 @@ function getIllegalShiftsForUser(user, shiftsObj) {
 function getRotationKey(y, m) { return `${y}_${String(m).padStart(2,'0')}`; }
 function getRotation(y, m) {
   const key = getRotationKey(y, m);
+  // Si el admin guardó un orden manual específico para este mes, lo respetamos por completo
   if (state.customRotations[key]) return state.customRotations[key];
+  
   const totalDiff = (y - state.baseYear) * 12 + (m - state.baseMonth);
-  if (totalDiff < 0) return state.baseGroups;
-  let groups = state.baseGroups.map(g => [...g]);
+  if (totalDiff <= 0) return state.baseGroups;
+
+  // 1. Convertimos la base en una fila india plana
+  let filaIndia = (state.baseGroups || []).flat();
+  if (!state.residentesFijos) state.residentesFijos = [];
+
+  // 2. Extraemos a los residentes fijos de la rotación mensual para que no se muevan
+  const fijosPresentes = filaIndia.filter(n => state.residentesFijos.includes(n));
+  let residentesMoviles = filaIndia.filter(n => !state.residentesFijos.includes(n));
+
+  // 3. Hacemos girar la rueda REPETIDAMENTE solo para los residentes móviles
+  // (Equivalente exacto a vuestro sistema de pasar el último al principio del grupo)
   for (let i = 0; i < totalDiff; i++) {
-    groups = groups.map(g => { if (g.length > 0) { const last = g.pop(); g.unshift(last); } return g; });
-    if (groups.length > 0) { const lastGroup = groups.pop(); groups.unshift(lastGroup); }
+      if (residentesMoviles.length > 0) {
+          const ultimo = residentesMoviles.pop();
+          residentesMoviles.unshift(ultimo);
+      }
   }
-  return groups;
+
+  // 4. Volvemos a unificar la fila india colocando a los fijos inmóviles al principio
+  const filaRotadaFinal = [...fijosPresentes, ...residentesMoviles];
+
+  // 5. Pasamos la fila india final por el empaquetador para trazar las fronteras 3-4
+  return reempaquetarGrupos(filaRotadaFinal);
 }
 
 function getAllResidents() {
