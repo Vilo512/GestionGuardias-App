@@ -2493,7 +2493,7 @@ function renderAlertaCargaMensual() {
 // CALCULADOR DEL TURNO ACTUAL
 // ==========================================
 function getCurrentTurn(y, m) {
-    const mk = formatMonthKey(y, m);
+    const mk = getRotationKey(y, m);
     if (!state.configMes[mk]) return null;
     
     const orden = state.configMes[mk].ordenSeleccion || [];
@@ -2548,98 +2548,58 @@ function getCurrentTurn(y, m) {
 // ==========================================
 // CALCULADORA DE FASES Y SUBASTAS (JUSTICIA)
 // ==========================================
-function getAnalisisFestivos(y, m) {
-    let huecosFestivosObligatorios = 0;
-    const totalDias = getDaysInMonth(y, m);
+function getCurrentTurn(y, m) {
+    const mk = getRotationKey(y, m); // 🛠️ CORREGIDO: Usamos el nombre nativo de tu app
+    if (!state.configMes || !state.configMes[mk]) return null;
     
+    const orden = state.configMes[mk].ordenSeleccion || [];
+    if (orden.length === 0) return null;
+    
+    // 💡 FILTRO DE BAJAS: Solo consideramos residentes activos para la ronda de turnos de este mes
+    const activosMes = getResidentesActivosEnMes(y, m);
+    
+    // Obtenemos los límites del plan del mes
     const uProfile = currentUserProfile;
     const miPlan = promoConfig.planes?.find(p => p.nombre === uProfile?.plan_asociado) || promoConfig.planes?.[0];
-    const minimoBase = miPlan ? (miPlan.minGlobalFestivos || 1) : 1;
+    const maxGuardias = miPlan ? (miPlan.maxGuardiasMes || 5) : 5;
 
-    if (!miPlan) return { estado: 'libre', exceso: 0, nominados: [], minimoBase };
-
-    for (let d = 1; d <= totalDias; d++) {
-        const tag = getDayTag(y, m, d);
-        if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
-            const dk = formatDateKey(y, m, d);
-            miPlan.servicios.forEach(svc => {
-                if (svc.requiereHabilitacion && !state.pedWhitelist[dk]) return;
-                huecosFestivosObligatorios += (svc.plazasPorDia || 1);
-            });
-        }
-    }
-
-    // 💡 FILTRO DE BAJAS: Solo contamos los residentes ACTIVOS en este mes específico
-    const residentes = getResidentesActivosEnMes(y, m);
-    const totalResidents = residentes.length;
-    if (totalResidents === 0) return { estado: 'libre', exceso: 0, nominados: [], minimoBase };
-
-    const huecosBase = minimoBase * totalResidents;
-    let excesoReal = huecosFestivosObligatorios - huecosBase;
-
-    // Si los números cuadran perfectos desde el principio, es un mes libre
-    if (excesoReal <= 0) return { estado: 'libre', exceso: 0, nominados: [], minimoBase, historico: {} };
-
-    // Rastreamos quién ha cogido ya festivos este mes
-    let festivosAsignadosPorResidente = {};
-    residentes.forEach(r => festivosAsignadosPorResidente[r] = 0);
-
-    for (let d = 1; d <= totalDias; d++) {
-        const tag = getDayTag(y, m, d);
-        if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
-            const dk = formatDateKey(y, m, d);
-            if (state.shifts[dk]) {
-                Object.keys(state.shifts[dk]).forEach(user => {
-                    if (festivosAsignadosPorResidente[user] !== undefined) {
-                        festivosAsignadosPorResidente[user]++;
+    // Recorremos los "grupos de prioridad" (Turno 1, Turno 2...)
+    for (let ronda = 1; ronda <= maxGuardias; ronda++) {
+        for (let i = 0; i < orden.length; i++) {
+            const residente = orden[i];
+            
+            // 🛑 SI EL RESIDENTE ESTÁ DE BAJA ESTE MES, SE SALTA AUTOMÁTICAMENTE
+            if (!activosMes.includes(residente)) {
+                continue; 
+            }
+            
+            // Si el usuario se ha pausado manualmente el mes en la interfaz, lo respetamos
+            if (state.configMes[mk].pausados && state.configMes[mk].pausados[residente]) {
+                continue;
+            }
+            
+            // Calculamos qué lleva asignado en este momento
+            const prog = getUserProgress(residente, y, m);
+            
+            // Evaluamos si le toca rellenar en esta ronda
+            if (prog.total < ronda) {
+                // Validación extra: Si el mes está en modo bloqueo crítico/subasta cerrada, 
+                // forzamos a que el residente complete sus festivos obligatorios antes de seguir sumando normales
+                const analisis = getAnalisisFestivos(y, m);
+                if ((analisis.estado === 'critico' || analisis.estado === 'subasta_cerrada') && analisis.nominados.includes(residente)) {
+                    // 🛠️ CORREGIDO: Vinculamos minimoBase a analisis.minimoBase
+                    if (prog.festivos < (analisis.minimoBase + 1) && prog.total < maxGuardias) {
+                        return residente;
                     }
-                });
+                }
+                
+                return residente;
             }
         }
     }
-
-    // Restamos al exceso los festivos que ya han sido cubiertos por voluntarios (o forzados)
-    let excesosYaCubiertos = 0;
-    let voluntarios = [];
-    residentes.forEach(r => {
-        if (festivosAsignadosPorResidente[r] > minimoBase) {
-            let aportacion = festivosAsignadosPorResidente[r] - minimoBase;
-            excesosYaCubiertos += aportacion;
-            voluntarios.push(r);
-        }
-    });
-
-    excesoReal = Math.max(0, excesoReal - excesosYaCubiertos);
-
-    // Si ya no quedan excesos colgados, la subasta o la crisis se ha resuelto
-    if (excesoReal === 0) return { estado: 'subasta_resuelta', exceso: 0, nominados: [], minimoBase, voluntarios, historico: {} };
-
-    // Si sigue habiendo exceso, buscamos a quién le toca pagar los platos rotos (Justicia de Año de Residencia)
-    const historico = getHistoricoFestivosResidentes(y, m); 
-    const residentesOrdenados = [...residentes].sort((a, b) => historico[a] - historico[b]);
-    const nominados = residentesOrdenados.slice(0, Math.ceil(excesoReal));
-
-    let estado = 'critico';
-    let diasParaCierre = 0;
     
-    const excesoOriginal = huecosFestivosObligatorios - huecosBase;
-
-    if (excesoOriginal <= 2) {
-        const fechaCierre = new Date(y, m - 1, 15);
-        const hoy = new Date();
-        hoy.setHours(0,0,0,0);
-        
-        if (hoy < fechaCierre) { 
-						estado = 'subasta_abierta';
-            diasParaCierre = Math.ceil((fechaCierre - hoy) / (1000 * 60 * 60 * 24));
-        } else {
-            estado = 'subasta_cerrada';
-        }
-    }
-
-    return { estado, exceso: excesoReal, nominados, minimoBase, diasParaCierre, historico, voluntarios };
+    return null; // Todo el mundo ha completado sus rondas o el mes está cerrado
 }
-	
 // ==========================================
 // FILTRO DE RESIDENTES ACTIVOS POR MES (BAJAS)
 // ==========================================
