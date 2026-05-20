@@ -866,14 +866,18 @@ function getRotation(y, m) {
 
   if (!state.residentesFijos) state.residentesFijos = [];
 
-  // 1. Extraemos la Fila India original completa (Base)
-  let filaIndiaBase = (state.baseGroups || []).flat();
+  // 1. Extraemos los fijos y los móviles de la estructura BASE original
+  let fijosBase = (state.baseGroups || []).flat().filter(n => state.residentesFijos.includes(n));
+  
+  // Para los móviles, cogemos la estructura de grupos de la BASE eliminando si hubiera fijos
+  let gruposMovilesBase = (state.baseGroups || []).map(g => g.filter(n => !state.residentesFijos.includes(n))).filter(g => g.length > 0);
+  
+  // Si por casualidad el primer grupo de la base eran solo fijos, lo quitamos de la ecuación móvil
+  if (gruposMovilesBase.length > 4 && fijosBase.length > 0) {
+      gruposMovilesBase.shift();
+  }
 
-  // 2. SEPARACIÓN DE AGUAS
-  let fijosBase = filaIndiaBase.filter(n => state.residentesFijos.includes(n));
-  let movilesBase = filaIndiaBase.filter(n => !state.residentesFijos.includes(n));
-
-  // 3. RUEDA A: Rotación interna de los fijos (para que roten entre ellos)
+  // 2. RUEDA A: Rotación interna de los fijos (Grupo Especial arriba)
   let fijosRotados = [...fijosBase];
   for (let i = 0; i < totalDiff; i++) {
       if (fijosRotados.length > 1) {
@@ -882,29 +886,36 @@ function getRotation(y, m) {
       }
   }
 
-  // 4. RUEDA B: Rotación tradicional por bloques de los residentes móviles
-  let movilesRotados = [...movilesBase];
+  // 3. RUEDA B: Mecánica de bloques tradicional (ABC, DEF -> BCA, FDE)
+  let gruposMovilesRotados = gruposMovilesBase.map(g => [...g]);
+
   for (let i = 0; i < totalDiff; i++) {
-      if (movilesRotados.length > 0) {
-          const ultimoMovil = movilesRotados.pop();
-          movilesRotados.unshift(ultimoMovil);
+      // Paso A: Rotación interna de cada bloque (el último pasa a ser el primero)
+      gruposMovilesRotados = gruposMovilesRotados.map(g => {
+          if (g.length > 1) {
+              const ultimoDelGrupo = g.pop();
+              g.unshift(ultimoDelGrupo);
+          }
+          return g;
+      });
+
+      // Paso B: Rotación de los bloques enteros (el último bloque pasa a ser el primero)
+      if (gruposMovilesRotados.length > 1) {
+          const ultimoBloque = gruposMovilesRotados.pop();
+          gruposMovilesRotados.unshift(ultimoBloque);
       }
   }
 
-  // 5. EMPAQUETADO INDEPENDIENTE
-  // Los fijos se quedan en su propio grupo exclusivo arriba (Grupo 0)
-  // Los móviles se reparten equitativamente en los 4 grupos estándar abajo (Regla 3-4)
-  let gruposMoviles = reempaquetarGrupos(movilesRotados);
-  
+  // 4. ENSAMBLAJE FINAL
   let resultadoFinal = [];
   if (fijosRotados.length > 0) {
-      resultadoFinal.push(fijosRotados); // Grupo 1 (Fijos)
+      resultadoFinal.push(fijosRotados); // Grupo Especial arriba del todo
   }
-  resultadoFinal.push(...gruposMoviles);  // Grupos siguientes (Móviles)
+  resultadoFinal.push(...gruposMovilesRotados); // Los 4 bloques tradicionales perfectamente rotados
 
   return resultadoFinal;
 }
-
+	
 function getAllResidents() {
   const res = new Set(state.baseGroups.flat());
   Object.values(state.customRotations).forEach(gList => gList.flat().forEach(r => res.add(r)));
