@@ -477,6 +477,8 @@ function normalizeConfig(config) {
             if (s.requiereHabilitacion === undefined) s.requiereHabilitacion = (s.nombre === 'Pediatría');
             if (!s.generaSaliente) s.generaSaliente = { laborable: true, vispera: true, fin_de_semana: (s.nombre!=='PAC Balaguer'), festivo_intersemanal: (s.nombre!=='PAC Balaguer') };
             if (!s.reglasObligatorias) s.reglasObligatorias = [];
+			// PARCHE DE COLOR: Garantizar un código HEX válido para el selector HTML5
+            if (!s.color || !/^#[0-9A-F]{6}$/i.test(s.color)) s.color = '#3b82f6';
         });
     });
     return config;
