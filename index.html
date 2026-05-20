@@ -2315,9 +2315,40 @@ async function adminAprobarUsuario(userId, userName) {
     setStatus('Aprobando...');
     const { error } = await supabaseClient.from('perfiles').update({ estado: 'aprobado' }).eq('id', userId);
     if(error) return alert("Error: " + error.message);
-    if (!state.baseGroups || state.baseGroups.length === 0) state.baseGroups = [[userName]];
-    else state.baseGroups[state.baseGroups.length - 1].push(userName);
+    
+    // 🧠 MOTOR DE BALANCEO: Aseguramos que haya 4 grupos siempre
+    if (!state.baseGroups || state.baseGroups.length < 4) {
+        while((state.baseGroups || []).length < 4) {
+            if (!state.baseGroups) state.baseGroups = [];
+            state.baseGroups.push([]);
+        }
+    }
+    
+    // 🎯 Busca el grupo con MENOS integrantes y lo mete ahí (equilibrio perfecto)
+    let minIndex = 0;
+    let minLength = state.baseGroups[0].length;
+    for (let i = 1; i < state.baseGroups.length; i++) {
+        if (state.baseGroups[i].length < minLength) {
+            minLength = state.baseGroups[i].length;
+            minIndex = i;
+        }
+    }
+    state.baseGroups[minIndex].push(userName);
+    
     await saveState(); await renderAccountsList(); setStatus('Sincronizado ✅');
+}
+
+async function adminExpulsarUsuario(userId, userName) {
+    if(!confirm(`¿Seguro que quieres expulsar a ${userName}?`)) return;
+    await supabaseClient.from('perfiles').update({ promocion_id: null, estado: 'pendiente' }).eq('id', userId);
+    
+    // 🧠 MOTOR DE BALANCEO: Si se va, lo extirpamos de su grupo sin romper el orden de los demás
+    if (state.baseGroups) {
+        state.baseGroups = state.baseGroups.map(grupo => grupo.filter(n => n !== userName));
+    }
+    
+    await saveState();
+    renderAccountsList();
 }
 
 async function adminRechazarUsuario(userId) {
@@ -2326,12 +2357,24 @@ async function adminRechazarUsuario(userId) {
     renderAccountsList();
 }
 
-async function adminExpulsarUsuario(userId, userName) {
-    if(!confirm(`¿Seguro que quieres expulsar a ${userName}?`)) return;
-    await supabaseClient.from('perfiles').update({ promocion_id: null, estado: 'pendiente' }).eq('id', userId);
-    renderAccountsList();
+function renderRotationView() { 
+    const y = curDate.getFullYear(), m = curDate.getMonth(); 
+    const groups = getRotation(y, m); 
+    const container = document.getElementById('rot-content'); 
+    container.innerHTML = ''; 
+    let order = 1; 
+    groups.forEach((g, i) => { 
+        const div = document.createElement('div'); div.className = 'rot-group'; 
+        div.innerHTML = `<h4 style="margin-bottom:0.5rem; color:var(--dark);">Grupo ${i+1}</h4>` + g.map(res => `<div style="padding:4px 0; border-bottom:1px dashed #e2e8f0; font-size:0.9rem;"><strong>${order++}.</strong> ${res}</div>`).join(''); 
+        container.appendChild(div); 
+    }); 
+    if (isAdmin) { 
+        document.getElementById('admin-rot-tools').style.display = 'block'; 
+        if (!editingGroups) editingGroups = JSON.parse(JSON.stringify(groups)); 
+        renderEditor(); 
+    } else document.getElementById('admin-rot-tools').style.display = 'none'; 
 }
-function renderRotationView() { const y = curDate.getFullYear(), m = curDate.getMonth(); const groups = getRotation(y, m); const container = document.getElementById('rot-content'); container.innerHTML = ''; let order = 1; groups.forEach((g, i) => { const div = document.createElement('div'); div.className = 'rot-group'; div.innerHTML = `<h4 style="margin-bottom:0.5rem;">Grupo ${i+1}</h4>` + g.map(res => `<div style="padding:4px 0;"><strong>${order++}.</strong> ${res}</div>`).join(''); container.appendChild(div); }); if (isAdmin) { document.getElementById('admin-rot-tools').style.display = 'block'; if (!editingGroups) editingGroups = JSON.parse(JSON.stringify(groups)); renderEditor(); } else document.getElementById('admin-rot-tools').style.display = 'none'; }
+
 function renderEditor() { 
     const setupC = document.getElementById('setup-groups'); 
     setupC.innerHTML = ''; 
@@ -2339,9 +2382,16 @@ function renderEditor() {
         const gdiv = document.createElement('div'); gdiv.className = 'rot-group'; 
         gdiv.innerHTML = `<div style="display:flex; justify-content:space-between; margin-bottom:8px;"><strong>Grupo ${i+1}</strong><div><button class="icon-btn" onclick="moveGroup(${i}, -1)">⬆️</button><button class="icon-btn" onclick="moveGroup(${i}, 1)">⬇️</button><button class="danger icon-btn" style="margin-left:8px;" onclick="editorRemoveGroup(${i})">X</button></div></div>` + 
         g.map((res, mi) => `<div class="editor-row"><input value="${res}" list="lista-usuarios-aprobados" id="edit-g${i}-m${mi}" style="margin:0; width:140px;" onchange="syncEditorData()"><button class="icon-btn" onclick="moveRes(${i}, ${mi}, 'up')">⬆️</button><button class="icon-btn" onclick="moveRes(${i}, ${mi}, 'down')">⬇️</button><button class="icon-btn" onclick="moveRes(${i}, ${mi}, 'left')">⬅️</button><button class="icon-btn" onclick="moveRes(${i}, ${mi}, 'right')">➡️</button><button class="danger icon-btn" onclick="editorRemoveMember(${i}, ${mi})">X</button></div>`).join('') + 
-        `<button style="margin-top:8px; padding:2px 8px;" onclick="editorAddMember(${i})">+ Añadir Residente</button>`; 
+        `<button style="margin-top:8px; padding:2px 8px; font-size:0.8rem;" onclick="editorAddMember(${i})">+ Añadir Residente Virtual</button>`; 
         setupC.appendChild(gdiv); 
     }); 
+    
+    // Añadimos el botón del Caos al final del editor si no existe ya
+    if(!document.getElementById('btn-shuffle')) {
+        const btnContainer = document.createElement('div');
+        btnContainer.innerHTML = `<button id="btn-shuffle" class="danger" style="margin-bottom:1rem; width:100%; border:2px dashed var(--fest);" onclick="adminAutoShuffleGroups()">🎲 Re-balancear Todos los Grupos (Aleatorio)</button>`;
+        setupC.parentNode.insertBefore(btnContainer, setupC);
+    }
 }
 function syncEditorData() { if (!editingGroups) return; editingGroups.forEach((g, i) => { g.forEach((_, mi) => { const el = document.getElementById(`edit-g${i}-m${mi}`); if (el) editingGroups[i][mi] = el.value.trim(); });}); }
 function moveRes(gI, rI, dir) { syncEditorData(); const g = editingGroups; if (dir === 'up' && rI > 0) [g[gI][rI-1], g[gI][rI]] = [g[gI][rI], g[gI][rI-1]]; else if (dir === 'down' && rI < g[gI].length - 1) [g[gI][rI+1], g[gI][rI]] = [g[gI][rI], g[gI][rI+1]]; else if (dir === 'left' && gI > 0) g[gI-1].push(g[gI].splice(rI, 1)[0]); else if (dir === 'right' && gI < g.length - 1) g[gI+1].push(g[gI].splice(rI, 1)[0]); renderEditor(); }
@@ -2651,9 +2701,18 @@ function renderPerfilUsuario() {
     if (!state.bajasLargas) state.bajasLargas = [];
     const misBajas = state.bajasLargas.filter(b => b.user === uProfile.nombre_mostrar);
 
-	const hoyDK = formatDateKey(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+		const hoyDK = formatDateKey(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
     const planActivoHoy = getPlanForUserOnDate(uProfile, hoyDK);
     const nombrePlanHoy = planActivoHoy ? planActivoHoy.nombre : 'Sin Plan (Fecha Futura)';
+
+	// Antes de renderizar el HTML del perfil, preparamos las opciones de los selectores
+		let dDia = '01', dMes = '01';
+		if (uProfile.fecha_cambio_contrato) {
+		    const parts = uProfile.fecha_cambio_contrato.split('-');
+		    if (parts.length === 3) { dMes = parts[1]; dDia = parts[2]; }
+		}
+		const diaOptions = Array.from({length: 31}, (_, i) => { let v = String(i+1).padStart(2,'0'); return `<option value="${v}" ${v === dDia ? 'selected' : ''}>${i+1}</option>`; }).join('');
+		const mesOptions = MONTHS.map((m, i) => { let v = String(i+1).padStart(2,'0'); return `<option value="${v}" ${v === dMes ? 'selected' : ''}>${m}</option>`; }).join('');
 
     // 3. Renderizar el HTML de la sección Perfil
     container.innerHTML = `
@@ -2671,17 +2730,24 @@ function renderPerfilUsuario() {
 
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px;">
             
-            <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between;">
-                <div>
-                    <h3 style="margin-bottom: 12px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">🪪 Datos de Contrato</h3>
-                    <div style="margin-bottom: 12px;">
-                        <label style="font-size: 0.8rem; font-weight: bold; color: #64748b; display: block; margin-bottom: 4px;">Fecha de Cambio de Contrato:</label>
-                        <input type="date" id="perfil-fecha-contrato" value="${uProfile.fecha_cambio_contrato || ''}" style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
-                    </div>
-                    <p style="font-size: 0.8rem; color: #94a3b8; line-height: 1.4;">* Esta fecha determina de forma automatizada cuándo se resetea tu contador de Justicia Histórica al pasar de año (ej. de R1 a R2).</p>
-                </div>
-                <button onclick="guardarFechaContratoPerfil()" style="width:100%; margin-top: 16px; background: var(--adu); color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer;">💾 Actualizar Contrato</button>
+<div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between;">
+    <div>
+        <h3 style="margin-bottom: 12px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">🪪 Datos de Contrato</h3>
+        <div style="margin-bottom: 12px;">
+            <label style="font-size: 0.8rem; font-weight: bold; color: #64748b; display: block; margin-bottom: 4px;">Día y Mes de Cambio de Nivel (R):</label>
+            <div style="display: flex; gap: 8px;">
+                <select id="perfil-dia-contrato" style="margin:0; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 80px;">
+                    ${diaOptions}
+                </select>
+                <select id="perfil-mes-contrato" style="margin:0; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; flex: 1;">
+                    ${mesOptions}
+                </select>
             </div>
+        </div>
+        <p style="font-size: 0.8rem; color: #94a3b8; line-height: 1.4;">* Esta fecha determina de forma automatizada cuándo se resetea tu contador de Justicia Histórica al pasar de año (ej. de R1 a R2).</p>
+    </div>
+    <button onclick="guardarFechaContratoPerfil()" style="width:100%; margin-top: 16px; background: var(--adu); color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer;">💾 Actualizar Contrato</button>
+</div>
 
             <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
                 <h3 style="margin-bottom: 12px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">📊 Balance Año de Residencia</h3>
@@ -2756,27 +2822,23 @@ function renderPerfilUsuario() {
 }
 // A) GUARDAR LA FECHA DE CAMBIO DE CONTRATO DESDE EL PERFIL
 async function guardarFechaContratoPerfil() {
-    const nuevaFecha = document.getElementById('perfil-fecha-contrato').value;
-    if (!nuevaFecha) return alert("Por favor, introduce una fecha válida.");
+    const dia = document.getElementById('perfil-dia-contrato').value;
+    const mes = document.getElementById('perfil-mes-contrato').value;
+    const nuevaFecha = `2000-${mes}-${dia}`; // Reconstruimos el año bisiesto silenciosamente
 
     const uProfile = currentUserProfile;
     const pIdx = globalProfiles.findIndex(p => p.nombre_mostrar === uProfile.nombre_mostrar);
     if (pIdx !== -1) {
         globalProfiles[pIdx].fecha_cambio_contrato = nuevaFecha;
-        
         try {
-            const { error } = await supabaseClient // CORREGIDO
-                .from('perfiles') // CORREGIDO
+            const { error } = await supabaseClient
+                .from('perfiles')
                 .update({ fecha_cambio_contrato: nuevaFecha })
-                .eq('id', uProfile.id); // CORREGIDO: Buscamos por ID, es más seguro
-                
+                .eq('id', uProfile.id);
             if (error) throw error;
-            alert("¡Fecha de contrato actualizada con éxito! El motor recalculará tus años de residencia.");
+            alert("¡Fecha de contrato actualizada con éxito!");
             renderPerfilUsuario();
-        } catch (err) {
-            console.error("Error al actualizar perfil:", err);
-            alert("Error al guardar en Supabase. Se mantendrá localmente durante esta sesión.");
-        }
+        } catch (err) { alert("Error al guardar en Supabase."); }
     }
 }
 
@@ -2818,6 +2880,34 @@ async function eliminarBajaPerfil(idBaja) {
     
     await saveState(); // CORREGIDO
     renderPerfilUsuario();
+}
+
+async function adminAutoShuffleGroups() {
+    if (!confirm("⚠️ Se van a borrar los grupos manuales actuales. El sistema re-asignará a TODOS los residentes (aprobados y virtuales) de forma 100% ALEATORIA y EQUITATIVA en 4 grupos. ¿Continuar?")) return;
+    
+    const residentes = getAllResidents(); // Coge a todos los que existan ahora mismo
+    
+    // Algoritmo de barajado Fisher-Yates (aleatoriedad absoluta)
+    for (let i = residentes.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [residentes[i], residentes[j]] = [residentes[j], residentes[i]];
+    }
+    
+    // Repartidor equitativo a 4 grupos
+    state.baseGroups = [[], [], [], []];
+    residentes.forEach((r, idx) => {
+        state.baseGroups[idx % 4].push(r); // Hace reparto cíclico: 0,1,2,3,0,1,2,3...
+    });
+    
+    // Reiniciamos la base al mes actual para que la rotación empiece a girar desde HOY
+    state.baseMonth = curDate.getMonth(); 
+    state.baseYear = curDate.getFullYear();
+    
+    // Limpiamos tu editor manual si estaba abierto
+    editingGroups = JSON.parse(JSON.stringify(state.baseGroups));
+    
+    await saveState();
+    renderRotationView();
 }
 </script>
 </body>
