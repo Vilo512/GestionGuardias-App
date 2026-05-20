@@ -2419,6 +2419,7 @@ function calcularViabilidadFestivosMensual(ano, mes) {
         necesitaRepartoEquitativo: cargaMedia > (promoConfig.minGlobalFestivos || 1)
     };
 }
+	
 function getHistoricoFestivosResidentes() {
     let historico = {};
     getAllResidents().forEach(r => historico[r] = 0);
