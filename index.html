@@ -449,6 +449,10 @@ async function saveState() {
   if (!currentUserProfile || !currentUserProfile.promocion_id) return; 
   setStatus('Guardando...');
   try {
+    // EL TRUCO: Forzamos a la librería a comprobar su propio token en silencio. 
+    // Si la pestaña estaba dormida, lo renovará aquí mismo antes de continuar.
+    await supabaseClient.auth.getSession(); 
+    
     const { error } = await supabaseClient.from('estados_promocion').upsert({ promocion_id: currentUserProfile.promocion_id, datos: state });
     
     if (error) throw error;
@@ -456,7 +460,7 @@ async function saveState() {
   } catch (err) {
     console.error("Error al guardar:", err);
     setStatus('Error de red ❌', true);
-    alert("La conexión con el servidor ha fallado. Recarga la página (F5) e inténtalo de nuevo.");
+    alert("La conexión con el servidor ha fallado. Es posible que tu sesión haya caducado tras mucho tiempo inactivo. Recarga la página.");
   }
 }
 
@@ -537,45 +541,13 @@ async function initApp() {
         const { data: { session } } = await supabaseClient.auth.getSession();
         await handleSession(session);
         
-        // 1. CONTROL ESTRICTO DE EVENTOS DE SESIÓN
+        // Dejamos que Supabase gestione sus tokens internamente en silencio.
+        // Solo reaccionamos visualmente si el usuario hace Login o Logout intencionadamente.
         supabaseClient.auth.onAuthStateChange(async (event, newSession) => {
-            if (event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-                authSession = newSession; // Sincroniza credenciales en la sombra sin tocar la UI
-                return; 
-            }
             if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
                 await handleSession(newSession);
             }
         });
-
-        // 2. EL DESFIBRILADOR DE CONEXIÓN (Al cambiar y volver de pestaña)
-        document.addEventListener('visibilitychange', async () => {
-            if (document.visibilityState === 'visible') {
-                // Forzamos a Supabase a refrescar el estado de la sesión de manera activa
-                try {
-                    const { data: { session }, error } = await supabaseClient.auth.refreshSession();
-                    if (error || !session) {
-                        // Si el token se ha corrompido del todo en el limbo, pedimos una nueva sesión limpia
-                        const { data: backup } = await supabaseClient.auth.getSession();
-                        if (backup.session) {
-                            authSession = backup.session;
-                        }
-                    } else {
-                        authSession = session;
-                    }
-                    
-                    // Actualizamos visualmente el badge a conectado por si se había quedado "zombi"
-                    const b = document.getElementById('status-badge');
-                    if (b) {
-                        b.textContent = 'Conectado ✅';
-                        b.className = 'status-ok';
-                    }
-                } catch (e) {
-                    console.log("Error silencioso al reanimar Supabase:", e);
-                }
-            }
-        });
-
     } catch (err) {
         setStatus("Error de sesión", true);
     }
