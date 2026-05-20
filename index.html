@@ -2400,27 +2400,38 @@ function getHistoricoFestivosResidentes(targetY, targetM) {
     
     if (!state.shifts) return historico;
     
+    // Obtenemos el "Año de residencia" actual del residente en el mes que estamos analizando
+    // targetDate es el día 1 del mes objetivo
+    const targetDate = new Date(targetY, targetM, 1);
+
     Object.keys(state.shifts).forEach(dk => {
-        const parts = dk.split('_'); // YYYY_MM_DD
-        if (parts.length === 3) {
-            const y = parseInt(parts[0]);
-            const m = parseInt(parts[1]) - 1;
-            const d = parseInt(parts[2]);
+        const parts = dk.split('_');
+        const y = parseInt(parts[0]), m = parseInt(parts[1]) - 1, d = parseInt(parts[2]);
+        
+        // 1. Filtro temporal estricto: solo el pasado del mismo año de residencia
+        if (y > targetY || (y === targetY && m >= targetM)) return;
+        
+        // Buscamos el usuario en los perfiles para saber su fecha de inicio y cambio
+        Object.keys(state.shifts[dk]).forEach(user => {
+            const uProfile = globalProfiles.find(p => p.nombre_mostrar === user);
+            if (!uProfile) return;
+
+            // 2. Calculamos el nivel (Año de residencia) del residente EN EL MOMENTO DE LA GUARDIA
+            const nivelGuardia = getUserLevelOnDate(uProfile, dk);
             
-            // 🛑 FILTRO DE REALIDAD TEMPORAL: 
-            // Si la guardia es de un mes IGUAL O FUTURO al que estamos organizando, la ignoramos.
-            // Solo cuenta el pasado estricto.
-            if (y > targetY || (y === targetY && m >= targetM)) return;
-            
-            const tag = getDayTag(y, m, d);
-            if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
-                Object.keys(state.shifts[dk]).forEach(user => {
+            // 3. Calculamos el nivel (Año de residencia) del residente EN EL MES OBJETIVO
+            const nivelObjetivo = getUserLevelOnDate(uProfile, formatDateKey(targetY, targetM, 1));
+
+            // 4. SOLO contamos si estamos en el mismo año de residencia que el mes que estamos organizando
+            if (nivelGuardia === nivelObjetivo) {
+                const tag = getDayTag(y, m, d);
+                if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
                     if (historico[user] !== undefined) {
                         historico[user]++;
                     }
-                });
+                }
             }
-        }
+        });
     });
     
     return historico;
