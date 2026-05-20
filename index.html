@@ -352,7 +352,7 @@
 // ==========================================
 const SUPABASE_URL = 'https://elmpelhplacgkgfuiwno.supabase.co'; 
 const SUPABASE_KEY = 'sb_publishable_xeqDUYHHiGZTMcCG4IQ8kA_JVPG38X0'; 
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const MONTHS = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 
@@ -449,19 +449,36 @@ async function saveState() {
   if (!currentUserProfile || !currentUserProfile.promocion_id) return; 
   setStatus('Guardando...');
   try {
-    // CORTAFUEGOS: Si la base de datos tarda más de 8 segundos, forzamos un corte.
-    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout de red")), 8000));
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout de red")), 6000));
     const peticionGuardado = supabaseClient.from('estados_promocion').upsert({ promocion_id: currentUserProfile.promocion_id, datos: state });
     
-    // Compiten la petición y el temporizador. Si el temporizador gana, lanza error.
     const { error } = await Promise.race([peticionGuardado, timeout]);
-    
     if (error) throw error;
     setStatus('Sincronizado ✅');
+    
   } catch (err) {
-    console.error("Error al guardar:", err);
-    setStatus('Error de red ❌', true);
-    alert("Se ha perdido la conexión con el servidor (posible inactividad prolongada).\nPor favor, recarga la página (F5) para reconectar y volver a intentarlo.");
+    if (err.message === "Timeout de red") {
+        // Supabase se ha atascado internamente. Lo destruimos, creamos uno nuevo y reintentamos.
+        setStatus('Reconectando...');
+        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        supabaseClient.auth.onAuthStateChange(async (event, newSession) => {
+            if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') await handleSession(newSession);
+            else authSession = newSession;
+        });
+        
+        // Segundo intento con el cliente limpio
+        const { error: retryErr } = await supabaseClient.from('estados_promocion').upsert({ promocion_id: currentUserProfile.promocion_id, datos: state });
+        if (retryErr) {
+             setStatus('Error de red ❌', true);
+             alert("Fallo crítico de conexión con la base de datos.");
+        } else {
+             setStatus('Sincronizado ✅');
+        }
+    } else {
+        console.error("Error al guardar:", err);
+        setStatus('Error de red ❌', true);
+        alert("Error al guardar en la base de datos.");
+    }
   }
 }
 
@@ -543,13 +560,21 @@ async function initApp() {
         await handleSession(session);
         
         supabaseClient.auth.onAuthStateChange(async (event, newSession) => {
-            // ELIMINAMOS EL DEADLOCK: Solo tocamos la interfaz en Login/Logout explícito.
-            // Ignoramos los eventos silenciosos como 'TOKEN_REFRESHED' que colgaban la app.
             if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
                 await handleSession(newSession);
             } else {
-                // Actualiza la memoria silenciosamente sin lanzar consultas a la base de datos
-                authSession = newSession; 
+                authSession = newSession;
+            }
+        });
+
+        // DESTRUCTOR DE BLOQUEOS: Si vuelves a la pestaña, recreamos Supabase limpio.
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+                supabaseClient.auth.onAuthStateChange(async (event, newSession) => {
+                    if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') await handleSession(newSession);
+                    else authSession = newSession;
+                });
             }
         });
     } catch (err) {
