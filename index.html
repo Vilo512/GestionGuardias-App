@@ -2394,25 +2394,35 @@ function calcularViabilidadFestivosMensual(ano, mes) {
     };
 }
 	
-function getHistoricoFestivosResidentes() {
+function getHistoricoFestivosResidentes(targetY, targetM) {
     let historico = {};
     getAllResidents().forEach(r => historico[r] = 0);
+    
     if (!state.shifts) return historico;
     
     Object.keys(state.shifts).forEach(dk => {
-        const parts = dk.split('_');
+        const parts = dk.split('_'); // YYYY_MM_DD
         if (parts.length === 3) {
             const y = parseInt(parts[0]);
             const m = parseInt(parts[1]) - 1;
             const d = parseInt(parts[2]);
+            
+            // 🛑 FILTRO DE REALIDAD TEMPORAL: 
+            // Si la guardia es de un mes IGUAL O FUTURO al que estamos organizando, la ignoramos.
+            // Solo cuenta el pasado estricto.
+            if (y > targetY || (y === targetY && m >= targetM)) return;
+            
             const tag = getDayTag(y, m, d);
             if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
                 Object.keys(state.shifts[dk]).forEach(user => {
-                    if (historico[user] !== undefined) historico[user]++;
+                    if (historico[user] !== undefined) {
+                        historico[user]++;
+                    }
                 });
             }
         }
     });
+    
     return historico;
 }
 
@@ -2509,7 +2519,7 @@ function getAnalisisFestivos(y, m) {
     if (excesoReal <= 0) return { estado: 'libre', exceso: 0, nominados: [], minimoBase };
 
     // Calcular nominados por justicia histórica
-    const historico = getHistoricoFestivosResidentes();
+    const historico = getHistoricoFestivosResidentes(y, m);
     const residentesOrdenados = [...residentes].sort((a, b) => historico[a] - historico[b]);
     const nominados = residentesOrdenados.slice(0, Math.ceil(excesoReal));
 
