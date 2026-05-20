@@ -1547,7 +1547,6 @@ function renderMainCalendar() {
            
            if (pData.messages.length > 0) bannerHtml += `Te falta escoger: ${pData.messages.join(' y ')}.<br>`;
            
-           // Renderizar reglas
            Object.values(pData.progress).forEach(p => {
                p.missingRules.forEach(r => {
                    if (r.forgiven) bannerHtml += `<span style="color:var(--ped); font-weight:bold; display:block; margin-top:4px;">ℹ️ Te has librado de la regla: "${r.mensaje}" porque no quedan huecos compatibles libres.</span>`;
@@ -1556,7 +1555,7 @@ function renderMainCalendar() {
            });
 
            let reasonsHtml = (state.exceptionReasons || []).map(r => `<option value="${r}">${r}</option>`).join(''); reasonsHtml += `<option value="Otros">Otros (especificar)...</option>`;
-           bannerHtml += `<div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed #fde047; display: flex; flex-direction: column; gap: 8px;"><div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;"><span style="font-size:0.8rem; color:#854d0e; font-weight:bold;">¿Fuerza mayor?</span><select id="user-skip-reason" onchange="toggleOtherReasonInput()" style="margin:0; padding:4px; font-size:0.8rem; width:auto; flex:1; min-width:150px; background:white; border:1px solid #cbd5e1; border-radius:4px;"><option value="">-- Elige motivo para saltar turno --</option>${reasonsHtml}</select><button class="danger" style="padding:4px 8px; font-size:0.75rem;" onclick="userSkipTurn(${y}, ${m})">Saltar mi turno</button></div><div id="user-skip-reason-other-block" style="display:none; margin-top:4px;"><input type="text" id="user-skip-reason-other" maxlength="150" placeholder="Escribe tu motivo (máx 150 caracteres)..." style="margin:0; padding:6px; font-size:0.8rem; width:100%; border-radius:4px; border:1px solid #cbd5e1;"><span style="font-size:0.7rem; color:var(--fest);">⚠️ Si usas "Otros", el turno NO se pasará automáticamente. Requerirá validación del Admin.</span></div></div></div>`;
+           bannerHtml += `<div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed #fde047; display: flex; flex-direction: column; gap: 8px;"><div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;"><span style="font-size:0.8rem; color:#854d0e; font-weight:bold;">¿Fuerza mayor?</span><select id="user-skip-reason" onchange="toggleOtherReasonInput()" style="margin:0; padding:4px; font-size:0.8rem; width:auto; flex:1; min-width:150px; background:white; border:1px solid #cbd5e1; border-radius:4px;"><option value="">-- Elige motivo para saltar turno --</option>${reasonsHtml}</select><button class="danger" style="padding:4px 8px; font-size:0.75rem;" onclick="userSkipTurn(${y}, ${m})">Saltar mi turno</button></div><div id="user-skip-reason-other-block" style="display:none; margin-top:4px;"><input type="text" id="user-skip-reason-other" maxlength="150" placeholder="Escribe tu motivo (máx 150 caracteres)..." style="margin:0; padding:6px; font-size:0.8rem; width:100%; border-radius:4px; border:1px solid #cbd5e1;"><span style="font-size:0.75rem; color:var(--fest);">⚠️ Si usas "Otros", el turno NO se pasará automáticamente. Requerirá validación del Admin.</span></div></div></div>`;
            banner.innerHTML = bannerHtml;
          }
        } else {
@@ -1587,20 +1586,11 @@ function renderMainCalendar() {
     
     let html = `<div class="day-number">${d}</div>`;
     
-	getAllUniqueServices().forEach(svc => {
+    getAllUniqueServices().forEach(svc => {
         let assigned = Object.keys(dayShifts).filter(u => dayShifts[u] === svc.nombre);
         if (showOnlyMine && loggedInUser) assigned = assigned.filter(u => u === loggedInUser);
         assigned.forEach(u => {
             html += `<div class="shift-badge" style="background:${getServiceColor(svc.nombre)};">👤 ${getInitials(u)}</div>`;
-        });
-    });
-    
-    cell.innerHTML = html;
-    cell.onclick = () => openShiftModal(y, m, d, dateKey);
-    grid.appendChild(cell);
-  }
-	renderAlertaCargaMensual();
-}
 
 // ==========================================
 // EL MODAL DINÁMICO (Capa 2 y Multi-Slot)
