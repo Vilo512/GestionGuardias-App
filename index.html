@@ -458,26 +458,28 @@ async function saveState() {
     
   } catch (err) {
     if (err.message === "Timeout de red") {
-        // Supabase se ha atascado internamente. Lo destruimos, creamos uno nuevo y reintentamos.
-        setStatus('Reconectando...');
-        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-        supabaseClient.auth.onAuthStateChange(async (event, newSession) => {
-            if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') await handleSession(newSession);
-            else authSession = newSession;
-        });
-        
-        // Segundo intento con el cliente limpio
-        const { error: retryErr } = await supabaseClient.from('estados_promocion').upsert({ promocion_id: currentUserProfile.promocion_id, datos: state });
-        if (retryErr) {
+        // El candado principal está bloqueado. Desplegamos el Cliente Ninja.
+        setStatus('Forzando guardado...');
+        try {
+            // Creamos un cliente que BYPASSEA el sistema de locks y usa la memoria RAM directamente
+            const ninjaClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+                auth: { persistSession: false }, // Apaga el sistema de candados
+                global: { headers: { Authorization: `Bearer ${authSession.access_token}` } } // Inyecta el token manualmente
+            });
+            
+            const { error: retryErr } = await ninjaClient.from('estados_promocion').upsert({ promocion_id: currentUserProfile.promocion_id, datos: state });
+            
+            if (retryErr) throw retryErr;
+            setStatus('Sincronizado ✅');
+            
+        } catch (ninjaErr) {
+             console.error("Fallo del cliente ninja:", ninjaErr);
              setStatus('Error de red ❌', true);
-             alert("Fallo crítico de conexión con la base de datos.");
-        } else {
-             setStatus('Sincronizado ✅');
+             alert("La pestaña está bloqueada profundamente por el navegador. Recarga la página (F5) para seguir guardando.");
         }
     } else {
         console.error("Error al guardar:", err);
         setStatus('Error de red ❌', true);
-        alert("Error al guardar en la base de datos.");
     }
   }
 }
