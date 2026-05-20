@@ -923,16 +923,13 @@ function getUserProgress(user, y, m) {
     let isFinished = true; 
     let messages = [];
 
-    // 1. Identificar el perfil y el plan activo del residente en este mes (usando el día 15 como ancla)
     const uProfile = globalProfiles.find(p => p.nombre_mostrar === user) || currentUserProfile;
     const referenceDk = formatDateKey(y, m, 15);
     const activePlan = getPlanForUserOnDate(uProfile, referenceDk);
     const serviciosActivos = activePlan ? activePlan.servicios : [];
 
-    // Contador transversal para contabilizar cuántas guardias en días festivos/findes hace este usuario
     let totalFestivosHacidos = 0;
 
-    // 2. Evaluar los cupos y reglas específicas de cada servicio independiente
     serviciosActivos.forEach(svc => {
         let countTotal = 0;
         let shiftsByTag = { 'laborable': 0, 'vispera': 0, 'fin_de_semana': 0, 'festivo_intersemanal': 0 };
@@ -969,50 +966,34 @@ function getUserProgress(user, y, m) {
         if (missingTotal > 0) messages.push(`<b>${missingTotal} ${svc.nombre}</b>`);
     });
 
-    // 3. REGLA TRANSVERSAL: Cálculo matemático de festivos en el mes completo
+    // REGLA TRANSVERSAL
     for (let d = 1; d <= getDaysInMonth(y, m); d++) {
         const tag = getDayTag(y, m, d);
         if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
             const dk = formatDateKey(y, m, d);
-            // Si el residente tiene CUALQUIER guardia este día (sea del servicio que sea), computa como festivo
             if (state.shifts[dk] && state.shifts[dk][user]) {
                 totalFestivosHacidos++;
             }
         }
     }
 
-    // 4. Ejecutar la calculadora distributiva para ver el mínimo exigible real de este plan
-    if (activePlan) {
-        // Calculamos cuántos huecos de fin de semana/festivos obligatorios hay en total este mes para la especialidad
-        let huecosFestivosObligatorios = 0;
-        for (let d = 1; d <= getDaysInMonth(y, m); d++) {
-            const tag = getDayTag(y, m, d);
-            if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
-                const dk = formatDateKey(y, m, d);
-                serviciosActivos.forEach(svc => {
-                    if (svc.requiereHabilitacion && !state.pedWhitelist[dk]) return;
-                    huecosFestivosObligatorios += (svc.plazasPorDia || 1);
-                });
-            }
-        }
+    // El cerebro ajusta la exigencia según la subasta
+    const analisis = getAnalisisFestivos(y, m);
+    let minimoExigibleEsteMes = analisis.minimoBase;
 
-        const totalResidents = getAllResidents().length;
-        let minimoExigibleEsteMes = activePlan.minGlobalFestivos || 1;
-
-        if (totalResidents > 0) {
-            const cargaMedia = huecosFestivosObligatorios / totalResidents;
-            // Si la matemática del mes obliga a que la media sea mayor que el mínimo configurado, subimos el listón
-            const minimoMatematico = Math.floor(cargaMedia);
-            if (minimoMatematico > minimoExigibleEsteMes) {
-                minimoExigibleEsteMes = minimoMatematico;
-            }
+    // Si la subasta ha fracasado o el mes es inasumible, exigimos el +1 a los nominados
+    if (analisis.estado === 'critico' || analisis.estado === 'subasta_cerrada') {
+        if (analisis.nominados.includes(user)) {
+            minimoExigibleEsteMes = analisis.minimoBase + 1; 
         }
+    }
 
-        // Si el residente no llega al mínimo real calculado, suspendemos su progreso mensual
-        if (totalFestivosHacidos < minimoExigibleEsteMes) {
-            isFinished = false;
-            messages.push(`⚠️ Festivos globales: Llevas <b>${totalFestivosHacidos}/${minimoExigibleEsteMes}</b>`);
-        }
+    if (totalFestivosHacidos < minimoExigibleEsteMes) {
+        isFinished = false;
+        let msgExtra = (analisis.nominados.includes(user) && (analisis.estado === 'critico' || analisis.estado === 'subasta_cerrada')) 
+            ? ' <i>(+1 por Justicia Histórica)</i>' 
+            : '';
+        messages.push(`⚠️ Festivos globales: Llevas <b>${totalFestivosHacidos}/${minimoExigibleEsteMes}</b>${msgExtra}`);
     }
 
     return { progress, isFinished, messages };
@@ -1964,13 +1945,6 @@ function renderAdminAjustes() {
                 <label style="font-size:0.85rem; font-weight:bold;">🎯 Mínimo Festivos/Fines de Semana globales al mes:</label>
                 <input type="number" id="cfg-plan-min-festivos-${pIdx}" value="${plan.minGlobalFestivos || 1}" min="0" style="width:100%; margin-top:4px;">
             </div>
-            <div>
-                <label style="font-size:0.85rem; font-weight:bold;">🛡️ Gestión de Excesos de Carga (Dilema del Motor):</label>
-                <select id="cfg-plan-exceso-modo-${pIdx}" style="width:100%; margin-top:4px; padding:6px;">
-                    <option value="historico" ${plan.excesoModo === 'historico' ? 'selected' : ''}>Asignar el exceso a quienes lleven menos histórico global</option>
-                    <option value="libre" ${plan.excesoModo === 'libre' ? 'selected' : ''}>Permitir asignación libre tras cumplir el mínimo</option>
-                </select>
-            </div>
         </div>
     </div>`;
 
@@ -2448,50 +2422,33 @@ function renderAlertaCargaMensual() {
     
     const y = curDate.getFullYear();
     const m = curDate.getMonth();
-    let huecosFestivosObligatorios = 0;
-    const totalDias = getDaysInMonth(y, m);
+    const analisis = getAnalisisFestivos(y, m);
     
-    const uProfile = currentUserProfile;
-    const miPlan = promoConfig.planes?.find(p => p.nombre === uProfile?.plan_asociado) || promoConfig.planes?.[0];
-    if (!miPlan) { container.innerHTML = ''; return; }
-
-    for (let d = 1; d <= totalDias; d++) {
-        const tag = getDayTag(y, m, d);
-        if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
-            const dk = formatDateKey(y, m, d);
-            miPlan.servicios.forEach(svc => {
-                if (svc.requiereHabilitacion && !state.pedWhitelist[dk]) return;
-                huecosFestivosObligatorios += (svc.plazasPorDia || 1);
-            });
-        }
+    if (analisis.estado === 'libre') {
+        container.innerHTML = ''; return;
     }
-    
-    const residentes = getAllResidents();
-    const totalResidents = residentes.length;
-    if (totalResidents === 0) { container.innerHTML = ''; return; }
-    
-    const cargaMedia = huecosFestivosObligatorios / totalResidents;
-    const minimoExigibleConfig = miPlan.minGlobalFestivos || 1;
-    
-    if (cargaMedia > minimoExigibleConfig) {
-        const excesoReal = huecosFestivosObligatorios - (minimoExigibleConfig * totalResidents);
-        const historico = getHistoricoFestivosResidentes();
-        const residentesOrdenados = [...residentes].sort((a, b) => historico[a] - historico[b]);
-        
-        const implicados = residentesOrdenados.slice(0, Math.ceil(excesoReal));
-        const nombresImplicados = implicados.map(r => `<b>${r}</b> (${historico[r]} globales)`).join(', ');
-        
+
+    const nombresImplicados = analisis.nominados.map(r => `<b>${r}</b> (${analisis.historico[r]} globales)`).join(', ');
+
+    if (analisis.estado === 'critico' || analisis.estado === 'subasta_cerrada') {
+        const titulo = analisis.estado === 'critico' ? '🚨 Mes Crítico (Asignación Directa)' : '⚖️ Subasta Cerrada (Justicia Histórica)';
         container.innerHTML = `
         <div style="background: #fff7ed; border: 2px dashed #f97316; color: #c2410c; padding: 15px; border-radius: 12px; margin-bottom: 20px; font-size: 0.9rem; line-height: 1.5;">
             <div style="display:flex; align-items:center; gap:8px; font-weight: bold; font-size: 1rem; margin-bottom: 6px;">
-                📢 <span>¡Mes Complicado Detectado!</span> 📊
+                ${titulo}
             </div>
-            Este mes tiene una densidad alta de guardias obligatorias en fin de semana/festivo (Media de <b>${cargaMedia.toFixed(1)}</b> por residente). 
-            Para cubrir todos los huecos sin dejar servicios descubiertos, se requiere que 
-            ${nombresImplicados} <b>asuman +1 festivo adicional</b> en la asignación inicial de este mes por justicia distributiva histórica.
+            Este mes tiene <b>${Math.ceil(analisis.exceso)} festivo(s) de exceso</b> matemáticamente ineludibles. 
+            El sistema exige que ${nombresImplicados} <b>asuman +1 festivo obligatorio</b> en su asignación por justicia distributiva (tienen el menor histórico del grupo).
         </div>`;
-    } else {
-        container.innerHTML = '';
+    } else if (analisis.estado === 'subasta_abierta') {
+        container.innerHTML = `
+        <div style="background: #f0fdf4; border: 2px dashed #22c55e; color: #166534; padding: 15px; border-radius: 12px; margin-bottom: 20px; font-size: 0.9rem; line-height: 1.5;">
+            <div style="display:flex; align-items:center; gap:8px; font-weight: bold; font-size: 1rem; margin-bottom: 6px;">
+                📢 Subasta Voluntaria Abierta (Quedan ${analisis.diasParaCierre} días)
+            </div>
+            Hay <b>${Math.ceil(analisis.exceso)} festivo(s) de exceso</b> este mes. Cualquier residente puede adjudicárselos voluntariamente ahora mismo. 
+            Si quedan desiertos al cerrar el plazo, el motor se los exigirá forzosamente a los residentes con menos histórico: ${nombresImplicados}.
+        </div>`;
     }
 }
 
@@ -2516,7 +2473,66 @@ function getCurrentTurn(y, m) {
     }
     return null; // Si el bucle termina, todos han acabado
 }
-	
+
+// ==========================================
+// CALCULADORA DE FASES Y SUBASTAS (JUSTICIA)
+// ==========================================
+function getAnalisisFestivos(y, m) {
+    let huecosFestivosObligatorios = 0;
+    const totalDias = getDaysInMonth(y, m);
+    
+    // Asumimos el plan del usuario actual para calcular la carga (normalmente R1 y R2 comparten necesidades globales)
+    const uProfile = currentUserProfile;
+    const miPlan = promoConfig.planes?.find(p => p.nombre === uProfile?.plan_asociado) || promoConfig.planes?.[0];
+    const minimoBase = miPlan ? (miPlan.minGlobalFestivos || 1) : 1;
+
+    if (!miPlan) return { estado: 'libre', exceso: 0, nominados: [], minimoBase };
+
+    for (let d = 1; d <= totalDias; d++) {
+        const tag = getDayTag(y, m, d);
+        if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
+            const dk = formatDateKey(y, m, d);
+            miPlan.servicios.forEach(svc => {
+                if (svc.requiereHabilitacion && !state.pedWhitelist[dk]) return;
+                huecosFestivosObligatorios += (svc.plazasPorDia || 1);
+            });
+        }
+    }
+
+    const residentes = getAllResidents();
+    const totalResidents = residentes.length;
+    if (totalResidents === 0) return { estado: 'libre', exceso: 0, nominados: [], minimoBase };
+
+    const huecosBase = minimoBase * totalResidents;
+    const excesoReal = huecosFestivosObligatorios - huecosBase;
+
+    if (excesoReal <= 0) return { estado: 'libre', exceso: 0, nominados: [], minimoBase };
+
+    // Calcular nominados por justicia histórica
+    const historico = getHistoricoFestivosResidentes();
+    const residentesOrdenados = [...residentes].sort((a, b) => historico[a] - historico[b]);
+    const nominados = residentesOrdenados.slice(0, Math.ceil(excesoReal));
+
+    // Determinar Fase de Subasta o Crítica
+    let estado = 'critico';
+    let diasParaCierre = 0;
+    
+    if (excesoReal <= 2) {
+        // Cierra el día 15 del mes ANTERIOR
+        const fechaCierre = new Date(y, m - 1, 15);
+        const hoy = new Date();
+        hoy.setHours(0,0,0,0);
+        
+        if (hoy < fechaCierre) {
+            estado = 'subasta_abierta';
+            diasParaCierre = Math.ceil((fechaCierre - hoy) / (1000 * 60 * 60 * 24));
+        } else {
+            estado = 'subasta_cerrada';
+        }
+    }
+
+    return { estado, exceso: excesoReal, nominados, minimoBase, diasParaCierre, historico };
+}
 </script>
 </body>
 </html>
