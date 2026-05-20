@@ -859,34 +859,50 @@ function getIllegalShiftsForUser(user, shiftsObj) {
 function getRotationKey(y, m) { return `${y}_${String(m).padStart(2,'0')}`; }
 function getRotation(y, m) {
   const key = getRotationKey(y, m);
-  // Si el admin guardó un orden manual específico para este mes, lo respetamos por completo
   if (state.customRotations[key]) return state.customRotations[key];
   
   const totalDiff = (y - state.baseYear) * 12 + (m - state.baseMonth);
   if (totalDiff <= 0) return state.baseGroups;
 
-  // 1. Convertimos la base en una fila india plana
-  let filaIndia = (state.baseGroups || []).flat();
   if (!state.residentesFijos) state.residentesFijos = [];
 
-  // 2. Extraemos a los residentes fijos de la rotación mensual para que no se muevan
-  const fijosPresentes = filaIndia.filter(n => state.residentesFijos.includes(n));
-  let residentesMoviles = filaIndia.filter(n => !state.residentesFijos.includes(n));
+  // 1. Extraemos la Fila India original completa (Base)
+  let filaIndiaBase = (state.baseGroups || []).flat();
 
-  // 3. Hacemos girar la rueda REPETIDAMENTE solo para los residentes móviles
-  // (Equivalente exacto a vuestro sistema de pasar el último al principio del grupo)
+  // 2. SEPARACIÓN DE AGUAS
+  let fijosBase = filaIndiaBase.filter(n => state.residentesFijos.includes(n));
+  let movilesBase = filaIndiaBase.filter(n => !state.residentesFijos.includes(n));
+
+  // 3. RUEDA A: Rotación interna de los fijos (para que roten entre ellos)
+  let fijosRotados = [...fijosBase];
   for (let i = 0; i < totalDiff; i++) {
-      if (residentesMoviles.length > 0) {
-          const ultimo = residentesMoviles.pop();
-          residentesMoviles.unshift(ultimo);
+      if (fijosRotados.length > 1) {
+          const ultimoFijo = fijosRotados.pop();
+          fijosRotados.unshift(ultimoFijo);
       }
   }
 
-  // 4. Volvemos a unificar la fila india colocando a los fijos inmóviles al principio
-  const filaRotadaFinal = [...fijosPresentes, ...residentesMoviles];
+  // 4. RUEDA B: Rotación tradicional por bloques de los residentes móviles
+  let movilesRotados = [...movilesBase];
+  for (let i = 0; i < totalDiff; i++) {
+      if (movilesRotados.length > 0) {
+          const ultimoMovil = movilesRotados.pop();
+          movilesRotados.unshift(ultimoMovil);
+      }
+  }
 
-  // 5. Pasamos la fila india final por el empaquetador para trazar las fronteras 3-4
-  return reempaquetarGrupos(filaRotadaFinal);
+  // 5. EMPAQUETADO INDEPENDIENTE
+  // Los fijos se quedan en su propio grupo exclusivo arriba (Grupo 0)
+  // Los móviles se reparten equitativamente en los 4 grupos estándar abajo (Regla 3-4)
+  let gruposMoviles = reempaquetarGrupos(movilesRotados);
+  
+  let resultadoFinal = [];
+  if (fijosRotados.length > 0) {
+      resultadoFinal.push(fijosRotados); // Grupo 1 (Fijos)
+  }
+  resultadoFinal.push(...gruposMoviles);  // Grupos siguientes (Móviles)
+
+  return resultadoFinal;
 }
 
 function getAllResidents() {
@@ -2390,22 +2406,31 @@ async function toggleResidenteFijo(nombre) {
     if (!state.residentesFijos) state.residentesFijos = [];
     
     let linear = editingGroups.flat();
-    
+    let fijos = linear.filter(n => state.residentesFijos.includes(n));
+    let moviles = linear.filter(n => !state.residentesFijos.includes(n));
+
     if (state.residentesFijos.includes(nombre)) {
-        // Descongelar
+        // Descongelar: sale de fijos y entra al principio de los móviles
         state.residentesFijos = state.residentesFijos.filter(n => n !== nombre);
+        fijos = fijos.filter(n => n !== nombre);
+        moviles.unshift(nombre);
     } else {
-        // Congelar: Lo sacamos de donde esté y lo mandamos DIRECTO al inicio de la fila india
-        linear = linear.filter(n => n !== nombre);
-        linear.unshift(nombre);
+        // Congelar: sale de móviles y va al final de la lista de fijos
         state.residentesFijos.push(nombre);
+        moviles = moviles.filter(n => n !== nombre);
+        fijos.push(nombre);
     }
     
-    editingGroups = reempaquetarGrupos(linear);
-    state.baseGroups = JSON.parse(JSON.stringify(editingGroups)); // Sincronizamos la base
-    await saveState();
+    let nuevoBlock = [];
+    if (fijos.length > 0) nuevoBlock.push(fijos);
+    nuevoBlock.push(...reempaquetarGrupos(moviles));
+    
+    editingGroups = nuevoBlock;
+    state.baseGroups = JSON.parse(JSON.stringify(editingGroups));
+    await saveState(); //
     renderEditor();
 }
+
 	
 // ==========================================
 // RENDERIZADOR DEL EDITOR
@@ -2416,25 +2441,36 @@ function renderEditor() {
     let flatIdxCounter = 0;
     
     if (!state.residentesFijos) state.residentesFijos = [];
+    
+    // Determinamos si el primer grupo que viene son los fijos
+    let tieneGrupoFijos = editingGroups.length > 0 && editingGroups[0].some(n => state.residentesFijos.includes(n));
+    let grupoMovilContador = 1;
 
     editingGroups.forEach((g, i) => {
-        const gdiv = document.createElement('div'); gdiv.className = 'rot-group';
-        gdiv.innerHTML = `<div style="display:flex; justify-content:space-between; margin-bottom:8px; border-bottom:2px solid #cbd5e1; padding-bottom:4px;"><strong>Grupo ${i+1} <span style="color:#64748b; font-size:0.85rem;">(${g.length} personas)</span></strong></div>` +
+        const esGrupoDeFijos = (i === 0 && tieneGrupoFijos);
+        const tituloGrupo = esGrupoDeFijos 
+            ? `👑 Grupo Especial: Rotantes Fijos <span style="color:#a16207; font-size:0.85rem;">(${g.length} personas)</span>` 
+            : `Hospital Grupo ${grupoMovilContador++} <span style="color:#64748b; font-size:0.85rem;">(${g.length} personas)</span>`;
+
+        const gdiv = document.createElement('div'); 
+        gdiv.className = 'rot-group';
+        gdiv.style.border = esGrupoDeFijos ? '2px solid #f59e0b' : '1px solid #e2e8f0';
+        gdiv.style.background = esGrupoDeFijos ? '#fffdf5' : 'var(--light)';
+
+        gdiv.innerHTML = `<div style="display:flex; justify-content:space-between; margin-bottom:8px; border-bottom:2px solid ${esGrupoDeFijos ? '#f59e0b' : '#cbd5e1'}; padding-bottom:4px;"><strong>${tituloGrupo}</strong></div>` +
         g.map((res) => {
             const currentFlat = flatIdxCounter++;
             const esFijo = state.residentesFijos.includes(res);
             
             return `
-            <div class="editor-row" style="background: ${esFijo ? '#fffbeb' : 'white'}; padding:6px; border:1px solid ${esFijo ? '#fef08a' : '#e2e8f0'}; border-radius:6px; margin-bottom:4px;">
+            <div class="editor-row" style="background: white; padding:6px; border:1px solid ${esFijo ? '#fef08a' : '#e2e8f0'}; border-radius:6px; margin-bottom:4px;">
                 <span style="display:inline-block; width:150px; font-weight:500; font-size:0.95rem; color:var(--dark);">
-                    ${res} ${esFijo ? '📌 <small style="color:#a16207; font-size:0.75rem; font-weight:bold;">(Fijo)</small>' : ''}
+                    ${res} ${esFijo ? '📌' : ''}
                 </span>
                 <div style="display:flex; gap:4px;">
-                    <button class="icon-btn" style="background: ${esFijo ? '#fef08a' : '#f1f5f9'}; border-color: ${esFijo ? '#ca8a04' : '#cbd5e1'};" onclick="toggleResidenteFijo('${res}')" title="Fijar al inicio de la rueda">📌</button>
-                    
-                    <button class="icon-btn" style="background:#f1f5f9; display:${esFijo ? 'none' : 'block'};" onclick="moveResLinear(${currentFlat}, 'up')">⬆️</button>
-                    <button class="icon-btn" style="background:#f1f5f9; display:${esFijo ? 'none' : 'block'};" onclick="moveResLinear(${currentFlat}, 'down')">⬇️</button>
-                    
+                    <button class="icon-btn" style="background: ${esFijo ? '#fef08a' : '#f1f5f9'}; border-color: ${esFijo ? '#ca8a04' : '#cbd5e1'};" onclick="toggleResidenteFijo('${res}')" title="Conmutar Estado Fijo/Móvil">📌</button>
+                    <button class="icon-btn" style="background:#f1f5f9;" onclick="moveResLinear(${currentFlat}, 'up')">⬆️</button>
+                    <button class="icon-btn" style="background:#f1f5f9;" onclick="moveResLinear(${currentFlat}, 'down')">⬇️</button>
                     <button class="danger icon-btn" onclick="editorRemoveMemberLinear(${currentFlat})">X</button>
                 </div>
             </div>`;
@@ -2455,27 +2491,40 @@ function renderEditor() {
 // CONTROLES DEL EDITOR LINEAL
 // ==========================================
 function moveResLinear(flatIdx, dir) {
-    let linear = editingGroups.flat();
-    const usuarioActual = linear[flatIdx];
+    let linearCompleta = editingGroups.flat();
+    const usuarioActual = linearCompleta[flatIdx];
     
     if (!state.residentesFijos) state.residentesFijos = [];
 
-    // 🛑 Bloqueamos el movimiento si el residente actual está congelado
+    // Si es un fijo, solo permitimos que se mueva ARRIBA/ABAJO dentro de su propia zona de fijos
     if (state.residentesFijos.includes(usuarioActual)) {
-        alert(`[${usuarioActual}] está marcado como Rotante Fijo al inicio por el Admin y no puede moverse.`);
+        let fijos = linearCompleta.filter(n => state.residentesFijos.includes(n));
+        let idxEnFijos = fijos.indexOf(usuarioActual);
+        
+        if (dir === 'up' && idxEnFijos > 0) {
+            [fijos[idxEnFijos-1], fijos[idxEnFijos]] = [fijos[idxEnFijos], fijos[idxEnFijos-1]];
+        } else if (dir === 'down' && idxEnFijos < fijos.length - 1) {
+            [fijos[idxEnFijos+1], fijos[idxEnFijos]] = [fijos[idxEnFijos], fijos[idxEnFijos+1]];
+        }
+        
+        let moviles = linearCompleta.filter(n => !state.residentesFijos.includes(n));
+        editingGroups = [fijos, ...reempaquetarGrupos(moviles)];
+        renderEditor();
         return;
     }
     
-    if (dir === 'up' && flatIdx > 0) {
-        // Tampoco dejamos que nadie adelante a un residente congelado que esté arriba
-        if (state.residentesFijos.includes(linear[flatIdx-1])) return; 
-        [linear[flatIdx-1], linear[flatIdx]] = [linear[flatIdx], linear[flatIdx-1]];
-    } else if (dir === 'down' && flatIdx < linear.length - 1) {
-        if (state.residentesFijos.includes(linear[flatIdx+1])) return;
-        [linear[flatIdx+1], linear[flatIdx]] = [linear[flatIdx], linear[flatIdx+1]];
+    // Si es un móvil, se mueve solo en la fila india de móviles
+    let fijos = linearCompleta.filter(n => state.residentesFijos.includes(n));
+    let moviles = linearCompleta.filter(n => !state.residentesFijos.includes(n));
+    let idxEnMoviles = moviles.indexOf(usuarioActual);
+
+    if (dir === 'up' && idxEnMoviles > 0) {
+        [moviles[idxEnMoviles-1], moviles[idxEnMoviles]] = [moviles[idxEnMoviles], moviles[idxEnMoviles-1]];
+    } else if (dir === 'down' && idxEnMoviles < moviles.length - 1) {
+        [moviles[idxEnMoviles+1], moviles[idxEnMoviles]] = [moviles[idxEnMoviles], moviles[idxEnMoviles+1]];
     }
     
-    editingGroups = reempaquetarGrupos(linear);
+    editingGroups = fijos.length > 0 ? [fijos, ...reempaquetarGrupos(moviles)] : reempaquetarGrupos(moviles);
     renderEditor();
 }
 
