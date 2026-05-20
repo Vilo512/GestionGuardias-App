@@ -449,18 +449,19 @@ async function saveState() {
   if (!currentUserProfile || !currentUserProfile.promocion_id) return; 
   setStatus('Guardando...');
   try {
-    // EL TRUCO: Forzamos a la librería a comprobar su propio token en silencio. 
-    // Si la pestaña estaba dormida, lo renovará aquí mismo antes de continuar.
-    await supabaseClient.auth.getSession(); 
+    // CORTAFUEGOS: Si la base de datos tarda más de 8 segundos, forzamos un corte.
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout de red")), 8000));
+    const peticionGuardado = supabaseClient.from('estados_promocion').upsert({ promocion_id: currentUserProfile.promocion_id, datos: state });
     
-    const { error } = await supabaseClient.from('estados_promocion').upsert({ promocion_id: currentUserProfile.promocion_id, datos: state });
+    // Compiten la petición y el temporizador. Si el temporizador gana, lanza error.
+    const { error } = await Promise.race([peticionGuardado, timeout]);
     
     if (error) throw error;
     setStatus('Sincronizado ✅');
   } catch (err) {
     console.error("Error al guardar:", err);
     setStatus('Error de red ❌', true);
-    alert("La conexión con el servidor ha fallado. Es posible que tu sesión haya caducado tras mucho tiempo inactivo. Recarga la página.");
+    alert("Se ha perdido la conexión con el servidor (posible inactividad prolongada).\nPor favor, recarga la página (F5) para reconectar y volver a intentarlo.");
   }
 }
 
@@ -541,10 +542,14 @@ async function initApp() {
         const { data: { session } } = await supabaseClient.auth.getSession();
         await handleSession(session);
         
-        // Escucha limpia de eventos: solo reacciona de forma pesada ante login/logout explícitos
         supabaseClient.auth.onAuthStateChange(async (event, newSession) => {
+            // ELIMINAMOS EL DEADLOCK: Solo tocamos la interfaz en Login/Logout explícito.
+            // Ignoramos los eventos silenciosos como 'TOKEN_REFRESHED' que colgaban la app.
             if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
                 await handleSession(newSession);
+            } else {
+                // Actualiza la memoria silenciosamente sin lanzar consultas a la base de datos
+                authSession = newSession; 
             }
         });
     } catch (err) {
