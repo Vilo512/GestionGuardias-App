@@ -538,19 +538,48 @@ async function initApp() {
         await handleSession(session);
         
         supabaseClient.auth.onAuthStateChange(async (event, newSession) => {
-            // Silenciamos eventos de fondo y actualizaciones de perfil repetitivas para evitar bucles de UI
             if (event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
                 authSession = newSession;
                 return; 
             }
-            
-            // Solo se activa la carga pesada en acciones explícitas de Login/Logout
             if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
                 await handleSession(newSession);
             }
         });
+
+        // 🚀 INYECCIÓN: MOTOR ANTI-SUSPENSÍON (WAKE LOCK + HEARTBEAT)
+        activarAntiSuspension();
+
     } catch (err) {
         setStatus("Error de sesión", true);
+    }
+}
+
+// Función maestra para engañar al navegador y mantener la pestaña viva
+function activarAntiSuspension() {
+    // 1. Truco del latido invisible: ejecuta micro-tareas para que el recolector de basura de Chrome no congele el hilo
+    setInterval(() => {
+        if (typeof supabaseClient !== 'undefined' && authSession) {
+            // Hacemos una llamada fantasma ultraligera a la memoria para mantener el canal abierto
+            const _ = !!supabaseClient.auth.user;
+        }
+    }, 30000); // Cada 30 segundos manda un pulso de vida interno
+
+    // 2. Wake Lock API (Si el navegador lo soporta, impide físicamente que la pestaña entre en modo "Sleep")
+    if ('wakeLock' in navigator) {
+        let wakeLock = null;
+        const requestWakeLock = async () => {
+            try {
+                wakeLock = await navigator.wakeLock.request('screen');
+            } catch (err) { /* Silencioso */ }
+        };
+        requestWakeLock();
+        // Si el usuario minimiza y vuelve, re-activamos el cerrojo
+        document.addEventListener('visibilitychange', () => {
+            if (wakeLock !== null && document.visibilityState === 'visible') {
+                requestWakeLock();
+            }
+        });
     }
 }
 
