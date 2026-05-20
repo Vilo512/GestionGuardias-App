@@ -922,12 +922,16 @@ function getUserProgress(user, y, m) {
     let isFinished = true; 
     let messages = [];
 
-    // Buscamos la ficha temporal de este residente concreto en la caché
+    // 1. Identificar el perfil y el plan activo del residente en este mes (usando el día 15 como ancla)
     const uProfile = globalProfiles.find(p => p.nombre_mostrar === user) || currentUserProfile;
     const referenceDk = formatDateKey(y, m, 15);
     const activePlan = getPlanForUserOnDate(uProfile, referenceDk);
     const serviciosActivos = activePlan ? activePlan.servicios : [];
 
+    // Contador transversal para contabilizar cuántas guardias en días festivos/findes hace este usuario
+    let totalFestivosHacidos = 0;
+
+    // 2. Evaluar los cupos y reglas específicas de cada servicio independiente
     serviciosActivos.forEach(svc => {
         let countTotal = 0;
         let shiftsByTag = { 'laborable': 0, 'vispera': 0, 'fin_de_semana': 0, 'festivo_intersemanal': 0 };
@@ -963,41 +967,55 @@ function getUserProgress(user, y, m) {
         progress[svc.nombre] = { countTotal, missingTotal, missingRules, rulesOk };
         if (missingTotal > 0) messages.push(`<b>${missingTotal} ${svc.nombre}</b>`);
     });
-// INYECCIÓN: Validación Transversal de Festivos
-    let totalFestivosHechos = 0;
+
+    // 3. REGLA TRANSVERSAL: Cálculo matemático de festivos en el mes completo
     for (let d = 1; d <= getDaysInMonth(y, m); d++) {
         const tag = getDayTag(y, m, d);
         if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
             const dk = formatDateKey(y, m, d);
-            // Si el usuario tiene CUALQUIER guardia asignada en este día festivo, suma
+            // Si el residente tiene CUALQUIER guardia este día (sea del servicio que sea), computa como festivo
             if (state.shifts[dk] && state.shifts[dk][user]) {
-                totalFestivosHechos++;
-            }		
+                totalFestivosHacidos++;
+            }
         }
     }
 
-    const analisisMes = calcularViabilidadFestivosMensual(y, m);
-    // Si la matemática del mes obliga a hacer más de lo configurado, elevamos el listón automáticamente
-    const minimoRealEsteMes = analisisMes.minimoExigible; 
+    // 4. Ejecutar la calculadora distributiva para ver el mínimo exigible real de este plan
+    if (activePlan) {
+        // Calculamos cuántos huecos de fin de semana/festivos obligatorios hay en total este mes para la especialidad
+        let huecosFestivosObligatorios = 0;
+        for (let d = 1; d <= getDaysInMonth(y, m); d++) {
+            const tag = getDayTag(y, m, d);
+            if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
+                const dk = formatDateKey(y, m, d);
+                serviciosActivos.forEach(svc => {
+                    if (svc.requiereHabilitacion && !state.pedWhitelist[dk]) return;
+                    huecosFestivosObligatorios += (svc.plazasPorDia || 1);
+                });
+            }
+        }
 
-    let festivosRulesOk = totalFestivosHechos >= minimoRealEsteMes;
-    if (!festivosRulesOk) {
-        isFinished = false;
-        messages.push(`⚠️ Te faltan festivos globales (Llevas ${totalFestivosHechos}/${minimoRealEsteMes})`);
+        const totalResidents = getAllResidents().length;
+        let minimoExigibleEsteMes = activePlan.minGlobalFestivos || 1;
+
+        if (totalResidents > 0) {
+            const cargaMedia = huecosFestivosObligatorios / totalResidents;
+            // Si la matemática del mes obliga a que la media sea mayor que el mínimo configurado, subimos el listón
+            const minimoMatematico = Math.floor(cargaMedia);
+            if (minimoMatematico > minimoExigibleEsteMes) {
+                minimoExigibleEsteMes = minimoMatematico;
+            }
+        }
+
+        // Si el residente no llega al mínimo real calculado, suspendemos su progreso mensual
+        if (totalFestivosHacidos < minimoExigibleEsteMes) {
+            isFinished = false;
+            messages.push(`⚠️ Festivos globales: Llevas <b>${totalFestivosHacidos}/${minimoExigibleEsteMes}</b>`);
+        }
     }
 
-    return { progress, isFinished, messages, totalFestivosHechos, minimoRealEsteMes };
-		}
-function getCurrentTurn(y, m) {
-  const rot = getRotation(y, m).flat(); const monthKey = getRotationKey(y, m); const skipped = state.skippedTurns[monthKey] || [];
-  for (const r of rot) {
-    if (!r.trim() || skipped.includes(r)) continue; 
-    const pData = getUserProgress(r, y, m);
-    if (!pData.isFinished) return r; 
-  	}
-  return null; 
-	}
-
+    return { progress, isFinished, messages };
+}
 // ==========================================
 // CORE: MOTOR DEL MERCADILLO
 // ==========================================
@@ -1934,34 +1952,37 @@ function renderAdminAjustes() {
         </div>`;
     });
     
-    html += `</div>`; // Fin del plan
+    // 🌍 UBICACIÓN INTEGRADA: Reglas Transversales del PLAN específico (dentro del bucle)
+    html += `
+    <div class="card" style="margin-top:1.5rem; margin-bottom:1rem; border: 2px solid var(--merc); background: #faf5ff;">
+        <h3 style="color:var(--merc); margin-bottom:1rem; font-size:1.05rem;">🌍 Reglas Transversales de este Plan (Mes Completo)</h3>
+        <div style="display:grid; gap:12px; grid-template-columns: 1fr 1fr;">
+            <div>
+                <label style="font-size:0.85rem; font-weight:bold;">🎯 Mínimo Festivos/Fines de Semana globales al mes:</label>
+                <input type="number" id="cfg-plan-min-festivos-${pIdx}" value="${plan.minGlobalFestivos || 1}" min="0" style="width:100%; margin-top:4px;">
+            </div>
+            <div>
+                <label style="font-size:0.85rem; font-weight:bold;">🛡️ Gestión de Excesos de Carga (Dilema del Motor):</label>
+                <select id="cfg-plan-exceso-modo-${pIdx}" style="width:100%; margin-top:4px; padding:6px;">
+                    <option value="historico" ${plan.excesoModo === 'historico' ? 'selected' : ''}>Asignar el exceso a quienes lleven menos histórico global</option>
+                    <option value="libre" ${plan.excesoModo === 'libre' ? 'selected' : ''}>Permitir asignación libre tras cumplir el mínimo</option>
+                </select>
+            </div>
+        </div>
+    </div>`;
+
+    html += `</div>`; // Fin del contenedor del plan específico
   });
 
-  // 🌍 CONCATENACIÓN CORRECTA: Añadimos las Reglas Transversales fuera del bucle de planes pero dentro de la variable html
+  // Fuera del bucle ya solo renderizamos el botón de guardado final
   html += `
-  <div class="card" style="margin-top:1.5rem; border: 2px solid var(--merc);">
-      <h3 style="color:var(--merc); margin-bottom:1rem;">🌍 Reglas Globales Transversales (Mes Completo)</h3>
-      <div style="display:grid; gap:12px; grid-template-columns: 1fr 1fr;">
-          <div>
-              <label style="font-size:0.85rem; font-weight:bold;">🎯 Mínimo Festivos/Fines de Semana globales al mes:</label>
-              <input type="number" id="cfg-global-min-festivos" value="${promoConfig.minGlobalFestivos || 1}" min="0" style="width:100%; margin-top:4px;">
-          </div>
-          <div>
-              <label style="font-size:0.85rem; font-weight:bold;">🛡️ Gestión de Excesos de Carga (Dilema del Motor):</label>
-              <select id="cfg-global-exceso-modo" style="width:100%; margin-top:4px; padding:6px;">
-                  <option value="historico" ${promoConfig.excesoModo === 'historico' ? 'selected' : ''}>Asignar el exceso a quienes lleven menos histórico global</option>
-                  <option value="libre" ${promoConfig.excesoModo === 'libre' ? 'selected' : ''}>Permitir asignación libre tras cumplir el mínimo</option>
-              </select>
-          </div>
-      </div>
-  </div>
-
   <div style="margin-top:2rem; text-align:right;">
       <button class="btn btn-primary" onclick="saveAdminAjustes()">Guardar Ajustes</button>
   </div>`;
   
   container.innerHTML = html;
 }
+
 function adminAddPlan() {
     syncConfigFromUI();
     let numPlanes = promoConfig.planes.length + 1;
@@ -2000,36 +2021,67 @@ function adminToggleRuleTag(pIdx, svcIdx, ruleIdx, tag) {
 }
 
 function syncConfigFromUI() {
-  if(!promoConfig.planes) return;
+  if (!promoConfig) promoConfig = {};
+  if (!promoConfig.planes) promoConfig.planes = [];
+
+  // 1. Recorremos cada plan configurado en la interfaz
   promoConfig.planes.forEach((plan, pIdx) => {
-    const pNom = document.getElementById(`cfg-plan-nom-${pIdx}`); if (pNom) plan.nombre = pNom.value;
+    // Sincronizar nombre del Plan
+    const nomInput = document.getElementById(`cfg-plan-nom-${pIdx}`);
+    if (nomInput) plan.nombre = nomInput.value;
 
+    // 🌍 NUEVA CAPTURA INTEGRADA: Reglas Transversales por cada Plan específico
+    const minFestivosInput = document.getElementById(`cfg-plan-min-festivos-${pIdx}`);
+    const excesoModoSelect = document.getElementById(`cfg-plan-exceso-modo-${pIdx}`);
+    
+    if (minFestivosInput) {
+        plan.minGlobalFestivos = parseInt(minFestivosInput.value) || 0;
+    }
+    if (excesoModoSelect) {
+        plan.excesoModo = excesoModoSelect.value;
+    }
+
+    // 2. Recorremos los servicios que pertenecen a este plan concreto
+    if (!plan.servicios) plan.servicios = [];
     plan.servicios.forEach((svc, i) => {
-      const nom = document.getElementById(`cfg-nom-${pIdx}-${i}`); if(nom) svc.nombre = nom.value;
-      const cupo = document.getElementById(`cfg-cupo-${pIdx}-${i}`); if(cupo) svc.cupoMensualTotal = parseInt(cupo.value) || 0;
-      const plazas = document.getElementById(`cfg-plazas-${pIdx}-${i}`); if(plazas) svc.plazasPorDia = parseInt(plazas.value) || 1;
-      const col = document.getElementById(`cfg-col-${pIdx}-${i}`); if(col) svc.color = col.value;
-      const hab = document.getElementById(`cfg-hab-${pIdx}-${i}`); if(hab) svc.requiereHabilitacion = hab.checked;
-			const inter = document.getElementById(`cfg-intercambio-${pIdx}-${i}`); if(inter) svc.reglaIntercambio = inter.value;
-      
-      const sLab = document.getElementById(`cfg-sal-lab-${pIdx}-${i}`); if(sLab) svc.generaSaliente.laborable = sLab.checked;
-      const sVis = document.getElementById(`cfg-sal-vis-${pIdx}-${i}`); if(sVis) svc.generaSaliente.vispera = sVis.checked;
-      const sFin = document.getElementById(`cfg-sal-fin-${pIdx}-${i}`); if(sFin) svc.generaSaliente.fin_de_semana = sFin.checked;
-      const sFes = document.getElementById(`cfg-sal-fes-${pIdx}-${i}`); if(sFes) svc.generaSaliente.festivo_intersemanal = sFes.checked;
+      const nomSvc = document.getElementById(`cfg-nom-${pIdx}-${i}`);
+      if (nomSvc) svc.nombre = nomSvc.value;
 
-			const minFestivosInput = document.getElementById('cfg-global-min-festivos');
- 		  const excesoModoSelect = document.getElementById('cfg-global-exceso-modo');
-  
-  if (minFestivosInput) {
-      promoConfig.minGlobalFestivos = parseInt(minFestivosInput.value) || 0;
-  }
-  if (excesoModoSelect) {
-      promoConfig.excesoModo = excesoModoSelect.value;
-  }
+      const cupoSvc = document.getElementById(`cfg-cupo-${pIdx}-${i}`);
+      if (cupoSvc) svc.cupoMensualTotal = parseInt(cupoSvc.value) || 0;
 
+      const plazasSvc = document.getElementById(`cfg-plazas-${pIdx}-${i}`);
+      if (plazasSvc) svc.plazasPorDia = parseInt(plazasSvc.value) || 1;
+
+      const colSvc = document.getElementById(`cfg-col-${pIdx}-${i}`);
+      if (colSvc) svc.color = colSvc.value;
+
+      const habSvc = document.getElementById(`cfg-hab-${pIdx}-${i}`);
+      if (habSvc) svc.requiereHabilitacion = habSvc.checked;
+
+      const interSvc = document.getElementById(`cfg-intercambio-${pIdx}-${i}`);
+      if (interSvc) svc.reglaIntercambio = interSvc.value;
+
+      // Sincronizar la Matriz de Salientes del servicio
+      if (!svc.generaSaliente) svc.generaSaliente = {};
+      const chkLab = document.getElementById(`cfg-sal-lab-${pIdx}-${i}`);
+      const chkVis = document.getElementById(`cfg-sal-vis-${pIdx}-${i}`);
+      const chkFin = document.getElementById(`cfg-sal-fin-${pIdx}-${i}`);
+      const chkFes = document.getElementById(`cfg-sal-fes-${pIdx}-${i}`);
+
+      if (chkLab) svc.generaSaliente.laborable = chkLab.checked;
+      if (chkVis) svc.generaSaliente.vispera = chkVis.checked;
+      if (chkFin) svc.generaSaliente.fin_de_semana = chkFin.checked;
+      if (chkFes) svc.generaSaliente.festivo_intersemanal = chkFes.checked;
+
+      // Sincronizar las Reglas Obligatorias internas de este servicio
+      if (!svc.reglasObligatorias) svc.reglasObligatorias = [];
       svc.reglasObligatorias.forEach((rule, rIdx) => {
-          const rMin = document.getElementById(`cfg-r-min-${pIdx}-${i}-${rIdx}`); if(rMin) rule.minimo = parseInt(rMin.value) || 1;
-          const rMsg = document.getElementById(`cfg-r-msg-${pIdx}-${i}-${rIdx}`); if(rMsg) rule.mensaje = rMsg.value;
+        const minRule = document.getElementById(`cfg-r-min-${pIdx}-${i}-${rIdx}`);
+        if (minRule) rule.minimo = parseInt(minRule.value) || 0;
+
+        const msgRule = document.getElementById(`cfg-r-msg-${pIdx}-${i}-${rIdx}`);
+        if (msgRule) rule.mensaje = msgRule.value;
       });
     });
   });
@@ -2366,23 +2418,25 @@ function calcularViabilidadFestivosMensual(ano, mes) {
 }
 function getHistoricoFestivosResidentes() {
     let historico = {};
+    // Inicializamos a todos los residentes de la promoción a cero
     getAllResidents().forEach(r => historico[r] = 0);
     
-    // Recorremos todo el estado de guardias guardado en la base de datos
     if (!state.shifts) return historico;
     
+    // Recorremos todos los días que tienen guardias asignadas en la plataforma
     Object.keys(state.shifts).forEach(dk => {
         const parts = dk.split('_'); // YYYY_MM_DD
         if (parts.length === 3) {
             const y = parseInt(parts[0]);
             const m = parseInt(parts[1]) - 1;
             const d = parseInt(parts[2]);
-            const tag = getDayTag(y, m, d);
             
+            // Si el día es fin de semana o festivo, sumamos la guardia a quien la tenga
+            const tag = getDayTag(y, m, d);
             if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
                 Object.keys(state.shifts[dk]).forEach(user => {
                     if (historico[user] !== undefined) {
-                        historico[user]++; // Sumamos 1 guardia festiva al contador histórico de este residente
+                        historico[user]++;
                     }
                 });
             }
@@ -2390,6 +2444,71 @@ function getHistoricoFestivosResidentes() {
     });
     
     return historico;
+}
+
+function renderAlertaCargaMensual() {
+    const container = document.getElementById('alerta-carga-mensual');
+    if (!container) return;
+    
+    const y = curDate.getFullYear();
+    const m = curDate.getMonth();
+    
+    // Ejecutamos la lógica de la calculadora de viabilidad que metimos en getUserProgress
+    let huecosFestivosObligatorios = 0;
+    const totalDias = getDaysInMonth(y, m);
+    
+    // Identificamos el plan activo del usuario actual para saber qué servicios evaluar
+    const uProfile = currentUserProfile;
+    const miPlan = promoConfig.planes?.find(p => p.nombre === uProfile?.plan_asociado) || promoConfig.planes?.[0];
+    if (!miPlan) {
+        container.innerHTML = '';
+        return;
+    }
+
+    for (let d = 1; d <= totalDias; d++) {
+        const tag = getDayTag(y, m, d);
+        if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
+            const dk = formatDateKey(y, m, d);
+            miPlan.servicios.forEach(svc => {
+                if (svc.requiereHabilitacion && !state.pedWhitelist[dk]) return;
+                huecosFestivosObligatorios += (svc.plazasPorDia || 1);
+            });
+        }
+    }
+    
+    const residentes = getAllResidents();
+    const totalResidents = residentes.length;
+    if (totalResidents === 0) { container.innerHTML = ''; return; }
+    
+    const cargaMedia = huecosFestivosObligatorios / totalResidents;
+    const minimoExigibleConfig = miPlan.minGlobalFestivos || 1;
+    
+    // Si la carga media supera el mínimo exigido, el mes es COMPLICADO
+    if (cargaMedia > minimoExigibleConfig) {
+        const excesoReal = huecosFestivosObligatorios - (minimoExigibleConfig * totalResidents);
+        
+        // Calculamos el histórico para saber a quién le toca pringar
+        const historico = getHistoricoFestivosResidentes();
+        
+        // Ordenamos los residentes de MENOS festivos hechos a MÁS festivos hechos
+        const residentesOrdenados = [...residentes].sort((a, b) => historico[a] - historico[b]);
+        
+        // Los "X" primeros de la lista son los que deben asumir el exceso
+        const implicados = residentesOrdenados.slice(0, Math.ceil(excesoReal));
+        const nombresImplicados = implicados.map(r => `<b>${r}</b> (${historico[r]} globales)`).join(', ');
+        
+        container.innerHTML = `
+        <div style="background: #fff7ed; border: 2px dashed #f97316; color: #c2410c; padding: 15px; border-radius: 12px; margin-bottom: 20px; font-size: 0.9rem; line-height: 1.5;">
+            <div style="display:flex; align-items:center; gap:8px; font-weight: bold; font-size: 1rem; margin-bottom: 6px;">
+                📢 <span>¡Mes Complicado Detectado!</span> 📊
+            </div>
+            Este mes tiene una densidad alta de guardias obligatorias en fin de semana/festivo (Media de <b>${cargaMedia.toFixed(1)}</b> por residente). 
+            Para cubrir todos los huecos sin dejar servicios descubiertos, se requiere que 
+            ${nombresImplicados} <b>asuman +1 festivo adicional</b> en la asignación inicial de este mes por justicia distributiva histórica.
+        </div>`;
+    } else {
+        container.innerHTML = ''; // Si el mes es tranquilo y cuadra con el mínimo, no se muestra nada
+    }
 }
 </script>
 </body>
