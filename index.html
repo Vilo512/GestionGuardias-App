@@ -103,7 +103,7 @@
   <div id="pane-onboarding" style="display:none;">
     <div class="card" style="text-align:center; max-width: 600px; margin: 0 auto; border: 2px solid var(--adu);">
       <h3 style="color:var(--adu); margin-bottom: 1rem;">👋 ¡Hola, <span id="onb-name"></span>!</h3>
-      <p style="color:#64748b; margin-bottom: 1.5rem; font-size: 0.95rem;">Selecciona tu centro y servicio para unirte a tu promoción.</p>
+      <p style="color:#64748b; margin-bottom: 1.5rem; font-size: 0.95rem;">Selecciona tu centro y especialidad para unirte.</p>
 	  <div style="background:#f8fafc; padding: 1.5rem; border-radius: 8px; border: 1px solid #cbd5e1; margin-bottom: 1.5rem; text-align: left;">
         <label style="font-size: 0.8rem; font-weight: bold;">1. Selecciona Hospital</label>
         <select id="sel-hospital" onchange="onHospitalChange()"><option value="">Cargando hospitales...</option></select>
@@ -118,7 +118,7 @@
         <button class="primary" style="width:100%; margin-top: 10px;" onclick="solicitarUnirse()">Solicitar Acceso</button>
       </div>
       <div style="padding-top: 1rem; border-top: 1px dashed #cbd5e1;">
-        <button class="danger" style="background: white; color: var(--dark); border-color: var(--dark);" onclick="abrirCrearPromocion()">+ Crear Nueva Promoción</button>
+        <button class="danger" style="background: white; color: var(--dark); border-color: var(--dark);" onclick="abrirCrearPromocion()">+ Dar de alta Nueva Especialidad</button>
       </div>
     </div>
   </div>
@@ -632,8 +632,8 @@ function onHospitalChange() {
   if (!hospElegido) { selServ.disabled = true; selServ.innerHTML = '<option value="">Primero elige un hospital</option>'; return; }
   const serviciosFiltrados = todasLasPromociones.filter(p => p.hospital === hospElegido);
   selServ.disabled = false;
-  // Cambiamos el texto para que quede claro que es un contenedor vitalicio
-  selServ.innerHTML = '<option value="">-- Elige Especialidad y Año --</option>' + serviciosFiltrados.map(p => `<option value="${p.id}">${p.servicio} (Contenedor: ${p.nombre})</option>`).join('');
+  // TEXTO ACTUALIZADO: Adiós al "Año"
+  selServ.innerHTML = '<option value="">-- Elige Especialidad --</option>' + serviciosFiltrados.map(p => `<option value="${p.id}">${p.servicio} (${p.nombre})</option>`).join('');
 }
 async function solicitarUnirse() {
   const promoId = document.getElementById('sel-servicio').value;
@@ -652,11 +652,12 @@ async function solicitarUnirse() {
 
 // En la función abrirCrearPromocion(), quita el prompt del "año/R1" ya que ahora es unificado
 function abrirCrearPromocion() {
-  const hospital = prompt("Nombre del Hospital (ej: Hospital Arnau de Vilanova):"); if (!hospital) return;
-  const servicio = prompt("Especialidad (ej: MFyC, Traumatología):"); if (!servicio) return;
-  crearNuevaPromocionMaster(hospital, servicio, "Especialidad Completa");
+  const hospital = prompt("Nombre del Hospital (ej: Hospital Universitari Arnau de Vilanova, procura poner el nombre completo del hospital con mayúsculas apropiadas):"); if (!hospital) return;
+  const servicio = prompt("Especialidad (ej: Medicina Familiar y Comunitaria, Traumatología, procura poner el nombre completo de la especialidad según el BOE):"); if (!servicio) return;
+  const alias = prompt("Alias o nombre descriptivo (ej: Toda la Residencia, Contenedor Único):", "Especialidad Completa"); if (!alias) return;
+  
+  crearNuevaPromocionMaster(hospital, servicio, alias);
 }
-
 async function crearNuevaPromocionMaster(h, s, n) {
   const fechaInicio = document.getElementById('onb-fecha-inicio').value;
   if (!fechaInicio) return alert("Por favor, establece tu fecha real de inicio de residencia en el formulario antes de crear el grupo.");
@@ -674,7 +675,7 @@ async function crearNuevaPromocionMaster(h, s, n) {
   }).eq('id', currentUserProfile.id);
   
   if (uErr) return alert("Error al asignarte admin: " + uErr.message);
-  alert("¡Contenedor unificado creado! Eres el Dueño de " + s); window.location.reload(); 
+  alert("¡Promoción unificada creada! Eres el Dueño de " + s); window.location.reload(); 
 }
 	
 async function loginWithGoogle() { const { error } = await supabaseClient.auth.signInWithOAuth({ provider: 'google', options: { queryParams: { prompt: 'select_account' } } }); if (error) alert("Error: " + error.message); }
@@ -686,6 +687,50 @@ function renderUserHeader() {
   else el.innerHTML = `<button onclick="loginWithGoogle()" class="primary" style="padding:0.3rem 0.8rem; font-size:0.8rem; background: #ea4335; border:none; color:white;">Entrar con Google</button>`;
 }
 
+// ==========================================
+// NÚCLEO 3.5: MOTOR DE SIMULACIÓN TEMPORAL
+// ==========================================
+function getPlanForUserOnDate(userProfile, dateKey) {
+    // 1. Fallback seguro por si la config no ha cargado bien
+    if (!promoConfig.planes || promoConfig.planes.length === 0) {
+        return { nombre: "Plan Base", servicios: promoConfig.servicios || [] };
+    }
+    
+    // 2. Si el usuario no tiene fechas definidas, le damos el primer plan (R1) por defecto
+    if (!userProfile || !userProfile.fecha_inicio_residencia || !userProfile.fecha_cambio_contrato) {
+        return promoConfig.planes[0];
+    }
+
+    const targetParts = dateKey.split('_');
+    const targetDate = new Date(parseInt(targetParts[0]), parseInt(targetParts[1]) - 1, parseInt(targetParts[2]));
+
+    const startParts = userProfile.fecha_inicio_residencia.split('-');
+    const startDate = new Date(parseInt(startParts[0]), parseInt(startParts[1]) - 1, parseInt(startParts[2]));
+
+    // 3. Si la fecha consultada es ANTERIOR a su inicio de residencia, no era residente
+    if (targetDate < startDate) return null;
+
+    const cambioParts = userProfile.fecha_cambio_contrato.split('-');
+    const cambioMonth = parseInt(cambioParts[1]) - 1;
+    const cambioDay = parseInt(cambioParts[2]);
+
+    // 4. Calcular los "Saltos de Contrato"
+    let level = targetDate.getFullYear() - startDate.getFullYear() + 1;
+    const targetChangeDate = new Date(targetDate.getFullYear(), cambioMonth, cambioDay);
+
+    // Si en el año consultado todavía no ha llegado el día de cambio, le restamos 1 nivel
+    if (targetDate < targetChangeDate) {
+        level--;
+    }
+
+    level = Math.max(1, level); // Asegurar que el mínimo histórico es R1 (Nivel 1)
+
+    // 5. Devolver el plan correspondiente (Índice 0 = R1, Índice 1 = R2...)
+    // Si es R5 pero solo hay 4 planes creados en Ajustes, se le aplica el último disponible por seguridad.
+    const planIndex = Math.min(level - 1, promoConfig.planes.length - 1);
+    return promoConfig.planes[planIndex];
+}
+	
 // ==========================================
 // NÚCLEO 4: MOTOR DE SALIENTES DINÁMICO
 // ==========================================
@@ -957,23 +1002,17 @@ async function renderGruposView() {
                 ? `<span style="background:var(--ped); color:white; padding:4px 10px; border-radius:12px; font-size:0.8rem; font-weight:bold;">✅ Acceso Activo</span>`
                 : `<span style="background:#f59e0b; color:white; padding:4px 10px; border-radius:12px; font-size:0.8rem; font-weight:bold;">⏳ Pendiente de aprobación</span>`;
                 
-            // Lógica de extracción de Día y Mes para la interfaz
             let savedDate = currentUserProfile.fecha_cambio_contrato || currentUserProfile.fecha_inicio_residencia || '';
             let dDia = '01', dMes = '01';
-            if (savedDate) {
-                const parts = savedDate.split('-');
-                if (parts.length === 3) { dMes = parts[1]; dDia = parts[2]; }
-            }
+            if (savedDate) { const parts = savedDate.split('-'); if (parts.length === 3) { dMes = parts[1]; dDia = parts[2]; } }
 
-            let diaOptions = Array.from({length: 31}, (_, i) => {
-                let v = String(i+1).padStart(2,'0');
-                return `<option value="${v}" ${v === dDia ? 'selected' : ''}>${i+1}</option>`;
-            }).join('');
+            let diaOptions = Array.from({length: 31}, (_, i) => { let v = String(i+1).padStart(2,'0'); return `<option value="${v}" ${v === dDia ? 'selected' : ''}>${i+1}</option>`; }).join('');
+            let mesOptions = MONTHS.map((m, i) => { let v = String(i+1).padStart(2,'0'); return `<option value="${v}" ${v === dMes ? 'selected' : ''}>${m}</option>`; }).join('');
 
-            let mesOptions = MONTHS.map((m, i) => {
-                let v = String(i+1).padStart(2,'0');
-                return `<option value="${v}" ${v === dMes ? 'selected' : ''}>${m}</option>`;
-            }).join('');
+            // EL CHIVATO DEL MOTOR TEMPORAL: Consultamos qué somos HOY
+            let hoyDK = formatDateKey(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+            let planActivoHoy = getPlanForUserOnDate(currentUserProfile, hoyDK);
+            let nombrePlanHoy = planActivoHoy ? planActivoHoy.nombre : '<span style="color:var(--fest);">No residente (Fecha futura)</span>';
 
             currentContainer.innerHTML = `
                 <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:15px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom: 15px;">
@@ -1002,9 +1041,15 @@ async function renderGruposView() {
                             </div>
                         </div>
                     </div>
+                    
+                    <div style="margin-bottom:15px; padding:10px; background:white; border-radius:6px; border:2px dashed var(--adu); text-align:center;">
+                        <span style="font-size:0.85rem; color:#64748b;">El Motor calcula que a día de HOY te corresponde el:</span>
+                        <strong style="display:block; color:var(--adu); font-size:1.1rem; margin-top:4px;">🎯 ${nombrePlanHoy}</strong>
+                    </div>
+
                     <button class="primary" style="background:#f59e0b; border:none; padding:8px 12px; font-size:0.85rem;" onclick="guardarFechaGraduacion()">💾 Actualizar Día de Cambio</button>
                 </div>`;
-        }
+        	}
     } else {
         currentContainer.innerHTML = `<p style="color:#64748b; font-style:italic;">No estás en ningún grupo actualmente.</p>`;
     }
