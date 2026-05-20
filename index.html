@@ -1384,6 +1384,29 @@ function toggleFilter() {
 }
 
 // ==========================================
+// AYUDANTES DEL MOTOR TEMPORAL (EXTRACTORES)
+// ==========================================
+function getAllUniqueServices() {
+    let unique = []; let names = new Set();
+    if (!promoConfig.planes) return [];
+    promoConfig.planes.forEach(plan => {
+        plan.servicios.forEach(s => {
+            if (!names.has(s.nombre)) { names.add(s.nombre); unique.push(s); }
+        });
+    });
+    return unique;
+}
+
+function getServiceColor(svcName) {
+    if (!promoConfig.planes) return '#3b82f6';
+    for (let plan of promoConfig.planes) {
+        let svc = plan.servicios.find(s => s.nombre === svcName);
+        if (svc && svc.color) return svc.color;
+    }
+    return '#3b82f6';
+}
+
+// ==========================================
 // RENDERIZADOR DEL CALENDARIO ORIGINAL
 // ==========================================
 function renderMainCalendar() {
