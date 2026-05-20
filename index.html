@@ -537,17 +537,21 @@ async function initApp() {
         const { data: { session } } = await supabaseClient.auth.getSession();
         await handleSession(session);
         
+        // Control de eventos estricto: Bloqueamos las ráfagas de actualizaciones secundarias
         supabaseClient.auth.onAuthStateChange(async (event, newSession) => {
+            // Silenciamos por completo actualizaciones de token o de tablas de perfiles de fondo
             if (event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-                authSession = newSession;
+                authSession = newSession; // Guardamos la credencial en memoria de forma silenciosa
                 return; 
             }
+            
+            // SÓLO permitimos alterar el estado visual si hay un inicio o cierre de sesión explícito
             if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
                 await handleSession(newSession);
             }
         });
 
-        // 🚀 INYECCIÓN: MOTOR ANTI-SUSPENSÍON (WAKE LOCK + HEARTBEAT)
+        // Activamos el motor para evitar que la pestaña entre en modo "Sleep"
         activarAntiSuspension();
 
     } catch (err) {
@@ -555,30 +559,23 @@ async function initApp() {
     }
 }
 
-// Función maestra para engañar al navegador y mantener la pestaña viva
 function activarAntiSuspension() {
-    // 1. Truco del latido invisible: ejecuta micro-tareas para que el recolector de basura de Chrome no congele el hilo
+    // Genera micro-tareas de lectura ligeras cada 45 segundos para mantener el hilo activo en el navegador
     setInterval(() => {
         if (typeof supabaseClient !== 'undefined' && authSession) {
-            // Hacemos una llamada fantasma ultraligera a la memoria para mantener el canal abierto
             const _ = !!supabaseClient.auth.user;
         }
-    }, 30000); // Cada 30 segundos manda un pulso de vida interno
+    }, 45000);
 
-    // 2. Wake Lock API (Si el navegador lo soporta, impide físicamente que la pestaña entre en modo "Sleep")
+    // API Wake Lock nativa: Solicita mantener el contexto de ejecución activo si el navegador lo soporta
     if ('wakeLock' in navigator) {
         let wakeLock = null;
         const requestWakeLock = async () => {
-            try {
-                wakeLock = await navigator.wakeLock.request('screen');
-            } catch (err) { /* Silencioso */ }
+            try { wakeLock = await navigator.wakeLock.request('screen'); } catch (err) {}
         };
         requestWakeLock();
-        // Si el usuario minimiza y vuelve, re-activamos el cerrojo
         document.addEventListener('visibilitychange', () => {
-            if (wakeLock !== null && document.visibilityState === 'visible') {
-                requestWakeLock();
-            }
+            if (wakeLock !== null && document.visibilityState === 'visible') { requestWakeLock(); }
         });
     }
 }
