@@ -617,32 +617,56 @@ function onHospitalChange() {
 
 async function solicitarUnirse() {
   const promoId = document.getElementById('sel-servicio').value;
-  if (!promoId) return alert("Por favor, selecciona un contenedor/promoción.");
+  const fechaInicio = document.getElementById('onb-fecha-inicio').value;
+  
+  if (!promoId) return alert("Por favor, selecciona una especialidad.");
+  if (!fechaInicio) return alert("Por favor, establece tu fecha real de inicio de residencia.");
+
   setStatus('Enviando...');
-  const { error } = await supabaseClient.from('perfiles').update({ promocion_id: promoId, estado: 'pendiente' }).eq('id', currentUserProfile.id);
-  if (error) { alert("Error: " + error.message); } else { currentUserProfile.promocion_id = promoId; currentUserProfile.estado = 'pendiente'; evaluarEstadoUsuario(); }
+  const { error } = await supabaseClient.from('perfiles').update({ 
+      promocion_id: promoId, 
+      estado: 'pendiente',
+      fecha_inicio_residencia: fechaInicio,
+      fecha_cambio_contrato: fechaInicio // Por defecto, es igual al inicio
+  }).eq('id', currentUserProfile.id);
+
+  if (error) { alert("Error: " + error.message); } 
+  else { 
+      currentUserProfile.promocion_id = promoId; 
+      currentUserProfile.estado = 'pendiente'; 
+      currentUserProfile.fecha_inicio_residencia = fechaInicio;
+      currentUserProfile.fecha_cambio_contrato = fechaInicio;
+      evaluarEstadoUsuario(); 
+  }
 }
 
+// En la función abrirCrearPromocion(), quita el prompt del "año/R1" ya que ahora es unificado
 function abrirCrearPromocion() {
   const hospital = prompt("Nombre del Hospital (ej: Hospital Arnau de Vilanova):"); if (!hospital) return;
-  const servicio = prompt("Especialidad (ej: MFyC, Traumatología, Pediatría):"); if (!servicio) return;
-  // Educamos al Admin para que NO ponga el año
-  const cohorte = prompt("Nombre del Contenedor Permanente (ej: R1, R2, R3).\n\nRECUERDA: No incluyas años (2026), este grupo servirá para todas las futuras generaciones:"); if (!cohorte) return;
-  crearNuevaPromocionMaster(hospital, servicio, cohorte);
+  const servicio = prompt("Especialidad (ej: MFyC, Traumatología):"); if (!servicio) return;
+  crearNuevaPromocionMaster(hospital, servicio, "Especialidad Completa");
 }
 
 async function crearNuevaPromocionMaster(h, s, n) {
+  const fechaInicio = document.getElementById('onb-fecha-inicio').value;
+  if (!fechaInicio) return alert("Por favor, establece tu fecha real de inicio de residencia en el formulario antes de crear el grupo.");
+
   setStatus('Creando contenedor...');
-  // AÑADIDO: creador_id para que seas el Dueño legítimo
   const { data: nuevaP, error: pErr } = await supabaseClient.from('promociones').insert({ hospital: h, servicio: s, nombre: n, creador_id: currentUserProfile.id }).select().single();
   if (pErr) return alert("Error: " + pErr.message);
   
-  const { error: uErr } = await supabaseClient.from('perfiles').update({ promocion_id: nuevaP.id, estado: 'aprobado', rol: 'admin' }).eq('id', currentUserProfile.id);
-  if (uErr) return alert("Error al asignarte admin: " + uErr.message);
+  const { error: uErr } = await supabaseClient.from('perfiles').update({ 
+      promocion_id: nuevaP.id, 
+      estado: 'aprobado', 
+      rol: 'admin',
+      fecha_inicio_residencia: fechaInicio,
+      fecha_cambio_contrato: fechaInicio
+  }).eq('id', currentUserProfile.id);
   
-  alert("¡Contenedor creado! Eres el Dueño administrador de " + s + " (" + n + ")"); window.location.reload(); 
+  if (uErr) return alert("Error al asignarte admin: " + uErr.message);
+  alert("¡Contenedor unificado creado! Eres el Dueño de " + s); window.location.reload(); 
 }
-
+	
 async function loginWithGoogle() { const { error } = await supabaseClient.auth.signInWithOAuth({ provider: 'google', options: { queryParams: { prompt: 'select_account' } } }); if (error) alert("Error: " + error.message); }
 async function logoutUser() { setStatus('Cerrando sesión...'); await supabaseClient.auth.signOut(); window.location.reload(); }
 function impersonateUser(user) { if (!confirm(`Vas a pasar a la vista de usuario como ${user}. Dejarás de ser Admin temporalmente. ¿Continuar?`)) return; loggedInUser = user; isAdmin = false; nav('cal'); renderAll(); }
@@ -926,24 +950,22 @@ async function renderGruposView() {
             let fechaActual = currentUserProfile.fecha_cambio_contrato || '';
 
             currentContainer.innerHTML = `
-                <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:15px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom: 15px;">
-                    <div>
-                        <h4 style="margin:0; color:var(--dark); font-size:1.1rem;">${myPromo.hospital}</h4>
-                        <div style="color:#475569; font-size:0.95rem; margin-top:4px;">${myPromo.servicio} <span style="color:#94a3b8;">(${myPromo.nombre})</span></div>
-                        <div style="margin-top:10px;">${statusBadge}</div>
+				<div style="background:#fffbeb; border:1px solid #fde047; border-radius:8px; padding:15px;">
+                    <h4 style="margin:0 0 8px 0; color:#854d0e; font-size:0.95rem;">⏱️ Motor de Simulación Temporal</h4>
+                    <p style="font-size:0.85rem; color:#854d0e; margin-bottom:10px;">El sistema calcula tus guardias basándose en estas fechas. Si tienes una baja larga, retrasa tu fecha de cambio de contrato.</p>
+                    
+                    <div style="display:flex; gap:15px; flex-wrap:wrap; margin-bottom: 10px;">
+                        <div style="flex:1; min-width:200px; background:white; padding:8px; border-radius:6px; border:1px solid #cbd5e1; opacity:0.8;">
+                            <label style="font-size:0.75rem; color:#64748b; font-weight:bold; display:block;">Fecha INICIO Residencia (Fija)</label>
+                            <span style="font-size:0.9rem; color:var(--dark);">${currentUserProfile.fecha_inicio_residencia || 'No definida'}</span>
+                        </div>
+                        <div style="flex:1; min-width:200px;">
+                            <label style="font-size:0.75rem; color:#64748b; font-weight:bold; display:block;">Siguiente CAMBIO Contrato</label>
+                            <input type="date" id="input-fecha-graduacion" value="${fechaActual}" style="margin:0; width:100%;">
+                        </div>
                     </div>
-                    <button class="danger" style="background:white;" onclick="abandonarGrupo()">🚪 Salir de este grupo</button>
-                </div>
-                
-                <div style="background:#fffbeb; border:1px solid #fde047; border-radius:8px; padding:15px;">
-                    <h4 style="margin:0 0 8px 0; color:#854d0e; font-size:0.95rem;">🎓 Fecha de Graduación / Salida</h4>
-                    <p style="font-size:0.85rem; color:#854d0e; margin-bottom:10px;">Establece la fecha en la que terminas tu rotación en este contenedor. Al llegar, se activará tu graduación.</p>
-                    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-                        <input type="date" id="input-fecha-graduacion" value="${fechaActual}" style="margin:0; max-width:200px;">
-                        <button class="primary" style="background:#f59e0b; border:none; padding:8px 12px; font-size:0.85rem;" onclick="guardarFechaGraduacion()">💾 Guardar Fecha</button>
-                    </div>
+                    <button class="primary" style="background:#f59e0b; border:none; padding:8px 12px; font-size:0.85rem;" onclick="guardarFechaGraduacion()">💾 Actualizar Cambio de Contrato</button>
                 </div>`;
-        }
     } else {
         currentContainer.innerHTML = `<p style="color:#64748b; font-style:italic;">No estás en ningún grupo actualmente.</p>`;
     }
