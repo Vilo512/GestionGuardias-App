@@ -536,9 +536,18 @@ async function initApp() {
     try {
         const { data: { session } } = await supabaseClient.auth.getSession();
         await handleSession(session);
+        
         supabaseClient.auth.onAuthStateChange(async (event, newSession) => {
-            if (event === 'INITIAL_SESSION') return; 
-            await handleSession(newSession);
+            // Silenciamos los eventos de fondo (ej: Supabase renovando el token tras inactividad)
+            if (event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+                authSession = newSession; // Solo actualizamos la llave maestra en memoria, sin tocar la UI
+                return; 
+            }
+            
+            // Solo lanzamos la carga visual pesada si de verdad el usuario hace Login o Logout
+            if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
+                await handleSession(newSession);
+            }
         });
     } catch (err) {
         setStatus("Error de sesión", true);
