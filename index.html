@@ -1648,10 +1648,13 @@ function renderAdminAjustes() {
                 <label style="font-size:0.8rem; color:#64748b; display:block; margin-bottom:4px;">Plazas por día</label>
                 <input type="number" id="cfg-plazas-${pIdx}-${i}" value="${svc.plazasPorDia}" min="1" style="margin:0;">
              </div>
-             <div style="flex:1; min-width:80px;">
-                <label style="font-size:0.8rem; color:#64748b; display:block; margin-bottom:4px;">Color</label>
-                <input type="color" id="cfg-col-${pIdx}-${i}" value="${svc.color}" style="width:100%; height:38px; padding:0; cursor:pointer; border:none;">
-             </div>
+			<div style="flex:1; min-width:80px;">
+            	<label style="font-size:0.8rem; color:#64748b; display:block; margin-bottom:4px;">Color</label>
+            	<input type="color" id="cfg-col-${pIdx}-${i}" value="${svc.color}" 
+                   onchange="syncConfigFromUI()" 
+                   oninput="document.getElementById('cfg-card-${pIdx}-${i}').style.borderLeftColor = this.value" 
+                   style="width:100%; height:38px; padding:0; cursor:pointer; border:none; border-radius:6px;">
+         	</div>
           </div>
           
           <div style="margin-bottom:15px; padding:10px; background:#f8fafc; border-radius:6px; border:1px dashed #cbd5e1;">
