@@ -2421,31 +2421,23 @@ function calcularViabilidadFestivosMensual(ano, mes) {
 }
 function getHistoricoFestivosResidentes() {
     let historico = {};
-    // Inicializamos a todos los residentes de la promoción a cero
     getAllResidents().forEach(r => historico[r] = 0);
-    
     if (!state.shifts) return historico;
     
-    // Recorremos todos los días que tienen guardias asignadas en la plataforma
     Object.keys(state.shifts).forEach(dk => {
-        const parts = dk.split('_'); // YYYY_MM_DD
+        const parts = dk.split('_');
         if (parts.length === 3) {
             const y = parseInt(parts[0]);
             const m = parseInt(parts[1]) - 1;
             const d = parseInt(parts[2]);
-            
-            // Si el día es fin de semana o festivo, sumamos la guardia a quien la tenga
             const tag = getDayTag(y, m, d);
             if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
                 Object.keys(state.shifts[dk]).forEach(user => {
-                    if (historico[user] !== undefined) {
-                        historico[user]++;
-                    }
+                    if (historico[user] !== undefined) historico[user]++;
                 });
             }
         }
     });
-    
     return historico;
 }
 
@@ -2455,18 +2447,12 @@ function renderAlertaCargaMensual() {
     
     const y = curDate.getFullYear();
     const m = curDate.getMonth();
-    
-    // Ejecutamos la lógica de la calculadora de viabilidad que metimos en getUserProgress
     let huecosFestivosObligatorios = 0;
     const totalDias = getDaysInMonth(y, m);
     
-    // Identificamos el plan activo del usuario actual para saber qué servicios evaluar
     const uProfile = currentUserProfile;
     const miPlan = promoConfig.planes?.find(p => p.nombre === uProfile?.plan_asociado) || promoConfig.planes?.[0];
-    if (!miPlan) {
-        container.innerHTML = '';
-        return;
-    }
+    if (!miPlan) { container.innerHTML = ''; return; }
 
     for (let d = 1; d <= totalDias; d++) {
         const tag = getDayTag(y, m, d);
@@ -2486,17 +2472,11 @@ function renderAlertaCargaMensual() {
     const cargaMedia = huecosFestivosObligatorios / totalResidents;
     const minimoExigibleConfig = miPlan.minGlobalFestivos || 1;
     
-    // Si la carga media supera el mínimo exigido, el mes es COMPLICADO
     if (cargaMedia > minimoExigibleConfig) {
         const excesoReal = huecosFestivosObligatorios - (minimoExigibleConfig * totalResidents);
-        
-        // Calculamos el histórico para saber a quién le toca pringar
         const historico = getHistoricoFestivosResidentes();
-        
-        // Ordenamos los residentes de MENOS festivos hechos a MÁS festivos hechos
         const residentesOrdenados = [...residentes].sort((a, b) => historico[a] - historico[b]);
         
-        // Los "X" primeros de la lista son los que deben asumir el exceso
         const implicados = residentesOrdenados.slice(0, Math.ceil(excesoReal));
         const nombresImplicados = implicados.map(r => `<b>${r}</b> (${historico[r]} globales)`).join(', ');
         
@@ -2510,7 +2490,7 @@ function renderAlertaCargaMensual() {
             ${nombresImplicados} <b>asuman +1 festivo adicional</b> en la asignación inicial de este mes por justicia distributiva histórica.
         </div>`;
     } else {
-        container.innerHTML = ''; // Si el mes es tranquilo y cuadra con el mínimo, no se muestra nada
+        container.innerHTML = '';
     }
 }
 </script>
