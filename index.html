@@ -96,10 +96,10 @@
     <button class="tab" onclick="nav('merc')" id="tab-merc">Mercadillo 🛒</button>
     <button class="tab" onclick="nav('rot')" id="tab-rot">Rotación</button>
     <button class="tab" onclick="nav('grupos')" id="tab-grupos">Grupos 🏥</button> 
-		<button class="tab" onclick="nav('help')" id="tab-help">Cómo usar 📖</button>
-		<button onclick="cambiarPestaña('perfil')" class="nav-btn">👤 Mi Perfil</button>
+    <button class="tab" onclick="nav('help')" id="tab-help">Cómo usar 📖</button>
+    <button class="tab" onclick="nav('perfil')" id="tab-perfil">👤 Mi Perfil</button>
     <button class="tab" onclick="nav('admin')" id="tab-admin" style="display:none;">Admin 🔒</button>
-  </div>
+</div>
   
   <div id="pane-onboarding" style="display:none;">
     <div class="card" style="text-align:center; max-width: 600px; margin: 0 auto; border: 2px solid var(--adu);">
@@ -234,6 +234,10 @@
         <p>El sistema ahora es 100% dinámico. Las reglas, cupos y salientes varían según la configuración que tu administrador haya establecido en la pestaña Ajustes. Solo tienes que seguir las indicaciones del cartel amarillo cuando sea tu turno.</p>
       </div>
     </div>
+  </div>
+	
+	<div id="pane-perfil" style="display:none;">
+    <div id="contenido-principal"></div>
   </div>
 
   <div id="pane-admin" style="display:none;">
@@ -737,7 +741,8 @@ function renderUserHeader() {
 // NÚCLEO 3.5: MOTOR DE SIMULACIÓN TEMPORAL Y MERCADILLO
 // ==========================================
 function getUserLevelOnDate(userProfile, dateKey) {
-    if (!userProfile || !userProfile.fecha_inicio_residencia || !userProfile.fecha_cambio_contrato) return 1;
+    // Si no hay perfil o no tiene fecha de inicio, por defecto es R1
+    if (!userProfile || !userProfile.fecha_inicio_residencia) return 1;
     
     const targetParts = dateKey.split('_');
     const targetDate = new Date(parseInt(targetParts[0]), parseInt(targetParts[1]) - 1, parseInt(targetParts[2]));
@@ -747,7 +752,9 @@ function getUserLevelOnDate(userProfile, dateKey) {
     
     if (targetDate < startDate) return 0; // Fecha anterior a ser residente
 
-    const cambioParts = userProfile.fecha_cambio_contrato.split('-');
+    // EL SALVAVIDAS: Si no ha configurado el cambio de contrato, usamos su fecha de inicio
+    let savedDate = userProfile.fecha_cambio_contrato || userProfile.fecha_inicio_residencia;
+    const cambioParts = savedDate.split('-');
     const targetChangeDate = new Date(targetDate.getFullYear(), parseInt(cambioParts[1]) - 1, parseInt(cambioParts[2]));
 
     let level = targetDate.getFullYear() - startDate.getFullYear() + 1;
@@ -790,21 +797,6 @@ function canUserTakeShift(targetUserName, sourceUserName, dateKey, svcName) {
     return true; // 'cualquiera'
 }
 
-// Función auxiliar necesaria para extraer el nivel numérico puro
-function getUserLevelOnDate(userProfile, dateKey) {
-    if (!userProfile || !userProfile.fecha_inicio_residencia || !userProfile.fecha_change_contrato && !userProfile.fecha_cambio_contrato) return 1;
-    const targetParts = dateKey.split('_');
-    const targetDate = new Date(parseInt(targetParts[0]), parseInt(targetParts[1]) - 1, parseInt(targetParts[2]));
-    const startParts = userProfile.fecha_inicio_residencia.split('-');
-    const startDate = new Date(parseInt(startParts[0]), parseInt(startParts[1]) - 1, parseInt(startParts[2]));
-    if (targetDate < startDate) return 0;
-    let savedDate = userProfile.fecha_cambio_contrato || userProfile.fecha_inicio_residencia;
-    const cambioParts = savedDate.split('-');
-    const targetChangeDate = new Date(targetDate.getFullYear(), parseInt(cambioParts[1]) - 1, parseInt(cambioParts[2]));
-    let level = targetDate.getFullYear() - startDate.getFullYear() + 1;
-    if (targetDate < targetChangeDate) level--;
-    return Math.max(1, level);
-}
 // ==========================================
 // NÚCLEO 4: MOTOR DE SALIENTES DINÁMICO
 // ==========================================
@@ -1392,8 +1384,8 @@ async function ejecutarSalidaFinal(destinoId) {
 function nav(tab) {
   if (tab === 'admin' && !isAdmin) return; 
 
-  // Añadimos 'grupos' a la lista del forEach
-  ['cal','merc','rot','grupos','help','admin'].forEach(t => {
+  // Añadimos 'perfil' a la lista para que oculte las demás
+  ['cal','merc','rot','grupos','help','admin', 'perfil'].forEach(t => {
     const el = document.getElementById(`pane-${t}`);
     if (el) el.style.display = t === tab ? 'block' : 'none';
     const tb = document.getElementById(`tab-${t}`);
@@ -1405,12 +1397,9 @@ function nav(tab) {
       navAdmin(currentAdminView || 'pediatria');
   }
   
-  // Si entra en grupos, renderizamos la vista
   if (tab === 'grupos') renderGruposView();
-  else if (tab !== 'help') renderAll();
-	if (nombre === 'perfil') {
-    renderPerfilUsuario();
-	}
+  else if (tab === 'perfil') renderPerfilUsuario();
+  else if (tab !== 'help' && tab !== 'perfil') renderAll();
 }
 
 function navAdmin(sub) {
@@ -2489,65 +2478,7 @@ function renderAlertaCargaMensual() {
         </div>`;
     }
 }
-// ==========================================
-// CALCULADOR DEL TURNO ACTUAL
-// ==========================================
-function getCurrentTurn(y, m) {
-    const mk = getRotationKey(y, m);
-    if (!state.configMes[mk]) return null;
-    
-    const orden = state.configMes[mk].ordenSeleccion || [];
-    if (orden.length === 0) return null;
-    
-    // 💡 FILTRO DE BAJAS: Solo consideramos residentes activos para la ronda de turnos de este mes
-    const activosMes = getResidentesActivosEnMes(y, m);
-    
-    // Obtenemos los límites del plan del mes
-    const uProfile = currentUserProfile;
-    const miPlan = promoConfig.planes?.find(p => p.nombre === uProfile?.plan_asociado) || promoConfig.planes?.[0];
-    const maxGuardias = miPlan ? (miPlan.maxGuardiasMes || 5) : 5;
-    const minFestivos = miPlan ? (miPlan.minGlobalFestivos || 1) : 1;
 
-    // Recorremos los "grupos de prioridad" (Turno 1, Turno 2...)
-    for (let ronda = 1; ronda <= maxGuardias; ronda++) {
-        for (let i = 0; i < orden.length; i++) {
-            const residente = orden[i];
-            
-            // 🛑 SI EL RESIDENTE ESTÁ DE BAJA ESTE MES, SE SALTA AUTOMÁTICAMENTE
-            if (!activosMes.includes(residente)) {
-                continue; 
-            }
-            
-            // Si el usuario se ha pausado manualmente el mes en la interfaz, lo respetamos
-            if (state.configMes[mk].pausados && state.configMes[mk].pausados[residente]) {
-                continue;
-            }
-            
-            // Calculamos qué lleva asignado en este momento
-            const prog = getUserProgress(residente, y, m);
-            
-            // Evaluamos si le toca rellenar en esta ronda
-            if (prog.total < ronda) {
-                // Validación extra: Si el mes está en modo bloqueo crítico/subasta cerrada, 
-                // forzamos a que el residente complete sus festivos obligatorios antes de seguir sumando normales
-                const analisis = getAnalisisFestivos(y, m);
-                if ((analisis.estado === 'critico' || analisis.estado === 'subasta_cerrada') && analisis.nominados.includes(residente)) {
-                    if (prog.festivos < (minimoBase + 1) && prog.total < maxGuardias) {
-                        return residente;
-                    }
-                }
-                
-                return residente;
-            }
-        }
-    }
-    
-    return null; // Todo el mundo ha completado sus rondas o el mes está cerrado
-}
-
-// ==========================================
-// CALCULADORA DE FASES Y SUBASTAS (JUSTICIA)
-// ==========================================
 // ==========================================
 // CALCULADORA DE FASES Y SUBASTAS (JUSTICIA)
 // ==========================================
@@ -2824,17 +2755,15 @@ async function guardarFechaContratoPerfil() {
     if (!nuevaFecha) return alert("Por favor, introduce una fecha válida.");
 
     const uProfile = currentUserProfile;
-    // Buscamos el perfil en el array global y lo actualizamos
     const pIdx = globalProfiles.findIndex(p => p.nombre_mostrar === uProfile.nombre_mostrar);
     if (pIdx !== -1) {
         globalProfiles[pIdx].fecha_cambio_contrato = nuevaFecha;
         
-        // Ejecutamos el guardado en la tabla de perfiles de Supabase
         try {
-            const { error } = await supabase
-                .from('perfiles_residentes') // Usa el nombre exacto de tu tabla de perfiles
+            const { error } = await supabaseClient // CORREGIDO
+                .from('perfiles') // CORREGIDO
                 .update({ fecha_cambio_contrato: nuevaFecha })
-                .eq('nombre_mostrar', uProfile.nombre_mostrar);
+                .eq('id', uProfile.id); // CORREGIDO: Buscamos por ID, es más seguro
                 
             if (error) throw error;
             alert("¡Fecha de contrato actualizada con éxito! El motor recalculará tus años de residencia.");
@@ -2865,14 +2794,13 @@ async function solicitarBajaPerfil() {
         fechaInicio: fInicio,
         fechaFin: fFin,
         motivo: motivo,
-        estado: 'aprobada' // Lo ponemos auto-aprobada por defecto si confías en la promoción, o 'pendiente' si quieres filtrarla en Admin
+        estado: 'aprobada' 
     };
 
     if (!state.bajasLargas) state.bajasLargas = [];
     state.bajasLargas.push(nuevaBaja);
 
-    // Guardamos el estado de la promoción actualizado en Supabase
-    await pushLocalStateToSupabase(); 
+    await saveState(); // CORREGIDO
     alert("Periodo de excepción registrado. El motor te saltará automáticamente en los meses afectados.");
     renderPerfilUsuario();
 }
@@ -2883,7 +2811,7 @@ async function eliminarBajaPerfil(idBaja) {
 
     state.bajasLargas = state.bajasLargas.filter(b => b.id !== idBaja);
     
-    await pushLocalStateToSupabase();
+    await saveState(); // CORREGIDO
     renderPerfilUsuario();
 }
 </script>
