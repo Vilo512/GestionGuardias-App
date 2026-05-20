@@ -725,7 +725,7 @@ function canUserTakeShift(targetUserName, sourceUserName, dateKey, svcName) {
     const targetProfile = globalProfiles.find(p => p.nombre_mostrar === targetUserName) || (targetUserName === loggedInUser ? currentUserProfile : null);
     const sourceProfile = globalProfiles.find(p => p.nombre_mostrar === sourceUserName) || (sourceUserName === loggedInUser ? currentUserProfile : null);
     
-    if (!targetProfile || !sourceProfile) return true; // Si no hay datos (ej. un usuario borrado), se permite por retrocompatibilidad
+    if (!targetProfile || !sourceProfile) return true;
 
     const targetLevel = getUserLevelOnDate(targetProfile, dateKey);
     const sourceLevel = getUserLevelOnDate(sourceProfile, dateKey);
@@ -740,6 +740,22 @@ function canUserTakeShift(targetUserName, sourceUserName, dateKey, svcName) {
     if (svcConfig.reglaIntercambio === 'solo_mismo') return targetLevel === sourceLevel;
     if (svcConfig.reglaIntercambio === 'superior') return targetLevel >= sourceLevel;
     return true; // 'cualquiera'
+}
+
+// Función auxiliar necesaria para extraer el nivel numérico puro
+function getUserLevelOnDate(userProfile, dateKey) {
+    if (!userProfile || !userProfile.fecha_inicio_residencia || !userProfile.fecha_change_contrato && !userProfile.fecha_cambio_contrato) return 1;
+    const targetParts = dateKey.split('_');
+    const targetDate = new Date(parseInt(targetParts[0]), parseInt(targetParts[1]) - 1, parseInt(targetParts[2]));
+    const startParts = userProfile.fecha_inicio_residencia.split('-');
+    const startDate = new Date(parseInt(startParts[0]), parseInt(startParts[1]) - 1, parseInt(startParts[2]));
+    if (targetDate < startDate) return 0;
+    let savedDate = userProfile.fecha_cambio_contrato || userProfile.fecha_inicio_residencia;
+    const cambioParts = savedDate.split('-');
+    const targetChangeDate = new Date(targetDate.getFullYear(), parseInt(cambioParts[1]) - 1, parseInt(cambioParts[2]));
+    let level = targetDate.getFullYear() - startDate.getFullYear() + 1;
+    if (targetDate < targetChangeDate) level--;
+    return Math.max(1, level);
 }
 // ==========================================
 // NÚCLEO 4: MOTOR DE SALIENTES DINÁMICO
@@ -1640,19 +1656,19 @@ function openMercadoModal(y, m, d, dk, dayShifts) {
     
     // Bucle restaurado: Evaluamos a cada compañero que tiene guardia este día
     for (let u in dayShifts) {
-        if (u !== loggedInUser && !u.startsWith('VRE')) {
-            canBuy = true;
+			if (u !== loggedInUser && !u.startsWith('VRE')) {
             html += `<div style="display:flex; justify-content:space-between; align-items:center; border:1px solid #e2e8f0; padding:8px; border-radius:8px; margin-bottom:8px;">`;
             html += `<div><span style="font-size:0.85rem; font-weight:bold;">${u}</span> <span class="shift-badge" style="background:${getServiceColor(dayShifts[u])}; margin-left:4px;">${dayShifts[u]}</span></div>`;
 
             if (past) {
                 html += `<span style="font-size:0.75rem; color:#94a3b8; font-weight:bold;">Pasada</span>`;
             } else {
+                // Inyección de la regla de intercambio temporal
                 let iCanTake = canUserTakeShift(loggedInUser, u, dk, dayShifts[u]);
                 if (iCanTake) {
                     html += `<div style="display:flex; gap:4px;"><button class="merc icon-btn" onclick="executeBuyRequest('${dk}', '${dayShifts[u]}', '${u}')">Comprar</button><button class="primary icon-btn" style="background:var(--adu);" onclick="renderMercadoCambiarAjena('${dk}', '${dayShifts[u]}', '${u}')">Cambiar</button></div>`;
                 } else {
-                    html += `<span style="font-size:0.75rem; color:var(--fest); font-weight:bold; background:#fee2e2; padding:2px 6px; border-radius:4px;">Nivel Incompatible</span>`;
+                    html += `<span style="font-size:0.75rem; color:var(--fest); font-weight:bold; background:#fee2e2; padding:2px 6px; border-radius:4px;">Incompatible por R</span>`;
                 }
             }
             html += `</div>`;
