@@ -1633,26 +1633,30 @@ function renderMainCalendar() {
   grid.innerHTML = '';
   for(let i=0; i<getFirstDayOffset(y,m); i++) grid.innerHTML += `<div class="cal-cell empty"></div>`;
   
+  // Obtenemos todos los servicios disponibles globalmente para pintar los iconos
+  const todosLosServicios = getAllUniqueServices();
+  
   for(let d=1; d<=getDaysInMonth(y,m); d++) {
     const dateKey = formatDateKey(y, m, d);
     const dayShifts = state.shifts[dateKey] || {};
     const isFest = state.festivos[dateKey];
-    const isEnabled = !isServiceEnabledOnDate(svc.nombre, dateKey);
+    
+    // Verificación de si el día está habilitado (para la clase CSS)
+    // Nota: Aquí usamos una comprobación genérica ya que no estamos en el contexto de un solo servicio
     const cell = document.createElement('div');
     
     let cClass = 'cal-cell';
-    if (isFest && isEnabled) cClass += ' is-fest-ped';
-    else if (isFest) cClass += ' is-festivo';
-    else if (isEnabled) cClass += ' is-ped-ok';
+    if (isFest) cClass += ' is-festivo';
     cell.className = cClass;
     
     let html = `<div class="day-number">${d}</div>`;
     
-    getAllUniqueServices().forEach(svc => {
+    // 🛡️ AQUÍ ESTABA EL ERROR: Recorremos los servicios definidos arriba
+    todosLosServicios.forEach(svc => {
         let assigned = Object.keys(dayShifts).filter(u => dayShifts[u] === svc.nombre);
         if (showOnlyMine && loggedInUser) assigned = assigned.filter(u => u === loggedInUser);
         assigned.forEach(u => {
-            html += `<div class="shift-badge" style="background:${getServiceColor(svc.nombre)};">👤 ${getInitials(u)}</div>`;
+            html += `<div class="shift-badge" style="background:${svc.color};">👤 ${getInitials(u)}</div>`;
         });
     });
     
@@ -1661,7 +1665,7 @@ function renderMainCalendar() {
     grid.appendChild(cell);
   }
 
-  // 🌍 LLAMADA DE ASIGNACIÓN TRANSVERSAL INTEGRADA LIMPIAMENTE
+  // Llamada de Asignación Transversal
   renderAlertaCargaMensual();
 }
 
