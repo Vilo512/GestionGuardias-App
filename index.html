@@ -2765,29 +2765,35 @@ async function saveAsNewBase() {
     alert("Nueva base fijada."); 
 }
 async function clearCustomMonth() { delete state.customRotations[getRotationKey(curDate.getFullYear(), curDate.getMonth())]; await saveState(); editingGroups = null; renderAll(); alert("Restaurado."); }
+
 function calcularViabilidadFestivosMensual(ano, mes) {
     const totalDias = getDaysInMonth(ano, mes);
     let huecosFestivosObligatorios = 0;
     
-    // 1. Contar cuántas plazas de festivo hay que cubrir obligatoriamente este mes
-		for (let d = 1; d <= totalDias; d++) {
-        const tag = getDayTag(y, m, d);
-        const dk = formatDateKey(y, m, d);
-        miPlan.servicios.forEach(svc => {
-            if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk)) return;
-            
-            // Si es festivo/fin de semana, O si el servicio exige cobertura total siempre
-            if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal' || svc.coberturaObligatoria) {
-                huecosFestivosObligatorios += (svc.plazasPorDia || 1);
-            }
-        });
+    // Obtenemos un plan de referencia para saber qué servicios hay
+    const miPlan = promoConfig.planes && promoConfig.planes.length > 0 ? promoConfig.planes[0] : null;
+    
+    if (miPlan) {
+        // 1. Contar cuántas plazas de festivo hay que cubrir obligatoriamente este mes
+        for (let d = 1; d <= totalDias; d++) {
+            const tag = getDayTag(ano, mes, d);
+            const dk = formatDateKey(ano, mes, d);
+            miPlan.servicios.forEach(svc => {
+                if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk)) return;
+                
+                // Si es festivo/fin de semana, O si el servicio exige cobertura total siempre
+                if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal' || svc.coberturaObligatoria) {
+                    huecosFestivosObligatorios += (svc.plazasPorDia || 1);
+                }
+            });
+        }
     }
     
     const totalResidentes = getAllResidents().length;
     if (totalResidentes === 0) return { cargaMedia: 0, viable: true };
     
-    const cargaMedia = huecosFestivosObligatorios / totalResidentes;
-    const minimoExigible = Math.floor(cargaMedia); // El mínimo real que todos van a tener que hacer obligao
+
+    const cargaMedia = huecosFestivosObligatorios / totalResidentes;    const minimoExigible = Math.floor(cargaMedia); 
     
     return {
         huecosFestivosObligatorios,
