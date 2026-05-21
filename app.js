@@ -283,9 +283,11 @@ async function initApp() {
         setStatus("Error de sesión", true);
     }
     
-    // Soft Refresh: Refresca las vistas activas al volver a la pestaña sin romper la sesión
+    // DESTRUCTOR DE BLOQUEOS V2 (Silencioso): Recrea la conexión para evitar que Supabase se congele al volver a la pestaña, pero sin lanzar bucles de recarga.
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
+            supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+            
             if (document.getElementById('pane-grupos') && document.getElementById('pane-grupos').style.display === 'block') {
                 renderGruposView();
             }
@@ -874,8 +876,17 @@ async function renderGruposView() {
     currentContainer.innerHTML = '<p style="color:#64748b;">Cargando...</p>';
     listContainer.innerHTML = '<p style="color:#64748b;">Cargando...</p>';
 
-    const { data: promos, error } = await supabaseClient.from('promociones').select('*');
-    if (error) return currentContainer.innerHTML = `<p style="color:red;">Error: ${error.message}</p>`;
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout de red")), 5000));
+    const fetchPromos = supabaseClient.from('promociones').select('*');
+    
+    let promos;
+    try {
+        const { data, error } = await Promise.race([fetchPromos, timeout]);
+        if (error) throw error;
+        promos = data;
+    } catch (err) {
+        return currentContainer.innerHTML = `<p style="color:red;">Error de conexión: ${err.message}</p>`;
+    }
 
     // 1. DIBUJAR GRUPO ACTUAL
     if (currentUserProfile.promocion_id) {
@@ -2208,14 +2219,19 @@ async function renderAccountsList() {
   if (!el) return;
   el.innerHTML = '<span style="color:#64748b;">Cargando lista de usuarios...</span>';
 
-  // 1. Cargamos usuarios
-  const { data: usuarios, error } = await supabaseClient
-    .from('perfiles')
-    .select('*')
-    .eq('promocion_id', currentUserProfile.promocion_id)
-    .order('estado', { ascending: false }); 
-    
-  if (error) return el.innerHTML = `<span style="color:var(--fest); font-weight:bold;">Error de red: ${error.message}</span>`;
+  // 1. Cargamos usuarios con timeout anti-congelamiento
+  const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout de red")), 5000));
+  const fetchUsers = supabaseClient.from('perfiles').select('*').eq('promocion_id', currentUserProfile.promocion_id).order('estado', { ascending: false });
+  
+  let usuarios;
+  try {
+      const { data, error } = await Promise.race([fetchUsers, timeout]);
+      if (error) throw error;
+      usuarios = data;
+  } catch (err) {
+      return el.innerHTML = `<span style="color:var(--fest); font-weight:bold;">Error de red: ${err.message}</span>`;
+  }
+
   if (!usuarios || usuarios.length === 0) return el.innerHTML = `<span style="color:#854d0e;">No hay NADIE vinculado a esta promoción aún.</span>`;
 
   // 2. Comprobamos si somos el "Dueño" legítimo del contenedor
