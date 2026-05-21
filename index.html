@@ -2291,19 +2291,30 @@ function exportUniversal(isMercado) {
 
 // RESTO DE FUNCIONES MENORES (Mercadillo UI, Admin Logs...)
 function renderAdminCalendar() {
-    const grid = document.getElementById('admin-cal-body'); grid.innerHTML = '';
+    const grid = document.getElementById('admin-cal-body'); 
+    grid.innerHTML = '';
     const y = curDate.getFullYear(), m = curDate.getMonth();
     
-    // 1. Construir las opciones del Pincel dinámicamente
     const selectTool = document.getElementById('admin-paint-tool');
     let currentVal = selectTool.value;
+    
+    // 1. Construcción dinámica del desplegable
     let optionsHtml = `<option value="festivos">🔴 Pintar Festivos Oficiales</option>`;
     
-    getAllUniqueServices().forEach(svc => {
-        if (svc.requiereHabilitacion) {
-            optionsHtml += `<option value="svc_${svc.nombre}">🛡️ Habilitar: ${svc.nombre}</option>`;
-        }
-    });
+    // Recorremos cada plan y sus servicios
+    if (promoConfig.planes) {
+        promoConfig.planes.forEach(plan => {
+            if (plan.servicios) {
+                plan.servicios.forEach(svc => {
+                    if (svc.requiereHabilitacion) {
+                        // Creamos un ID único que combine servicio y nombre del plan
+                        const optionValue = `svc_${svc.nombre}_${plan.nombre}`;
+                        optionsHtml += `<option value="${optionValue}">🛡️ Habilitar: ${svc.nombre} (${plan.nombre})</option>`;
+                    }
+                });
+            }
+        });
+    }
     
     selectTool.innerHTML = optionsHtml;
     if (currentVal && selectTool.querySelector(`option[value="${currentVal}"]`)) {
@@ -2312,6 +2323,7 @@ function renderAdminCalendar() {
         currentVal = 'festivos';
     }
     
+    // 2. Pintado del calendario
     for(let i=0; i<getFirstDayOffset(y,m); i++) grid.innerHTML += `<div class="cal-cell empty"></div>`;
     
     for(let d=1; d<=getDaysInMonth(y,m); d++) {
@@ -2320,45 +2332,52 @@ function renderAdminCalendar() {
         cell.className = 'cal-cell';
         cell.innerHTML = `<div class="day-number">${d}</div>`;
         
-        // Indicadores Base (Festivos siempre de fondo si no hay servicio seleccionado)
         if (state.festivos[dateKey]) {
             cell.style.border = "2px solid var(--fest)";
             cell.style.background = "#fee2e2";
         }
         
-        // 2. Lógica de pintado según herramienta
+        // Lógica de habilitación
         if (currentVal.startsWith('svc_')) {
-            const svcName = currentVal.replace('svc_', '');
+            // Extraemos info del valor: "svc_NombreServicio_NombrePlan"
+            const parts = currentVal.replace('svc_', '').split('_');
+            const svcName = parts[0]; 
+            const planName = parts[1];
+            
+            // Verificamos estado (aquí usamos el nombre del servicio para buscar en el state)
             const isEnabled = isServiceEnabledOnDate(svcName, dateKey);
-            const svcConfig = getAllUniqueServices().find(s => s.nombre === svcName);
-            const colorHex = svcConfig ? svcConfig.color : '#fde047';
+            
+            // Buscamos color configurado en ese plan específico
+            const targetPlan = promoConfig.planes.find(p => p.nombre === planName);
+            const targetSvc = targetPlan ? targetPlan.servicios.find(s => s.nombre === svcName) : null;
+            const colorHex = targetSvc ? targetSvc.color : '#fde047';
             
             if (isEnabled) {
-                cell.style.background = colorHex + '33'; // Le añade 20% de opacidad al Hexadecimal
+                cell.style.background = colorHex + '33';
                 cell.style.borderColor = colorHex;
                 cell.style.borderWidth = '2px';
-            } else if (!state.festivos[dateKey]) {
-                cell.classList.add('locked-ped'); 
             }
             
             cell.onclick = () => {
                 if (!state.habilitaciones) state.habilitaciones = {};
                 if (!state.habilitaciones[dateKey]) state.habilitaciones[dateKey] = {};
                 
+                // Toggle de estado
                 state.habilitaciones[dateKey][svcName] = !state.habilitaciones[dateKey][svcName];
-                if (svcName === 'Pediatría') state.pedWhitelist[dateKey] = state.habilitaciones[dateKey][svcName]; // Sincro legacy
-                saveState(); renderAdminCalendar(); // Solo refrescamos el admin para que no parpadee todo
+                saveState(); 
+                renderAdminCalendar(); 
             };
         } else if (currentVal === 'festivos') {
             cell.onclick = () => {
                 state.festivos[dateKey] = !state.festivos[dateKey];
-                saveState(); renderAdminCalendar();
+                saveState(); 
+                renderAdminCalendar();
             };
         }
-        
         grid.appendChild(cell);
     }
 }
+
 function renderAdminExceptions() {
   const y = curDate.getFullYear(), m = curDate.getMonth(); const monthKey = getRotationKey(y, m);
   const pendList = document.getElementById('admin-pending-list'); const pendings = state.pendingExceptions && state.pendingExceptions[monthKey] ? state.pendingExceptions[monthKey] : {};
