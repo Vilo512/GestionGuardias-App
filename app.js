@@ -1,5 +1,5 @@
 
-function getCellBackgroundStyle(dk, y, m, d) {
+function getCellBackgroundStyle(dk, y, m, d, filterLevel = 'ALL') {
     const dateObj = new Date(y, m, d);
     const isWeekend = dateObj.getDay() === 0 || dateObj.getDay() === 6;
     let colors = [];
@@ -12,6 +12,7 @@ function getCellBackgroundStyle(dk, y, m, d) {
     // Si hay servicios habilitados
     if (promoConfig && promoConfig.planes) {
         promoConfig.planes.forEach(plan => {
+            if (filterLevel !== 'ALL' && plan.nombre !== filterLevel) return;
             if (plan.servicios) {
                 plan.servicios.forEach(svc => {
                     if (svc.requiereHabilitacion && isServiceEnabledOnDate(svc.nombre, dk)) {
@@ -2050,8 +2051,12 @@ function renderAdminCalendar() {
         cell.className = 'cal-cell';
         cell.innerHTML = `<div class="day-number">${d}</div>`;
         
-        const bgStyle = getCellBackgroundStyle(dateKey, y, m, d);
-        if (bgStyle) cell.setAttribute("style", cell.getAttribute("style") + ";" + bgStyle);
+        const levelFilter = document.getElementById('admin-level-filter') ? document.getElementById('admin-level-filter').value : 'ALL';
+        const bgStyle = getCellBackgroundStyle(dateKey, y, m, d, levelFilter);
+        if (bgStyle) {
+            const existingStyle = cell.getAttribute("style") || "";
+            cell.setAttribute("style", existingStyle + (existingStyle.endsWith(';') ? '' : ';') + bgStyle);
+        }
         
         // Lógica de habilitación
         if (currentVal.startsWith('svc_')) {
