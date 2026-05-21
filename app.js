@@ -917,32 +917,7 @@ async function renderGruposView() {
                     </div>
                     <button class="danger" style="background:white;" onclick="abandonarGrupo()">🚪 Salir de este grupo</button>
                 </div>
-                
-                <div style="background:#fffbeb; border:1px solid #fde047; border-radius:8px; padding:15px;">
-                    <h4 style="margin:0 0 8px 0; color:#854d0e; font-size:0.95rem;">⏱️ Motor de Simulación Temporal</h4>
-                    <p style="font-size:0.85rem; color:#854d0e; margin-bottom:10px;">El sistema calcula tus guardias basándose en estas fechas. Si tienes una baja larga, retrasa tu día/mes de cambio de contrato.</p>
-                    
-                    <div style="display:flex; gap:15px; flex-wrap:wrap; margin-bottom: 10px;">
-                        <div style="flex:1; min-width:180px; background:white; padding:8px; border-radius:6px; border:1px solid #cbd5e1; opacity:0.8;">
-                            <label style="font-size:0.75rem; color:#64748b; font-weight:bold; display:block;">Fecha INICIO (Fija)</label>
-                            <span style="font-size:0.9rem; color:var(--dark);">${currentUserProfile.fecha_inicio_residencia || 'No definida'}</span>
-                        </div>
-                        <div style="flex:1; min-width:180px;">
-                            <label style="font-size:0.75rem; color:#64748b; font-weight:bold; display:block;">Día/Mes de CAMBIO (Anual)</label>
-                            <div style="display:flex; gap:5px; margin-top:4px;">
-                                <select id="input-dia-cambio" style="margin:0; width:70px; padding:4px;">${diaOptions}</select>
-                                <select id="input-mes-cambio" style="margin:0; flex:1; padding:4px;">${mesOptions}</select>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div style="margin-bottom:15px; padding:10px; background:white; border-radius:6px; border:2px dashed var(--adu); text-align:center;">
-                        <span style="font-size:0.85rem; color:#64748b;">El Motor calcula que a día de HOY te corresponde el:</span>
-                        <strong style="display:block; color:var(--adu); font-size:1.1rem; margin-top:4px;">🎯 ${nombrePlanHoy}</strong>
-                    </div>
-
-                    <button class="primary" style="background:#f59e0b; border:none; padding:8px 12px; font-size:0.85rem;" onclick="guardarFechaGraduacion()">💾 Actualizar Día de Cambio</button>
-                </div>`;
+                `;
         	}
     } else {
         currentContainer.innerHTML = `<p style="color:#64748b; font-style:italic;">No estás en ningún grupo actualmente.</p>`;
