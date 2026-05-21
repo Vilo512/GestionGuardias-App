@@ -1345,6 +1345,12 @@ function renderMainCalendar() {
   // Obtenemos todos los servicios disponibles globalmente para pintar los iconos
   const todosLosServicios = getAllUniqueServices();
   
+  let userLevelName = 'ALL';
+  if (currentUserProfile) {
+      const plan = getPlanForUserOnDate(currentUserProfile, formatDateKey(y, m, 1));
+      if (plan) userLevelName = plan.nombre;
+  }
+  
   for(let d=1; d<=getDaysInMonth(y,m); d++) {
     const dateKey = formatDateKey(y, m, d);
     const dayShifts = state.shifts[dateKey] || {};
@@ -1357,7 +1363,7 @@ function renderMainCalendar() {
     let cClass = 'cal-cell';
     if (isFest) cClass += ' is-festivo';
     cell.className = cClass;
-    const bgStyle = getCellBackgroundStyle(dateKey, y, m, d);
+    const bgStyle = getCellBackgroundStyle(dateKey, y, m, d, userLevelName);
     if (bgStyle) cell.setAttribute('style', bgStyle);
     
     let html = `<div class="day-number">${d}</div>`;
@@ -1533,12 +1539,18 @@ function renderMercadoCalendar() {
   if (loggedInUser) { document.getElementById('merc-logged-zone').style.display = 'block'; document.getElementById('merc-unlogged-zone').style.display = 'none'; } 
   else { document.getElementById('merc-logged-zone').style.display = 'none'; document.getElementById('merc-unlogged-zone').style.display = 'block'; }
   for(let i=0; i<getFirstDayOffset(y,m); i++) grid.innerHTML += `<div class="cal-cell empty"></div>`;
+  
+  let userLevelName = 'ALL';
+  if (currentUserProfile) {
+      const plan = getPlanForUserOnDate(currentUserProfile, formatDateKey(y, m, 1));
+      if (plan) userLevelName = plan.nombre;
+  }
   for(let d=1; d<=getDaysInMonth(y,m); d++) {
     const dk = formatDateKey(y, m, d);
     const dayShifts = computed[dk] || {};
     const cell = document.createElement('div');
     cell.className = `cal-cell ${state.festivos[dk]?'is-festivo':''} ${state.pedWhitelist[dk]?'is-ped-ok':''}`;
-    const bgStyle = getCellBackgroundStyle(dk, y, m, d);
+    const bgStyle = getCellBackgroundStyle(dk, y, m, d, userLevelName);
     if (bgStyle) cell.setAttribute('style', bgStyle);
     let html = `<div class="day-number">${d}</div>`;
     
