@@ -282,6 +282,22 @@ async function initApp() {
     } catch (err) {
         setStatus("Error de sesión", true);
     }
+    
+    // Soft Refresh: Refresca las vistas activas al volver a la pestaña sin romper la sesión
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            if (document.getElementById('pane-grupos') && document.getElementById('pane-grupos').style.display === 'block') {
+                renderGruposView();
+            }
+            if (document.getElementById('pane-admin') && document.getElementById('pane-admin').style.display === 'block') {
+                if (typeof currentAdminView !== 'undefined' && currentAdminView === 'cuentas') {
+                    renderAccountsList();
+                } else if (typeof currentAdminView !== 'undefined' && currentAdminView === 'excepciones') {
+                    renderAdminExceptions();
+                }
+            }
+        }
+    });
 }
 
 async function handleSession(session) {
