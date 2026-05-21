@@ -515,6 +515,7 @@ function normalizeConfig(config) {
             if (!s.reglaIntercambio) s.reglaIntercambio = 'superior';
         });
     });
+    config.servicios = serviciosUnicos;
     return config;
 }
 
