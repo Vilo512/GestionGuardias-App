@@ -496,7 +496,6 @@ async function saveState() {
 // 2. PERSISTENCIA Y NORMALIZACIÓN DE CONFIG
 // ==========================================
 function normalizeConfig(config) {
-    // MIGRACIÓN: Si el contenedor venía de la versión antigua, metemos sus servicios en un "Plan R1"
     if (!config.planes) {
         config.planes = [{ id: 'plan-' + Date.now(), nombre: "Plan R1 (Año 1)", servicios: config.servicios || [] }];
         delete config.servicios;
@@ -508,11 +507,14 @@ function normalizeConfig(config) {
             if (s.cupoMensualTotal === undefined) s.cupoMensualTotal = s.cupo || 0;
             if (s.plazasPorDia === undefined) s.plazasPorDia = s.soloAdmin ? 5 : 1; 
             if (s.requiereHabilitacion === undefined) s.requiereHabilitacion = (s.nombre === 'Pediatría');
-            if (!s.generaSaliente) s.generaSaliente = { laborable: true, vispera: true, fin_de_semana: (s.nombre!=='PAC Balaguer'), festivo_intersemanal: (s.nombre!=='PAC Balaguer') };
+            
+            // 💡 MIGRACIÓN Y NUEVOS DATOS: Pernocta y Horas
+            if (s.generaSaliente && !s.pernocta) s.pernocta = s.generaSaliente; 
+            if (!s.pernocta) s.pernocta = { laborable: true, vispera: true, fin_de_semana: (s.nombre!=='PAC Balaguer'), festivo_intersemanal: (s.nombre!=='PAC Balaguer') };
+            if (!s.horas) s.horas = { laborable: 17, vispera: 17, festivo: 24 };
+
             if (!s.reglasObligatorias) s.reglasObligatorias = [];
-			// PARCHE DE COLOR: Garantizar un código HEX válido para el selector HTML5
             if (!s.color || !/^#[0-9A-F]{6}$/i.test(s.color)) s.color = '#3b82f6';
-			// NUEVO: Regla de intercambio por defecto (Permitir a mi año y superiores)
             if (!s.reglaIntercambio) s.reglaIntercambio = 'superior';
         });
     });
@@ -801,22 +803,30 @@ function canUserTakeShift(targetUserName, sourceUserName, dateKey, svcName) {
 // ==========================================
 // NÚCLEO 4: MOTOR DE SALIENTES DINÁMICO
 // ==========================================
-function getSalienteDaysForShift(dateKey, svcName) {
+function getSalienteDaysForShift(dateKey, svcName, user) {
+    // 🛑 CONTROL DE MODALIDAD: Si es Diurna o la 1ª Mitad de una partida, no hay pernocta -> No hay saliente
+    const mod = state.shiftModifiers?.[dateKey]?.[user];
+    if (mod && (mod.tipo === 'diurna' || mod.tipo === 'partida_primera')) {
+        return [];
+    }
+
     const svcConfig = promoConfig.servicios.find(s => s.nombre === svcName);
-    if (!svcConfig || !svcConfig.generaSaliente) return []; 
+    if (!svcConfig) return []; 
+    
+    const matriz = svcConfig.pernocta || svcConfig.generaSaliente;
+    if (!matriz) return [];
 
     const [yStr, mStr, dStr] = dateKey.split('_');
     const y = parseInt(yStr), m = parseInt(mStr)-1, d = parseInt(dStr);
     const tag = getDayTag(y, m, d);
     
-    // Si la configuración del hospital dice que este tag NO genera saliente para este servicio
-    if (!svcConfig.generaSaliente[tag]) return []; 
+    if (!matriz[tag]) return []; 
 
     let salientes = [];
     const nextDay = new Date(y, m, d + 1);
     salientes.push(formatDateKey(nextDay.getFullYear(), nextDay.getMonth(), nextDay.getDate()));
 
-    // Regla ICS: Guardias en Sábado desplazan el saliente forzoso al Lunes
+    // Regla ICS: Sábados desplazan saliente al lunes
     const dateObj = new Date(y, m, d);
     if (dateObj.getDay() === 6) { 
         const nextMonday = new Date(y, m, d + 2);
@@ -824,6 +834,29 @@ function getSalienteDaysForShift(dateKey, svcName) {
         if (!salientes.includes(mondayKey)) salientes.push(mondayKey);
     }
     return salientes;
+}
+
+// ⏱️ CALCULADORA DE HORAS DE GUARDIA INDIVIDUAL
+function getShiftHours(dateKey, svcName, user) {
+    const svcConfig = promoConfig.servicios.find(s => s.nombre === svcName);
+    if (!svcConfig) return 0;
+
+    const [yStr, mStr, dStr] = dateKey.split('_');
+    const y = parseInt(yStr), m = parseInt(mStr)-1, d = parseInt(dStr);
+    const tag = getDayTag(y, m, d); // 'laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal'
+
+    // Asignamos las horas base configuradas en el plan
+    let horasBase = svcConfig.horas?.laborable || 17;
+    if (tag === 'vispera') horasBase = svcConfig.horas?.vispera || 17;
+    if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') horasBase = svcConfig.horas?.festivo || 24;
+
+    // Verificamos si la guardia está partida por la mitad
+    const mod = state.shiftModifiers?.[dateKey]?.[user];
+    if (mod && (mod.tipo === 'partida_primera' || mod.tipo === 'partida_segunda')) {
+        return horasBase / 2; // Divide el valor en horas a la mitad exactas
+    }
+
+    return horasBase;
 }
 
 function getIllegalShiftsForUser(user, shiftsObj) {
@@ -835,7 +868,8 @@ function getIllegalShiftsForUser(user, shiftsObj) {
     }
     let salienteDays = {}; 
     for (let shift of userShifts) {
-        let sDays = getSalienteDaysForShift(shift.dateKey, shift.svc);
+        // 🛠️ Pasamos el usuario a la función para que verifique si la marcó como diurna
+        let sDays = getSalienteDaysForShift(shift.dateKey, shift.svc, user);
         for (let sd of sDays) {
             if (!salienteDays[sd]) salienteDays[sd] = [];
             salienteDays[sd].push(shift);
@@ -1648,12 +1682,27 @@ function openShiftModal(y, m, d, dateKey) {
   else html += `<p style="margin-bottom:1.5rem; color:#64748b; font-size:0.9rem;">Usuario actual: <b>${loggedInUser}</b> (Evaluando: ${myPlanOnDate ? myPlanOnDate.nombre : 'Sin Plan'})</p>`;
   
   // Cambiamos el bucle para que recorra SOLO tus servicios autorizados para esta fecha
-  serviciosDisponibles.forEach((svc, svcIdx) => {
+serviciosDisponibles.forEach((svc, svcIdx) => {
     html += `<div class="shift-option" style="flex-direction:column; align-items:stretch;"><div class="shift-option-header"><strong style="color:${svc.color};">${svc.nombre}</strong></div>`;
     const holders = Object.keys(dayShifts).filter(u => dayShifts[u] === svc.nombre);
     
     if (isAdmin) {
-        holders.forEach(h => { html += `<div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;"><span style="font-size:0.85rem; color:#64748b;">Asignado: <b>${h}</b></span><button class="danger icon-btn" onclick="adminForceRemove('${dateKey}', '${h}', ${y}, ${m}, ${d})">Quitar</button></div>`; });
+// A) INTERFAZ PARA EL ADMINISTRADOR
+holders.forEach(h => { 
+    let currentMode = state.shiftModifiers?.[dateKey]?.[h]?.tipo || 'normal';
+    html += `<div style="background:#f8fafc; border:1px solid #e2e8f0; padding:10px; border-radius:6px; margin-top:8px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <span style="font-size:0.85rem; color:#64748b;">Asignado: <b>${h}</b></span>
+            <button class="danger icon-btn" onclick="adminForceRemove('${dateKey}', '${h}', ${y}, ${m}, ${d})">Quitar</button>
+        </div>
+        <label style="font-size:0.75rem; color:#475569; display:block; margin-bottom:2px;">Regimen de Guardia:</label>
+        <select onchange="updateShiftMode('${dateKey}', '${h}', this.value)" style="margin:0; padding:4px; font-size:0.8rem; width:100%; background:white;">
+            <option value="normal" ${currentMode === 'normal' ? 'selected' : ''}>Completa Normal (Con Pernocta)</option>
+            <option value="diurna" ${currentMode === 'diurna' ? 'selected' : ''}>Completa Diurna (Sin Pernocta)</option>
+            <option value="partida_primera" ${currentMode === 'partida_primera' ? 'selected' : ''}>Partida: 1ª Mitad (Diurna - 50% H / Sin Saliente)</option>
+            <option value="partida_segunda" ${currentMode === 'partida_segunda' ? 'selected' : ''}>Partida: 2ª Mitad (Nocturna - 50% H / Con Saliente)</option>
+        </select>
+    </div>`; 
         html += `<div style="display:flex; gap:4px; margin-top:12px; border-top:1px solid #e2e8f0; padding-top:8px;"><select id="force-sel-${svcIdx}" style="margin:0; padding:4px; font-size:0.8rem;"><option value="">Añadir Residente...</option>${getAllResidents().map(r => `<option value="${r}">${r}</option>`).join('')}</select><button class="primary" style="background:var(--dark); color:white;" onclick="adminForceAssign('${dateKey}', '${svc.nombre}', ${y}, ${m}, ${d}, 'force-sel-${svcIdx}')">Poner</button></div>`;
     } else {
         const isMine = dayShifts[loggedInUser] === svc.nombre;
@@ -1679,12 +1728,29 @@ function openShiftModal(y, m, d, dateKey) {
         }
 
         let occStr = holders.length > 0 ? `Ocupado (${holders.length}/${svc.plazasPorDia})` : 'Libre';
-        if (isMine) occStr = "Tuya";
         
-        html += `<div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;"><span style="font-size:0.85rem; color:${isIllegal && !isMine ? 'var(--fest)' : '#64748b'}; font-weight:${isIllegal && !isMine ? 'bold' : 'normal'}">${isMine ? 'La tienes seleccionada.' : (reason || occStr)}</span>`;
-        if (isMine) html += `<button class="danger" onclick="toggleShift('${dateKey}', '${svc.nombre}')">Quitar</button>`;
-        else html += `<button class="primary" ${disabled ? 'disabled style="opacity:0.4"' : ''} onclick="toggleShift('${dateKey}', '${svc.nombre}')">Elegir</button>`;
-        html += `</div>`;
+// B) INTERFAZ PARA EL RESIDENTE LOGUEADO
+if (isMine) {
+    let currentMode = state.shiftModifiers?.[dateKey]?.[loggedInUser]?.tipo || 'normal';
+    html += `<div style="display:flex; flex-direction:column; gap:6px; margin-top:8px; background:#fffbeb; padding:10px; border-radius:6px; border:1px solid #fde047;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size:0.85rem; color:#713f12;"><b>Tu Guardia Seleccionada</b></span>
+            <button class="danger" onclick="toggleShift('${dateKey}', '${svc.nombre}')">Quitar</button>
+        </div>
+        <div style="margin-top:4px;">
+            <label style="font-size:0.75rem; color:#713f12; display:block; margin-bottom:2px; font-weight:bold;">Ajustar Modalidad:</label>
+            <select onchange="updateShiftMode('${dateKey}', '${loggedInUser}', this.value)" style="margin:0; padding:6px; font-size:0.8rem; width:100%; background:white; border:1px solid #ca8a04; border-radius:4px;">
+                <option value="normal" ${currentMode === 'normal' ? 'selected' : ''}>Completa Normal (Con Pernocta)</option>
+                <option value="diurna" ${currentMode === 'diurna' ? 'selected' : ''}>Completa Diurna (Sin Pernocta)</option>
+                <option value="partida_primera" ${currentMode === 'partida_primera' ? 'selected' : ''}>Partida: 1ª Mitad (Diurna - 50% Horas / Sin Saliente)</option>
+                <option value="partida_segunda" ${currentMode === 'partida_segunda' ? 'selected' : ''}>Partida: 2ª Mitad (Nocturna - 50% Horas / Con Saliente)</option>
+            </select>
+        </div>
+    </div>`;
+} else {
+            html += `<div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;"><span style="font-size:0.85rem; color:${isIllegal && !isMine ? 'var(--fest)' : '#64748b'}; font-weight:${isIllegal && !isMine ? 'bold' : 'normal'}">${reason || occStr}</span>`;
+            html += `<button class="primary" ${disabled ? 'disabled style="opacity:0.4"' : ''} onclick="toggleShift('${dateKey}', '${svc.nombre}')">Elegir</button></div>`;
+        }
     }
     html += `</div>`;
   });
@@ -1940,13 +2006,22 @@ function renderAdminAjustes() {
              </select>
           </div>
 
-          <div style="margin-bottom:15px;">
-             <label style="font-size:0.85rem; font-weight:bold; display:block; margin-bottom:6px;">💤 Matriz de Salientes</label>
+			<div style="margin-bottom:15px; padding:10px; background:#f8fafc; border-radius:6px; border:1px dashed #cbd5e1;">
+             <label style="font-size:0.85rem; font-weight:bold; display:block; margin-bottom:6px;">⏱️ Horas Computables por Guardia (Huelga)</label>
              <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                <label style="font-size:0.8rem; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="cfg-sal-lab-${pIdx}-${i}" ${svc.generaSaliente.laborable ? 'checked' : ''} style="width:auto; margin:0;"> Laborable</label>
-                <label style="font-size:0.8rem; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="cfg-sal-vis-${pIdx}-${i}" ${svc.generaSaliente.vispera ? 'checked' : ''} style="width:auto; margin:0;"> Víspera/Vier</label>
-                <label style="font-size:0.8rem; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="cfg-sal-fin-${pIdx}-${i}" ${svc.generaSaliente.fin_de_semana ? 'checked' : ''} style="width:auto; margin:0;"> Finde</label>
-                <label style="font-size:0.8rem; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="cfg-sal-fes-${pIdx}-${i}" ${svc.generaSaliente.festivo_intersemanal ? 'checked' : ''} style="width:auto; margin:0;"> Festivo Inter.</label>
+                <div style="flex:1; min-width:80px;"><label style="font-size:0.75rem; color:#64748b;">Laborable</label><input type="number" id="cfg-h-lab-${pIdx}-${i}" value="${svc.horas.laborable}" style="margin:0; padding:6px;"></div>
+                <div style="flex:1; min-width:80px;"><label style="font-size:0.75rem; color:#64748b;">Viernes/Víspera</label><input type="number" id="cfg-h-vis-${pIdx}-${i}" value="${svc.horas.vispera}" style="margin:0; padding:6px;"></div>
+                <div style="flex:1; min-width:80px;"><label style="font-size:0.75rem; color:#64748b;">Finde/Festivo</label><input type="number" id="cfg-h-fes-${pIdx}-${i}" value="${svc.horas.festivo}" style="margin:0; padding:6px;"></div>
+             </div>
+          </div>
+
+          <div style="margin-bottom:15px;">
+             <label style="font-size:0.85rem; font-weight:bold; display:block; margin-bottom:6px;">🌙 Matriz de Pernocta (Genera Saliente Forzoso)</label>
+             <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                <label style="font-size:0.8rem; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="cfg-sal-lab-${pIdx}-${i}" ${svc.pernocta.laborable ? 'checked' : ''} style="width:auto; margin:0;"> Laborable</label>
+                <label style="font-size:0.8rem; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="cfg-sal-vis-${pIdx}-${i}" ${svc.pernocta.vispera ? 'checked' : ''} style="width:auto; margin:0;"> Víspera/Vier</label>
+                <label style="font-size:0.8rem; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="cfg-sal-fin-${pIdx}-${i}" ${svc.pernocta.fin_de_semana ? 'checked' : ''} style="width:auto; margin:0;"> Finde</label>
+                <label style="font-size:0.8rem; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="cfg-sal-fes-${pIdx}-${i}" ${svc.pernocta.festivo_intersemanal ? 'checked' : ''} style="width:auto; margin:0;"> Festivo Inter.</label>
              </div>
           </div>
           
@@ -2011,17 +2086,20 @@ function adminRemovePlan(pIdx) {
     if(!confirm("¿Seguro que quieres borrar este PLAN entero y todos sus servicios?")) return;
     syncConfigFromUI(); promoConfig.planes.splice(pIdx, 1); renderAdminAjustes();
 }
+	
 function adminAddService(pIdx) {
   syncConfigFromUI();
   promoConfig.planes[pIdx].servicios.push({ 
       nombre: "Nuevo Servicio", cupoMensualTotal: 1, plazasPorDia: 1, color: "#94a3b8", 
       requiereHabilitacion: false, 
-      generaSaliente: { laborable: true, vispera: true, fin_de_semana: false, festivo_intersemanal: false },
+      pernocta: { laborable: true, vispera: true, fin_de_semana: false, festivo_intersemanal: false },
+      horas: { laborable: 17, vispera: 17, festivo: 24 },
       reglasObligatorias: [],
-			reglaIntercambio: 'superior'
+      reglaIntercambio: 'superior'
   });
   renderAdminAjustes();
 }
+	
 function adminRemoveService(pIdx, i) { if(!confirm("¿Borrar servicio?")) return; syncConfigFromUI(); promoConfig.planes[pIdx].servicios.splice(i, 1); renderAdminAjustes(); }
 
 function adminAddRule(pIdx, svcIdx) {
@@ -2080,17 +2158,26 @@ function syncConfigFromUI() {
       const interSvc = document.getElementById(`cfg-intercambio-${pIdx}-${i}`);
       if (interSvc) svc.reglaIntercambio = interSvc.value;
 
-      // Sincronizar la Matriz de Salientes del servicio
-      if (!svc.generaSaliente) svc.generaSaliente = {};
+    // Sincronizar la Matriz de Pernocta y Horas
+      if (!svc.pernocta) svc.pernocta = {};
       const chkLab = document.getElementById(`cfg-sal-lab-${pIdx}-${i}`);
       const chkVis = document.getElementById(`cfg-sal-vis-${pIdx}-${i}`);
       const chkFin = document.getElementById(`cfg-sal-fin-${pIdx}-${i}`);
       const chkFes = document.getElementById(`cfg-sal-fes-${pIdx}-${i}`);
 
-      if (chkLab) svc.generaSaliente.laborable = chkLab.checked;
-      if (chkVis) svc.generaSaliente.vispera = chkVis.checked;
-      if (chkFin) svc.generaSaliente.fin_de_semana = chkFin.checked;
-      if (chkFes) svc.generaSaliente.festivo_intersemanal = chkFes.checked;
+      if (chkLab) svc.pernocta.laborable = chkLab.checked;
+      if (chkVis) svc.pernocta.vispera = chkVis.checked;
+      if (chkFin) svc.pernocta.fin_de_semana = chkFin.checked;
+      if (chkFes) svc.pernocta.festivo_intersemanal = chkFes.checked;
+
+      if (!svc.horas) svc.horas = {};
+      const hLab = document.getElementById(`cfg-h-lab-${pIdx}-${i}`);
+      const hVis = document.getElementById(`cfg-h-vis-${pIdx}-${i}`);
+      const hFes = document.getElementById(`cfg-h-fes-${pIdx}-${i}`);
+      
+      if (hLab) svc.horas.laborable = parseFloat(hLab.value) || 0;
+      if (hVis) svc.horas.vispera = parseFloat(hVis.value) || 0;
+      if (hFes) svc.horas.festivo = parseFloat(hFes.value) || 0;
 
       // Sincronizar las Reglas Obligatorias internas de este servicio
       if (!svc.reglasObligatorias) svc.reglasObligatorias = [];
@@ -2874,6 +2961,33 @@ function getResidentesActivosEnMes(y, m) {
     });
 }
 function renderPerfilUsuario() {
+	// 📊 CÓMPUTO DE HORAS TOTALES DEL USUARIO LOGUEADO
+    let totalHorasAcumuladas = 0;
+    let guardiasCompletasCount = 0;
+    let guardiasPartidasCount = 0;
+
+    // Recorremos todas las guardias guardadas en el sistema buscando las del usuario
+    for (let dk in state.shifts || {}) {
+        if (state.shifts[dk][uProfile.nombre_mostrar]) {
+            const svcName = state.shifts[dk][uProfile.nombre_mostrar];
+            const hrs = getShiftHours(dk, svcName, uProfile.nombre_mostrar);
+            totalHorasAcumuladas += hrs;
+
+            const tipo = state.shiftModifiers?.[dk]?.[uProfile.nombre_mostrar]?.tipo || 'normal';
+            if (tipo === 'partida_primera' || tipo === 'partida_segunda') {
+                guardiasPartidasCount++;
+            } else {
+                guardiasCompletasCount++;
+            }
+        }
+    }
+
+    // Parámetros del Acuerdo de Huelga (Ejemplo: Máximo legal de 48h semanales promedio, aprox 192h mensuales o tope anual orientativo)
+    const topeAnualGuardiasHoras = 850; // Línea roja habitual fijada por el acuerdo
+    const porcentajeCarga = Math.min(100, (totalHorasAcumuladas / topeAnualGuardiasHoras) * 100);
+    let colorBarra = 'var(--adu)';
+    if (porcentajeCarga > 75) colorBarra = 'var(--pac)';
+    if (porcentajeCarga > 90) colorBarra = 'var(--fest)';
     const container = document.getElementById('contenido-principal'); // O el ID de tu contenedor de pestañas
     if (!container) return;
 
@@ -2974,7 +3088,39 @@ function renderPerfilUsuario() {
 
         <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
             <h3 style="margin-bottom: 16px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">🏥 Gestión de Bajas Prolongadas / Rotaciones Externas</h3>
-            
+
+				<div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); grid-column: span 2; margin-top: 15px;">
+				    <h3 style="margin-bottom: 15px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">⏱️ Auditoría de Carga Laboral (Acuerdo de Huelga)</h3>
+				    
+				    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px;">
+				        <div style="background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
+				            <span style="font-size: 0.8rem; color: #64748b; font-weight: bold; display: block;">HORAS COMPUTADAS</span>
+				            <span style="font-size: 1.8rem; font-weight: bold; color: var(--dark);">${totalHorasAcumuladas.toFixed(1)} h</span>
+				        </div>
+				        <div style="background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
+				            <span style="font-size: 0.8rem; color: #64748b; font-weight: bold; display: block;">GUARDIAS COMPLETAS</span>
+				            <span style="font-size: 1.8rem; font-weight: bold; color: var(--adu);">${guardiasCompletasCount}</span>
+				        </div>
+				        <div style="background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
+				            <span style="font-size: 0.8rem; color: #64748b; font-weight: bold; display: block;">MEDIAS GUARDIAS (PARTIDAS)</span>
+				            <span style="font-size: 1.8rem; font-weight: bold; color: var(--merc);">${guardiasPartidasCount}</span>
+				        </div>
+				    </div>
+				
+				    <div>
+				        <div style="display: flex; justify-content: space-between; font-size: 0.85rem; font-weight: bold; margin-bottom: 6px; color: #475569;">
+				            <span>Consumo del Tope Anual Recomendado (Huelga)</span>
+				            <span>${totalHorasAcumuladas.toFixed(0)} / ${topeAnualGuardiasHoras} horas</span>
+				        </div>
+				        <div style="background: #e2e8f0; width: 100%; height: 12px; border-radius: 6px; overflow: hidden;">
+				            <div style="background: ${colorBarra}; width: ${porcentajeCarga}%; height: 100%; transition: width 0.3s ease;"></div>
+				        </div>
+				        <p style="font-size: 0.75rem; color: #94a3b8; margin-top: 8px; line-height: 1.4;">
+				            * El motor analiza de forma proactiva tus jornadas completas, diurnas y fracciones de conciliación según las tablas del servicio técnico. Al superar el 100% del límite legal, las barras alertarán del riesgo de sanciones por parte de la Unidad Docente.
+				        </p>
+				    </div>
+				</div>
+			
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 20px; background: #f8fafc; padding: 15px; border-radius: 8px;">
                 <div>
                     <label style="font-size: 0.8rem; font-weight: bold; color: #475569; display: block; margin-bottom: 4px;">Fecha Inicio:</label>
@@ -3110,6 +3256,29 @@ function reempaquetarGrupos(lista) {
         }
     }
     return result;
+}
+
+async function toggleDiurna(dk, user, isDiurna) {
+    if (!state.shiftModifiers) state.shiftModifiers = {};
+    if (!state.shiftModifiers[dk]) state.shiftModifiers[dk] = {};
+    if (!state.shiftModifiers[dk][user]) state.shiftModifiers[dk][user] = {};
+
+    state.shiftModifiers[dk][user].diurna = isDiurna;
+    await saveState();
+    renderMainCalendar(); // Refresca para eliminar los salientes grises en vivo
+}
+
+async function updateShiftMode(dk, user, modo) {
+    if (!state.shiftModifiers) state.shiftModifiers = {};
+    if (!state.shiftModifiers[dk]) state.shiftModifiers[dk] = {};
+    if (!state.shiftModifiers[dk][user]) state.shiftModifiers[dk][user] = {};
+
+    state.shiftModifiers[dk][user].tipo = modo;
+    await saveState();
+    renderMainCalendar(); // Refresca los salientes en el calendario
+    if (document.getElementById('pane-perfil').style.display === 'block') {
+        renderPerfilUsuario(); // Refresca el contador del perfil si está abierto
+    }
 }
 
 </script>
