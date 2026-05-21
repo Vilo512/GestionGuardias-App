@@ -277,16 +277,7 @@ async function initApp() {
             }
         });
 
-        // DESTRUCTOR DE BLOQUEOS: Si vuelves a la pestaña, recreamos Supabase limpio.
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') {
-                supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-                supabaseClient.auth.onAuthStateChange(async (event, newSession) => {
-                    if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') await handleSession(newSession);
-                    else authSession = newSession;
-                });
-            }
-        });
+
     } catch (err) {
         setStatus("Error de sesión", true);
     }
@@ -985,6 +976,7 @@ async function guardarFechaGraduacion() {
 
 		// Cirugía técnica: Refresca el chivato visual inmediatamente sin F5
         renderGruposView();
+  if (document.getElementById("pane-admin") && document.getElementById("pane-admin").style.display === "block") renderAdminCalendar();
     }
 }
 	
@@ -1185,6 +1177,7 @@ function nav(tab) {
   }
   
   if (tab === 'grupos') renderGruposView();
+  if (document.getElementById("pane-admin") && document.getElementById("pane-admin").style.display === "block") renderAdminCalendar();
   else if (tab === 'perfil') renderPerfilUsuario();
   else if (tab !== 'help' && tab !== 'perfil') checkAutomaticGraduation();
     renderAll();
@@ -1365,6 +1358,8 @@ function renderMainCalendar() {
     let cClass = 'cal-cell';
     if (isFest) cClass += ' is-festivo';
     cell.className = cClass;
+    const bgStyle = getCellBackgroundStyle(dateKey, y, m, d);
+    if (bgStyle) cell.setAttribute('style', bgStyle);
     
     let html = `<div class="day-number">${d}</div>`;
     
@@ -1544,6 +1539,8 @@ function renderMercadoCalendar() {
     const dayShifts = computed[dk] || {};
     const cell = document.createElement('div');
     cell.className = `cal-cell ${state.festivos[dk]?'is-festivo':''} ${state.pedWhitelist[dk]?'is-ped-ok':''}`;
+    const bgStyle = getCellBackgroundStyle(dk, y, m, d);
+    if (bgStyle) cell.setAttribute('style', bgStyle);
     let html = `<div class="day-number">${d}</div>`;
     
     promoConfig.servicios.forEach(svc => {
@@ -2007,16 +2004,25 @@ function renderAdminCalendar() {
     const selectTool = document.getElementById('admin-paint-tool');
     let currentVal = selectTool.value;
     
+    // NUEVO: Filtro por Nivel/Año
+    if (!document.getElementById('admin-level-filter')) {
+        const filterHtml = `<select id="admin-level-filter" style="margin-right:10px; padding:6px; border-radius:6px; border:1px solid #cbd5e1;" onchange="renderAdminCalendar()">
+            <option value="ALL">Todos los Niveles</option>
+            ${(promoConfig.planes || []).map(p => `<option value="${p.nombre}">${p.nombre}</option>`).join('')}
+        </select>`;
+        selectTool.insertAdjacentHTML('beforebegin', filterHtml);
+    }
+    const levelFilter = document.getElementById('admin-level-filter').value;
+
     // 1. Construcción dinámica del desplegable
     let optionsHtml = `<option value="festivos">🔴 Pintar Festivos Oficiales</option>`;
     
-    // Recorremos cada plan y sus servicios
     if (promoConfig.planes) {
         promoConfig.planes.forEach(plan => {
+            if (levelFilter !== 'ALL' && plan.nombre !== levelFilter) return;
             if (plan.servicios) {
                 plan.servicios.forEach(svc => {
                     if (svc.requiereHabilitacion) {
-                        // Creamos un ID único que combine servicio y nombre del plan
                         const optionValue = `svc_${svc.nombre}_${plan.nombre}`;
                         optionsHtml += `<option value="${optionValue}">🛡️ Habilitar: ${svc.nombre} (${plan.nombre})</option>`;
                     }
@@ -2030,7 +2036,10 @@ function renderAdminCalendar() {
         selectTool.value = currentVal;
     } else {
         currentVal = 'festivos';
+        selectTool.value = 'festivos';
     }
+    selectTool.onchange = renderAdminCalendar; // Hacer reactivo al cambiar de pincel
+
     
     // 2. Pintado del calendario
     for(let i=0; i<getFirstDayOffset(y,m); i++) grid.innerHTML += `<div class="cal-cell empty"></div>`;
