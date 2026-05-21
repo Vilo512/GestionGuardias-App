@@ -14,7 +14,7 @@
   /* Layout & Cards (Header Blanco) */
   .header { background: white; color: var(--dark); padding: 1rem; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; flex-wrap: wrap; gap: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
   .container { max-width: 1200px; margin: 1rem auto; padding: 0 1rem; flex: 1; width: 100%; }
-  .card { background: white; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+	.card { background: white; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); max-width: 950px; margin-left: auto; margin-right: auto; width: 100%; }
   h2, h3 { margin-bottom: 1rem; color: var(--dark); }
   
   /* Status Badge & User Info */
@@ -243,9 +243,8 @@
   <div id="pane-admin" style="display:none;">
     <div id="admin-panel" style="display:none;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:10px;">
-        <div class="tabs" style="margin:0; border:none; padding:0;">
-          <button class="tab active" onclick="navAdmin('pediatria')" id="atab-pediatria">Días Habil.</button>
-          <button class="tab" onclick="navAdmin('festivos')" id="atab-festivos">Festivos</button>
+				<div class="tabs" style="margin:0; border:none; padding:0;">
+          <button class="tab active" onclick="navAdmin('calendario')" id="atab-calendario">Calendario 📅</button>
           <button class="tab" onclick="navAdmin('excepciones')" id="atab-excepciones">Excepciones</button>
           <button class="tab" onclick="navAdmin('export')" id="atab-export" style="color:var(--merc);">Exportar ⬇️</button>
           <button class="tab" onclick="navAdmin('cuentas')" id="atab-cuentas">Cuentas</button>
@@ -261,13 +260,10 @@
             <h3 id="admin-cal-title" style="margin:0; font-size:1.1rem;">Mes Año</h3>
             <button onclick="changeMonth(1)">Sig ▶</button>
           </div>
-
-          <div id="aview-pediatria">
-            <p style="margin-bottom:1rem; color:#64748b; font-size:0.9rem;">Habilita (amarillo) los días en los que Secretaría permite asignar guardias para los servicios que tengan el "Candado" activado en Ajustes.</p>
-          </div>
-
-          <div id="aview-festivos" style="display:none;">
-            <p style="margin-bottom:1rem; color:#64748b; font-size:0.9rem;">Haz clic para marcar los días Festivos Oficiales (Rojo). El sistema calculará automáticamente las Vísperas y los Salientes.</p>
+			
+			<div id="aview-calendario" style="margin-bottom:1rem; background:#f8fafc; padding:10px; border-radius:8px; border:1px solid #cbd5e1; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+              <label style="font-weight:bold; font-size:0.9rem;">🖌️ Pincel activo:</label>
+              <select id="admin-paint-tool" onchange="renderAdminCalendar()" style="margin:0; max-width:300px; padding:6px; font-size:0.9rem;"></select>
           </div>
 
           <div id="admin-cal-container">
@@ -376,6 +372,7 @@ let state = {
   trades: [],
 	bajasLargas: [],
 	residentesFijos: [], // 💡 Almacenará los nombres de los residentes congelados al inicio
+	habilitaciones: {}, // 💡 NUEVO: Control dinámico de todos los servicios manuales
 };
 
 let curDate = new Date(2026, 0, 1);
@@ -797,6 +794,7 @@ function canUserTakeShift(targetUserName, sourceUserName, dateKey, svcName) {
 
     if (svcConfig.reglaIntercambio === 'solo_mismo') return targetLevel === sourceLevel;
     if (svcConfig.reglaIntercambio === 'superior') return targetLevel >= sourceLevel;
+    if (svcConfig.reglaIntercambio === 'no_r1') return targetLevel > 1 && sourceLevel > 1; // 💡 Nadie que sea R1 puede darla ni cogerla
     return true; // 'cualquiera'
 }
 
@@ -1485,13 +1483,13 @@ function nav(tab) {
 
 function navAdmin(sub) {
   currentAdminView = sub;
-  ['pediatria','festivos','excepciones','export','cuentas','seguridad','ajustes'].forEach(t => {
+  ['calendario','excepciones','export','cuentas','seguridad','ajustes'].forEach(t => {
     const view = document.getElementById(`aview-${t}`); if (view) view.style.display = t === sub ? 'block' : 'none';
     const tab = document.getElementById(`atab-${t}`); if (tab) tab.className = `tab ${t === sub ? 'active' : ''}`;
   });
-  document.getElementById('admin-cal-views').style.display = (sub === 'pediatria' || sub === 'festivos') ? 'block' : 'none';
+  document.getElementById('admin-cal-views').style.display = (sub === 'calendario') ? 'block' : 'none';
   if (sub === 'cuentas') renderAccountsList();
-  if (sub === 'pediatria' || sub === 'festivos') renderAdminCalendar();
+  if (sub === 'calendario') renderAdminCalendar();
   if (sub === 'excepciones') renderAdminExceptions();
   if (sub === 'ajustes') renderAdminAjustes();
 }
@@ -1562,6 +1560,14 @@ function getServiceColor(svcName) {
     }
     return '#3b82f6';
 }
+
+// Ayudante para verificar habilitaciones dinámicas
+function isServiceEnabledOnDate(svcName, dk) {
+    if (state.habilitaciones && state.habilitaciones[dk] && state.habilitaciones[dk][svcName]) return true;
+    if (svcName === 'Pediatría' && state.pedWhitelist && state.pedWhitelist[dk]) return true; // Retrocompatibilidad
+    return false;
+}
+
 // ==========================================
 // RENDERIZADOR DEL CALENDARIO ORIGINAL
 // ==========================================
@@ -1631,7 +1637,7 @@ function renderMainCalendar() {
     const dateKey = formatDateKey(y, m, d);
     const dayShifts = state.shifts[dateKey] || {};
     const isFest = state.festivos[dateKey];
-    const isEnabled = state.pedWhitelist[dateKey];
+    const isEnabled = !isServiceEnabledOnDate(svc.nombre, dateKey);
     const cell = document.createElement('div');
     
     let cClass = 'cal-cell';
@@ -1716,7 +1722,7 @@ holders.forEach(h => {
 
         if (isUserPending && !isMine) { disabled = true; reason = "Turno bloqueado (Pendiente Admin)."; }
         else if (isIllegal && !isMine) { disabled = true; reason = "Ilegal: Choca con Saliente"; }
-        else if (svc.requiereHabilitacion && !state.pedWhitelist[dateKey] && !isMine) { disabled = true; reason = "Día no habilitado."; }
+        else if (svc.requiereHabilitacion && !!isServiceEnabledOnDate(svc.nombre, dateKey) && !isMine) { disabled = true; reason = "Día no habilitado."; }
         else if (isUserBusyOnDay(loggedInUser, dateKey) && !isMine) { disabled = true; reason = "Ya tienes guardia hoy."; }
         else if (!isMyTurn && !isMine) { disabled = true; reason = `Bloqueado (Toca a ${turnUser}).`; }
         else if (holders.length >= svc.plazasPorDia && !isMine) { disabled = true; reason = `Completo (${holders.length}/${svc.plazasPorDia}).`; }
@@ -1982,20 +1988,26 @@ function renderAdminAjustes() {
                 <label style="font-size:0.8rem; color:#64748b; display:block; margin-bottom:4px;">Plazas por día</label>
                 <input type="number" id="cfg-plazas-${pIdx}-${i}" value="${svc.plazasPorDia}" min="1" style="margin:0;">
              </div>
-			 <div style="flex:1; min-width:80px;">
-            	<label style="font-size:0.8rem; color:#64748b; display:block; margin-bottom:4px;">Color</label>
-            	<input type="color" id="cfg-col-${pIdx}-${i}" value="${svc.color}" 
+				<div style="flex:1; min-width:80px; display:flex; flex-direction:column;">
+                <label style="font-size:0.8rem; color:#64748b; margin-bottom:4px;">Color</label>
+                <input type="color" id="cfg-col-${pIdx}-${i}" value="${svc.color}" 
                    onchange="syncConfigFromUI()" 
                    oninput="document.getElementById('cfg-card-${pIdx}-${i}').style.borderLeftColor = this.value" 
-                   style="width:100%; height:38px; padding:0; cursor:pointer; border:none; border-radius:6px;">
-         	 </div>
+                   style="width:100%; height:38px; padding:0; cursor:pointer; border:1px solid #cbd5e1; border-radius:6px; box-sizing:border-box;">
+             </div>
           </div>
           
-          <div style="margin-bottom:15px; padding:10px; background:#f8fafc; border-radius:6px; border:1px dashed #cbd5e1;">
+				<div style="margin-bottom:15px; padding:10px; background:#f8fafc; border-radius:6px; border:1px dashed #cbd5e1;">
              <label style="font-size:0.85rem; font-weight:bold; display:flex; align-items:center; gap:8px;">
-                <input type="checkbox" id="cfg-hab-${pIdx}-${i}" ${svc.requiereHabilitacion ? 'checked' : ''} style="width:auto; margin:0;">
-                🔒 Requiere Habilitación Manual (Secretaría)
+                <input type="checkbox" id="cfg-hab-${pIdx}-${i}" ${svc.requiereHabilitacion ? 'checked' : ''} style="width:auto; margin:0;" onchange="document.getElementById('cfg-cob-box-${pIdx}-${i}').style.display = this.checked ? 'block' : 'none'">
+                🔒 Requiere Habilitación Manual (Pintar en Calendario Admin)
              </label>
+             <div id="cfg-cob-box-${pIdx}-${i}" style="display: ${svc.requiereHabilitacion ? 'block' : 'none'}; margin-top:8px; margin-left:24px;">
+                 <label style="font-size:0.8rem; display:flex; align-items:center; gap:8px; color:#854d0e;">
+                    <input type="checkbox" id="cfg-cob-${pIdx}-${i}" ${svc.coberturaObligatoria ? 'checked' : ''} style="width:auto; margin:0;">
+                    ⚠️ Obligatorio cubrir todos los huecos habilitados (Aplica Justicia Histórica si quedan libres)
+                 </label>
+             </div>
           </div>
 
 		  <div style="margin-bottom:15px; padding:10px; background:#f8fafc; border-radius:6px; border:1px dashed #cbd5e1;">
@@ -2004,6 +2016,7 @@ function renderAdminAjustes() {
                  <option value="superior" ${svc.reglaIntercambio === 'superior' ? 'selected' : ''}>Permitir intercambios entre el mismo año y superiores</option>
                  <option value="solo_mismo" ${svc.reglaIntercambio === 'solo_mismo' ? 'selected' : ''}>Bloquear intercambios SÓLO entre la misma promoción</option>
                  <option value="cualquiera" ${svc.reglaIntercambio === 'cualquiera' ? 'selected' : ''}>Permitir intercambios a todos sin restricción (PELIGRO)</option>
+								 <option value="no_r1" ${svc.reglaIntercambio === 'no_r1' ? 'selected' : ''}>Permitir a todos EXCEPTO a los R1 (Protección de pequeños)</option>
              </select>
           </div>
 
@@ -2150,6 +2163,9 @@ function syncConfigFromUI() {
       const habSvc = document.getElementById(`cfg-hab-${pIdx}-${i}`);
       if (habSvc) svc.requiereHabilitacion = habSvc.checked;
 
+			const cobSvc = document.getElementById(`cfg-cob-${pIdx}-${i}`);
+      if (cobSvc) svc.coberturaObligatoria = cobSvc.checked;
+			
       const interSvc = document.getElementById(`cfg-intercambio-${pIdx}-${i}`);
       if (interSvc) svc.reglaIntercambio = interSvc.value;
 
@@ -2258,14 +2274,73 @@ function exportUniversal(isMercado) {
 
 // RESTO DE FUNCIONES MENORES (Mercadillo UI, Admin Logs...)
 function renderAdminCalendar() {
-  const grid = document.getElementById('admin-cal-body'); grid.innerHTML = ''; const y = curDate.getFullYear(), m = curDate.getMonth();
-  for(let i=0; i<getFirstDayOffset(y,m); i++) grid.innerHTML += `<div class="cal-cell empty"></div>`;
-  for(let d=1; d<=getDaysInMonth(y,m); d++) {
-    const dateKey = formatDateKey(y, m, d); const cell = document.createElement('div'); cell.className = 'cal-cell'; cell.innerHTML = `<div class="day-number">${d}</div>`;
-    if (currentAdminView === 'pediatria') { if (state.pedWhitelist[dateKey]) cell.classList.add('is-whitelisted'); else cell.classList.add('locked-ped'); cell.onclick = () => { state.pedWhitelist[dateKey] = !state.pedWhitelist[dateKey]; saveState(); renderAll(); }; } 
-    else if (currentAdminView === 'festivos') { if (state.festivos[dateKey]) cell.classList.add('is-festivo'); cell.onclick = () => { state.festivos[dateKey] = !state.festivos[dateKey]; saveState(); renderAll(); }; }
-    grid.appendChild(cell);
-  }
+    const grid = document.getElementById('admin-cal-body'); grid.innerHTML = '';
+    const y = curDate.getFullYear(), m = curDate.getMonth();
+    
+    // 1. Construir las opciones del Pincel dinámicamente
+    const selectTool = document.getElementById('admin-paint-tool');
+    let currentVal = selectTool.value;
+    let optionsHtml = `<option value="festivos">🔴 Pintar Festivos Oficiales</option>`;
+    
+    getAllUniqueServices().forEach(svc => {
+        if (svc.requiereHabilitacion) {
+            optionsHtml += `<option value="svc_${svc.nombre}">🛡️ Habilitar: ${svc.nombre}</option>`;
+        }
+    });
+    
+    selectTool.innerHTML = optionsHtml;
+    if (currentVal && selectTool.querySelector(`option[value="${currentVal}"]`)) {
+        selectTool.value = currentVal;
+    } else {
+        currentVal = 'festivos';
+    }
+    
+    for(let i=0; i<getFirstDayOffset(y,m); i++) grid.innerHTML += `<div class="cal-cell empty"></div>`;
+    
+    for(let d=1; d<=getDaysInMonth(y,m); d++) {
+        const dateKey = formatDateKey(y, m, d);
+        const cell = document.createElement('div');
+        cell.className = 'cal-cell';
+        cell.innerHTML = `<div class="day-number">${d}</div>`;
+        
+        // Indicadores Base (Festivos siempre de fondo si no hay servicio seleccionado)
+        if (state.festivos[dateKey]) {
+            cell.style.border = "2px solid var(--fest)";
+            cell.style.background = "#fee2e2";
+        }
+        
+        // 2. Lógica de pintado según herramienta
+        if (currentVal.startsWith('svc_')) {
+            const svcName = currentVal.replace('svc_', '');
+            const isEnabled = isServiceEnabledOnDate(svcName, dateKey);
+            const svcConfig = getAllUniqueServices().find(s => s.nombre === svcName);
+            const colorHex = svcConfig ? svcConfig.color : '#fde047';
+            
+            if (isEnabled) {
+                cell.style.background = colorHex + '33'; // Le añade 20% de opacidad al Hexadecimal
+                cell.style.borderColor = colorHex;
+                cell.style.borderWidth = '2px';
+            } else if (!state.festivos[dateKey]) {
+                cell.classList.add('locked-ped'); 
+            }
+            
+            cell.onclick = () => {
+                if (!state.habilitaciones) state.habilitaciones = {};
+                if (!state.habilitaciones[dateKey]) state.habilitaciones[dateKey] = {};
+                
+                state.habilitaciones[dateKey][svcName] = !state.habilitaciones[dateKey][svcName];
+                if (svcName === 'Pediatría') state.pedWhitelist[dateKey] = state.habilitaciones[dateKey][svcName]; // Sincro legacy
+                saveState(); renderAdminCalendar(); // Solo refrescamos el admin para que no parpadee todo
+            };
+        } else if (currentVal === 'festivos') {
+            cell.onclick = () => {
+                state.festivos[dateKey] = !state.festivos[dateKey];
+                saveState(); renderAdminCalendar();
+            };
+        }
+        
+        grid.appendChild(cell);
+    }
 }
 function renderAdminExceptions() {
   const y = curDate.getFullYear(), m = curDate.getMonth(); const monthKey = getRotationKey(y, m);
@@ -2695,20 +2770,17 @@ function calcularViabilidadFestivosMensual(ano, mes) {
     let huecosFestivosObligatorios = 0;
     
     // 1. Contar cuántas plazas de festivo hay que cubrir obligatoriamente este mes
-    for (let d = 1; d <= totalDias; d++) {
-        const tag = getDayTag(ano, mes, d);
-        if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
-            const dk = formatDateKey(ano, mes, d);
+		for (let d = 1; d <= totalDias; d++) {
+        const tag = getDayTag(y, m, d);
+        const dk = formatDateKey(y, m, d);
+        miPlan.servicios.forEach(svc => {
+            if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk)) return;
             
-            // Inspeccionamos los servicios activos para ver sus plazas de fin de semana
-            getAllUniqueServices().forEach(svc => {
-                // Si el servicio requiere habilitación y el día no está habilitado, no cuenta
-                if (svc.requiereHabilitacion && !state.pedWhitelist[dk]) return;
-                
-                // Si es Balaguer o HUAV y tiene plazas obligatorias asignadas
+            // Si es festivo/fin de semana, O si el servicio exige cobertura total siempre
+            if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal' || svc.coberturaObligatoria) {
                 huecosFestivosObligatorios += (svc.plazasPorDia || 1);
-            });
-        }
+            }
+        });
     }
     
     const totalResidentes = getAllResidents().length;
@@ -2753,16 +2825,20 @@ function getHistoricoFestivosResidentes(targetY, targetM) {
             // 3. Calculamos el nivel (Año de residencia) del residente EN EL MES OBJETIVO
             const nivelObjetivo = getUserLevelOnDate(uProfile, formatDateKey(targetY, targetM, 1));
 
-            // 4. SOLO contamos si estamos en el mismo año de residencia que el mes que estamos organizando
+						// 4. SOLO contamos si estamos en el mismo año de residencia
             if (nivelGuardia === nivelObjetivo) {
                 const tag = getDayTag(y, m, d);
-                if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
-                    if (historico[user] !== undefined) {
-                        historico[user]++;
-                    }
+                let isObligatorio = false;
+                for (let plan of promoConfig.planes || []) {
+                    let sc = plan.servicios.find(s => s.nombre === state.shifts[dk][user]);
+                    if (sc && sc.coberturaObligatoria) isObligatorio = true;
                 }
+                
+                if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal' || isObligatorio) {
+                    if (historico[user] !== undefined) historico[user]++;
+                }
+            	}
             }
-        });
     });
     
     return historico;
