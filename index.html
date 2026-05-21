@@ -2364,17 +2364,16 @@ function renderAdminCalendar() {
                 cell.style.borderWidth = '2px';
             }
             
-// 💡 CORRECCIÓN: Aseguramos que la lógica de cambio de estado sea correcta
             cell.onclick = () => {
                 if (!state.habilitaciones) state.habilitaciones = {};
                 if (!state.habilitaciones[dateKey]) state.habilitaciones[dateKey] = {};
                 
-                // Si el valor es true, lo pone a false. Si es undefined o false, lo pone a true.
-                const estadoActual = !!state.habilitaciones[dateKey][svcName];
+                // FORZAMOS EL ESTADO: 
+                // Si existe y es true, lo ponemos a false. Si es false o undefined, lo ponemos a true.
+                const estadoActual = state.habilitaciones[dateKey][svcName] === true;
                 state.habilitaciones[dateKey][svcName] = !estadoActual;
                 
-                // Sincro legacy
-                if (svcName === 'Pediatría') state.pedWhitelist[dateKey] = state.habilitaciones[dateKey][svcName];
+                console.log(`Pintando ${svcName} en ${dateKey}: ${state.habilitaciones[dateKey][svcName]}`);
                 
                 saveState(); 
                 renderAdminCalendar(); 
