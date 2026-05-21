@@ -2067,13 +2067,7 @@ function renderAdminAjustes() {
 
     html += `</div>`; // Fin del contenedor del plan específico
   });
-
-  // Fuera del bucle ya solo renderizamos el botón de guardado final
-  html += `
-  <div style="margin-top:2rem; text-align:right;">
-      <button class="btn btn-primary" onclick="saveAdminAjustes()">Guardar Ajustes</button>
-  </div>`;
-  
+	
   container.innerHTML = html;
 }
 
