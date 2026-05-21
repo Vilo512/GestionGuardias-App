@@ -977,7 +977,6 @@ async function guardarFechaGraduacion() {
 
 		// Cirugía técnica: Refresca el chivato visual inmediatamente sin F5
         renderGruposView();
-  if (document.getElementById("pane-admin") && document.getElementById("pane-admin").style.display === "block") renderAdminCalendar();
     }
 }
 	
@@ -1178,7 +1177,6 @@ function nav(tab) {
   }
   
   if (tab === 'grupos') renderGruposView();
-  if (document.getElementById("pane-admin") && document.getElementById("pane-admin").style.display === "block") renderAdminCalendar();
   else if (tab === 'perfil') renderPerfilUsuario();
   else if (tab !== 'help' && tab !== 'perfil') checkAutomaticGraduation();
     renderAll();
@@ -1223,7 +1221,7 @@ function renderAll() {
   
   if (isAdmin) {
     if (currentAdminView === 'cuentas') renderAccountsList();
-    else if (currentAdminView === 'pediatria' || currentAdminView === 'festivos') renderAdminCalendar();
+    else if (currentAdminView === 'calendario') renderAdminCalendar();
     else if (currentAdminView === 'excepciones') renderAdminExceptions();
   }
 }
