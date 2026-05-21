@@ -1702,7 +1702,8 @@ holders.forEach(h => {
             <option value="partida_primera" ${currentMode === 'partida_primera' ? 'selected' : ''}>Partida: 1ª Mitad (Diurna - 50% H / Sin Saliente)</option>
             <option value="partida_segunda" ${currentMode === 'partida_segunda' ? 'selected' : ''}>Partida: 2ª Mitad (Nocturna - 50% H / Con Saliente)</option>
         </select>
-    </div>`; 
+    </div>`;
+	}); // ⚠️ ESTE CIERRE ES EL QUE HABÍAS BORRADO
         html += `<div style="display:flex; gap:4px; margin-top:12px; border-top:1px solid #e2e8f0; padding-top:8px;"><select id="force-sel-${svcIdx}" style="margin:0; padding:4px; font-size:0.8rem;"><option value="">Añadir Residente...</option>${getAllResidents().map(r => `<option value="${r}">${r}</option>`).join('')}</select><button class="primary" style="background:var(--dark); color:white;" onclick="adminForceAssign('${dateKey}', '${svc.nombre}', ${y}, ${m}, ${d}, 'force-sel-${svcIdx}')">Poner</button></div>`;
     } else {
         const isMine = dayShifts[loggedInUser] === svc.nombre;
@@ -2961,12 +2962,23 @@ function getResidentesActivosEnMes(y, m) {
     });
 }
 function renderPerfilUsuario() {
-	// 📊 CÓMPUTO DE HORAS TOTALES DEL USUARIO LOGUEADO
+    const uProfile = currentUserProfile;
+    if (!uProfile) return;
+
+    // 1. Calcular el plan que le corresponde HOY de forma dinámica
+    const hoyDK = formatDateKey(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+    const planActivoHoy = getPlanForUserOnDate(uProfile, hoyDK);
+    const nombrePlanHoy = planActivoHoy ? planActivoHoy.nombre : 'Sin Plan (Fecha Futura)';
+
+    // 2. Filtrar las ausencias/bajas del propio usuario
+    if (!state.bajasLargas) state.bajasLargas = [];
+    const misBajas = state.bajasLargas.filter(b => b.user === uProfile.nombre_mostrar);
+
+// 3. 📊 CÓMPUTO DE HORAS TOTALES DEL USUARIO PARA LA AUDITORÍA DE HUELGA
     let totalHorasAcumuladas = 0;
     let guardiasCompletasCount = 0;
     let guardiasPartidasCount = 0;
 
-    // Recorremos todas las guardias guardadas en el sistema buscando las del usuario
     for (let dk in state.shifts || {}) {
         if (state.shifts[dk][uProfile.nombre_mostrar]) {
             const svcName = state.shifts[dk][uProfile.nombre_mostrar];
@@ -2982,195 +2994,139 @@ function renderPerfilUsuario() {
         }
     }
 
-    // Parámetros del Acuerdo de Huelga (Ejemplo: Máximo legal de 48h semanales promedio, aprox 192h mensuales o tope anual orientativo)
-    const topeAnualGuardiasHoras = 850; // Línea roja habitual fijada por el acuerdo
-    const porcentajeCarga = Math.min(100, (totalHorasAcumuladas / topeAnualGuardiasHoras) * 100);
-    let colorBarra = 'var(--adu)';
-    if (porcentajeCarga > 75) colorBarra = 'var(--pac)';
-    if (porcentajeCarga > 90) colorBarra = 'var(--fest)';
-    const container = document.getElementById('contenido-principal'); // O el ID de tu contenedor de pestañas
-    if (!container) return;
+    // ⚖️ PARÁMETROS LEGALES DE HUELGA / FORMACIÓN
+    const targetHoras = 695;
+    const tolerancia = 55;
+    const minHoras = targetHoras - tolerancia; // 640h
+    const maxHoras = targetHoras + tolerancia; // 750h
 
-    const uProfile = currentUserProfile;
-    if (!uProfile) {
-        container.innerHTML = `<div style="padding:20px;">⚠️ No se ha detectado ningún perfil de usuario activo.</div>`;
-        return;
-    }
+    // Para que la barra no se llene al 100% justo en 750, le damos un tope visual de 850h
+    const topeVisual = 850; 
+    const porcentajeCarga = Math.min(100, (totalHorasAcumuladas / topeVisual) * 100);
 
-    // 1. Calcular estadísticas de guardias del usuario en el año de residencia actual
-    let totalGuardiasAño = 0;
-    let desgloseServicios = {};
+    let colorBarra = 'var(--pac)'; // Naranja (Déficit)
+    let estadoTexto = 'Déficit Formativo (Revisar)';
     
-    if (state.shifts) {
-        Object.keys(state.shifts).forEach(dk => {
-            // Usamos la función que creamos en el paso anterior para validar el año de residencia de la guardia
-            const nivelGuardia = getUserLevelOnDate(uProfile, dk);
-            const nivelObjetivo = getUserLevelOnDate(uProfile, formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1));
-            
-            // Solo contamos si pertenece al año de residencia actual en curso
-            if (nivelGuardia === nivelObjetivo && state.shifts[dk][uProfile.nombre_mostrar]) {
-                totalGuardiasAño++;
-                const tipoServicio = state.shifts[dk][uProfile.nombre_mostrar].servicio || 'General';
-                desgloseServicios[tipoServicio] = (desgloseServicios[tipoServicio] || 0) + 1;
-            }
-        });
+    if (totalHorasAcumuladas >= minHoras && totalHorasAcumuladas <= maxHoras) {
+        colorBarra = 'var(--ped)'; // Verde (Óptimo)
+        estadoTexto = 'Rango Legal y Formativo Óptimo';
+    } else if (totalHorasAcumuladas > maxHoras) {
+        colorBarra = 'var(--fest)'; // Rojo (Exceso)
+        estadoTexto = 'Exceso (Alerta de Descanso)';
     }
 
-    // 2. Filtrar las bajas del propio usuario
-    if (!state.bajasLargas) state.bajasLargas = [];
-    const misBajas = state.bajasLargas.filter(b => b.user === uProfile.nombre_mostrar);
+    // 4. Preparar las opciones de día y mes para el selector de contrato
+    let dDia = '01', dMes = '01';
+    if (uProfile.fecha_cambio_contrato) {
+        const parts = uProfile.fecha_cambio_contrato.split('-');
+        if (parts.length === 3) { dMes = parts[1]; dDia = parts[2]; }
+    }
+    const diaOptions = Array.from({length: 31}, (_, i) => { 
+        let v = String(i+1).padStart(2,'0'); 
+        return `<option value="${v}" ${v === dDia ? 'selected' : ''}>${i+1}</option>`; 
+    }).join('');
+    
+    const mesOptions = MONTHS.map((m, i) => { 
+        let v = String(i+1).padStart(2,'0'); 
+        return `<option value="${v}" ${v === dMes ? 'selected' : ''}>${m}</option>`; 
+    }).join('');
 
-		const hoyDK = formatDateKey(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
-    const planActivoHoy = getPlanForUserOnDate(uProfile, hoyDK);
-    const nombrePlanHoy = planActivoHoy ? planActivoHoy.nombre : 'Sin Plan (Fecha Futura)';
-
-	// Antes de renderizar el HTML del perfil, preparamos las opciones de los selectores
-		let dDia = '01', dMes = '01';
-		if (uProfile.fecha_cambio_contrato) {
-		    const parts = uProfile.fecha_cambio_contrato.split('-');
-		    if (parts.length === 3) { dMes = parts[1]; dDia = parts[2]; }
-		}
-		const diaOptions = Array.from({length: 31}, (_, i) => { let v = String(i+1).padStart(2,'0'); return `<option value="${v}" ${v === dDia ? 'selected' : ''}>${i+1}</option>`; }).join('');
-		const mesOptions = MONTHS.map((m, i) => { let v = String(i+1).padStart(2,'0'); return `<option value="${v}" ${v === dMes ? 'selected' : ''}>${m}</option>`; }).join('');
-
-    // 3. Renderizar el HTML de la sección Perfil
-    container.innerHTML = `
-    <div style="padding: 20px; max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px;">
+// 5. Inyección del layout limpio en el contenedor principal
+    document.getElementById('contenido-principal').innerHTML = `
         
-        <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; background: white; padding: 15px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); flex-wrap: wrap; gap: 10px;">
             <div>
-                <h2 style="color: var(--dark); margin-bottom: 4px;">👋 ¡Hola, ${uProfile.nombre_mostrar}!</h2>
-                <p style="color: #64748b; font-size: 0.9rem;">Gestión de contrato, bajas prolongadas y auditoría de carga docente.</p>
+                <h2 style="margin: 0; color: var(--dark); font-size: 1.5rem;">👤 Mi Perfil</h2>
+                <p style="margin: 4px 0 0 0; color: #64748b; font-size: 0.9rem;">Identidad activa: <span style="font-weight: bold; color: var(--dark);">${uProfile.nombre_mostrar}</span></p>
             </div>
-			<div style="background: #e0f2fe; color: #0369a1; padding: 6px 12px; border-radius: 20px; font-weight: bold; font-size: 0.85rem;">
-			    📍 Plan Actual: ${nombrePlanHoy}
-			</div>
+            <div style="background: #e0f2fe; color: #0369a1; padding: 6px 12px; border-radius: 20px; font-weight: bold; font-size: 0.85rem;">
+                📍 Plan Actual: ${nombrePlanHoy}
+            </div>
         </div>
-
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
             
-<div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between;">
-    <div>
-        <h3 style="margin-bottom: 12px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">🪪 Datos de Contrato</h3>
-        <div style="margin-bottom: 12px;">
-            <label style="font-size: 0.8rem; font-weight: bold; color: #64748b; display: block; margin-bottom: 4px;">Día y Mes de Cambio de Nivel (R):</label>
-            <div style="display: flex; gap: 8px;">
-                <select id="perfil-dia-contrato" style="margin:0; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 80px;">
-                    ${diaOptions}
-                </select>
-                <select id="perfil-mes-contrato" style="margin:0; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; flex: 1;">
-                    ${mesOptions}
-                </select>
-            </div>
-        </div>
-        <p style="font-size: 0.8rem; color: #94a3b8; line-height: 1.4;">* Esta fecha determina de forma automatizada cuándo se resetea tu contador de Justicia Histórica al pasar de año (ej. de R1 a R2).</p>
-    </div>
-    <button onclick="guardarFechaContratoPerfil()" style="width:100%; margin-top: 16px; background: var(--adu); color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer;">💾 Actualizar Contrato</button>
-</div>
-
-            <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                <h3 style="margin-bottom: 12px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">📊 Balance Año de Residencia</h3>
-                <div style="text-align: center; margin-bottom: 16px; padding: 12px; background: #f8fafc; border-radius: 8px;">
-                    <span style="font-size: 2rem; font-weight: bold; color: var(--dark);">${totalGuardiasAño}</span>
-                    <p style="font-size: 0.8rem; color: #64748b; margin-top: 2px;">Guardias Totales Realizadas</p>
-                </div>
-                <div style="display: flex; flex-direction: column; gap: 8px; max-height: 120px; overflow-y: auto;">
-                    ${Object.keys(desgloseServicios).length === 0 ? '<p style="text-align:center; color:#94a3b8; font-size:0.85rem; padding-top:10px;">No hay guardias registradas este año.</p>' : ''}
-                    ${Object.keys(desgloseServicios).map(srv => `
-                        <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.85rem; padding: 4px 0; border-bottom: 1px dashed #e2e8f0;">
-                            <span style="font-weight:500;">🔹 ${srv}</span>
-                            <span style="background:#f1f5f9; padding:2px 8px; border-radius:12px; font-weight:bold;">${desgloseServicios[srv]}</span>
+            <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between;">
+                <div>
+                    <h3 style="margin-bottom: 12px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">🪪 Datos de Contrato</h3>
+                    <div style="margin-bottom: 12px;">
+                        <label style="font-size: 0.8rem; font-weight: bold; color: #64748b; display: block; margin-bottom: 4px;">Día y Mes de Cambio de Nivel (R):</label>
+                        <div style="display: flex; gap: 8px;">
+                            <select id="perfil-dia-contrato" style="margin:0; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 80px; background: white;">
+                                ${diaOptions}
+                            </select>
+                            <select id="perfil-mes-contrato" style="margin:0; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; flex: 1; background: white;">
+                                ${mesOptions}
+                            </select>
                         </div>
-                    `).join('')}
+                    </div>
+                    <p style="font-size: 0.8rem; color: #94a3b8; line-height: 1.4;">* Esta fecha determina de forma automatizada cuándo se resetea tu contador de Justicia Histórica al pasar de año (ej. de R1 a R2).</p>
+                </div>
+                <button onclick="guardarFechaContratoPerfil()" style="width:100%; margin-top: 16px; background: var(--adu); color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer;">💾 Actualizar Contrato</button>
+            </div>
+            <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between;">
+                <div>
+                    <h3 style="margin-bottom: 12px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">🏥 Ausencias y Suspensiones</h3>
+                    <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 15px;">Registra periodos largos de baja médica o rotaciones externas para que el asignador automático te excluya de las ruedas afectadas.</p>
+                    
+                    <div id="lista-bajas-usuario" style="margin-bottom: 15px; max-height: 150px; overflow-y: auto;">
+                        ${misBajas.length === 0 ? '<p style="font-size:0.85rem; color:#94a3b8; font-style: italic;">No tienes ausencias registradas.</p>' : misBajas.map(b => `
+                            <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; padding:8px; border-radius:6px; margin-bottom:6px; border:1px solid #e2e8f0;">
+                                <div style="font-size:0.8rem; line-height:1.3;">
+                                    <b style="color:var(--dark);">${b.motivo}</b><br>
+                                    <span style="color:#64748b;">Del ${formatDK(b.fechaInicio.replace(/-/g,'_'))} al ${formatDK(b.fechaFin.replace(/-/g,'_'))}</span>
+                                </div>
+                                <button class="danger icon-btn" onclick="eliminarBajaPerfil(${b.id})" style="padding:2px 6px; font-size:0.75rem;">X</button>
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    <div style="border-top: 1px dashed #cbd5e1; padding-top: 12px;">
+                        <label style="font-size: 0.75rem; font-weight: bold; color: #475569; display: block; margin-bottom: 4px;">Nueva Ausencia:</label>
+                        <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+                            <div style="flex:1;"><span style="font-size:0.7rem; color:#64748b;">Inicio</span><input type="date" id="baja-fecha-inicio" style="margin:0; padding:6px; font-size:0.8rem; width:100%;"></div>
+                            <div style="flex:1;"><span style="font-size:0.7rem; color:#64748b;">Fin</span><input type="date" id="baja-fecha-fin" style="margin:0; padding:6px; font-size:0.8rem; width:100%;"></div>
+                        </div>
+                        <input type="text" id="baja-motivo" placeholder="Motivo (ej: Rotación Externa, IT...)" style="margin:0; padding:8px; font-size:0.8rem; width:100%; border: 1px solid #cbd5e1; border-radius: 4px;">
+                    </div>
+                </div>
+                <button onclick="solicitarBajaPerfil()" style="width:100%; margin-top: 16px; background: var(--dark); color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer;">➕ Añadir Ausencia</button>
+            </div>
+            <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); grid-column: span 2;">
+                <h3 style="margin-bottom: 15px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">⏱️ Auditoría de Carga Laboral (Horas)</h3>
+                
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px;">
+                    <div style="background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                        <span style="font-size: 0.8rem; color: #64748b; font-weight: bold; display: block;">HORAS COMPUTADAS</span>
+                        <span style="font-size: 1.8rem; font-weight: bold; color: ${colorBarra};">${totalHorasAcumuladas.toFixed(1)} h</span>
+                    </div>
+                    <div style="background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                        <span style="font-size: 0.8rem; color: #64748b; font-weight: bold; display: block;">GUARDIAS COMPLETAS</span>
+                        <span style="font-size: 1.8rem; font-weight: bold; color: var(--adu);">${guardiasCompletasCount}</span>
+                    </div>
+                    <div style="background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                        <span style="font-size: 0.8rem; color: #64748b; font-weight: bold; display: block;">MEDIAS GUARDIAS (PARTIDAS)</span>
+                        <span style="font-size: 1.8rem; font-weight: bold; color: var(--merc);">${guardiasPartidasCount}</span>
+                    </div>
+                </div>
+
+                <div>
+                    <div style="display: flex; justify-content: space-between; font-size: 0.85rem; font-weight: bold; margin-bottom: 6px; color: #475569;">
+                        <span style="color: ${colorBarra};">${estadoTexto}</span>
+                        <span>${totalHorasAcumuladas.toFixed(0)} / ${targetHoras} h (±${tolerancia}h)</span>
+                    </div>
+                    <div style="background: #e2e8f0; width: 100%; height: 12px; border-radius: 6px; position: relative; overflow: hidden;">
+                        <div style="position: absolute; left: ${(minHoras/topeVisual)*100}%; width: 2px; height: 100%; background: #94a3b8; z-index: 2;" title="Mínimo Formativo (${minHoras}h)"></div>
+                        <div style="position: absolute; left: ${(maxHoras/topeVisual)*100}%; width: 2px; height: 100%; background: #ef4444; z-index: 2;" title="Tope Máximo (${maxHoras}h)"></div>
+                        
+                        <div style="background: ${colorBarra}; width: ${porcentajeCarga}%; height: 100%; transition: width 0.3s ease;"></div>
+                    </div>
+                    <p style="font-size: 0.75rem; color: #94a3b8; margin-top: 8px; line-height: 1.4;">
+                        * Objetivo: <b>${targetHoras}h</b>. Tolerancia legal: entre <b>${minHoras}h</b> y <b>${maxHoras}h</b>.<br>
+                        Por debajo del mínimo el sistema advierte de un posible déficit formativo; por encima del máximo, se incumplen los descansos estipulados.
+                    </p>
                 </div>
             </div>
-        </div>
-
-        <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-            <h3 style="margin-bottom: 16px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">🏥 Gestión de Bajas Prolongadas / Rotaciones Externas</h3>
-
-				<div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); grid-column: span 2; margin-top: 15px;">
-				    <h3 style="margin-bottom: 15px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">⏱️ Auditoría de Carga Laboral (Acuerdo de Huelga)</h3>
-				    
-				    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px;">
-				        <div style="background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
-				            <span style="font-size: 0.8rem; color: #64748b; font-weight: bold; display: block;">HORAS COMPUTADAS</span>
-				            <span style="font-size: 1.8rem; font-weight: bold; color: var(--dark);">${totalHorasAcumuladas.toFixed(1)} h</span>
-				        </div>
-				        <div style="background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
-				            <span style="font-size: 0.8rem; color: #64748b; font-weight: bold; display: block;">GUARDIAS COMPLETAS</span>
-				            <span style="font-size: 1.8rem; font-weight: bold; color: var(--adu);">${guardiasCompletasCount}</span>
-				        </div>
-				        <div style="background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
-				            <span style="font-size: 0.8rem; color: #64748b; font-weight: bold; display: block;">MEDIAS GUARDIAS (PARTIDAS)</span>
-				            <span style="font-size: 1.8rem; font-weight: bold; color: var(--merc);">${guardiasPartidasCount}</span>
-				        </div>
-				    </div>
-				
-				    <div>
-				        <div style="display: flex; justify-content: space-between; font-size: 0.85rem; font-weight: bold; margin-bottom: 6px; color: #475569;">
-				            <span>Consumo del Tope Anual Recomendado (Huelga)</span>
-				            <span>${totalHorasAcumuladas.toFixed(0)} / ${topeAnualGuardiasHoras} horas</span>
-				        </div>
-				        <div style="background: #e2e8f0; width: 100%; height: 12px; border-radius: 6px; overflow: hidden;">
-				            <div style="background: ${colorBarra}; width: ${porcentajeCarga}%; height: 100%; transition: width 0.3s ease;"></div>
-				        </div>
-				        <p style="font-size: 0.75rem; color: #94a3b8; margin-top: 8px; line-height: 1.4;">
-				            * El motor analiza de forma proactiva tus jornadas completas, diurnas y fracciones de conciliación según las tablas del servicio técnico. Al superar el 100% del límite legal, las barras alertarán del riesgo de sanciones por parte de la Unidad Docente.
-				        </p>
-				    </div>
-				</div>
-			
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 20px; background: #f8fafc; padding: 15px; border-radius: 8px;">
-                <div>
-                    <label style="font-size: 0.8rem; font-weight: bold; color: #475569; display: block; margin-bottom: 4px;">Fecha Inicio:</label>
-                    <input type="date" id="baja-fecha-inicio" style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
-                </div>
-                <div>
-                    <label style="font-size: 0.8rem; font-weight: bold; color: #475569; display: block; margin-bottom: 4px;">Fecha Fin (Inclusive):</label>
-                    <input type="date" id="baja-fecha-fin" style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
-                </div>
-                <div>
-                    <label style="font-size: 0.8rem; font-weight: bold; color: #475569; display: block; margin-bottom: 4px;">Motivo / Tipo de Excepción:</label>
-                    <input type="text" id="baja-motivo" placeholder="Ej: IT Médica, Paternidad, Rotación Externa..." style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
-                </div>
-                <div style="display: flex; align-items: flex-end;">
-                    <button onclick="solicitarBajaPerfil()" style="width:100%; background: #10b981; color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: background 0.2s;">➕ Solicitar Excepción</button>
-                </div>
-            </div>
-
-            <h4 style="font-size:0.9rem; color:#475569; margin-bottom:8px;">Tus Solicitudes de Suspensión Temporal:</h4>
-            <div style="overflow-x: auto;">
-                <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left;">
-                    <thead>
-                        <tr style="background: #f1f5f9; color: #475569;">
-                            <th style="padding: 10px; border-bottom: 2px solid #e2e8f0;">Periodo</th>
-                            <th style="padding: 10px; border-bottom: 2px solid #e2e8f0;">Motivo</th>
-                            <th style="padding: 10px; border-bottom: 2px solid #e2e8f0;">Estado del Motor</th>
-                            <th style="padding: 10px; border-bottom: 2px solid #e2e8f0;">Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${misBajas.length === 0 ? `<tr><td colspan="4" style="text-align:center; padding:15px; color:#94a3b8;">No has registrado periodos de baja prolongada.</td></tr>` : ''}
-                        ${misBajas.map(bj => {
-                            const badgeColor = bj.estado === 'aprobada' ? 'background:#dcfce7; color:#166534;' : 'background:#fef9c3; color:#713f12;';
-                            const badgeTexto = bj.estado === 'aprobada' ? '✅ Excluido de Rotación' : '⏳ Pendiente de Validación';
-                            return `
-                            <tr style="border-bottom: 1px solid #e2e8f0;">
-                                <td style="padding: 10px; font-weight:500;">📅 ${bj.fechaInicio} al ${bj.fechaFin}</td>
-                                <td style="padding: 10px; color:#64748b;">${bj.motivo}</td>
-                                <td style="padding: 10px;"><span style="padding:3px 8px; border-radius:12px; font-size:0.75rem; font-weight:bold; ${badgeColor}">${badgeTexto}</span></td>
-                                <td style="padding: 10px;"><button onclick="eliminarBajaPerfil(${bj.id})" style="background:none; border:none; color:#ef4444; cursor:pointer; font-weight:bold;">🗑️ Eliminar</button></td>
-                            </tr>
-                            `;
-                        }).join('')}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-    `;
-}
+            </div> `;
 // A) GUARDAR LA FECHA DE CAMBIO DE CONTRATO DESDE EL PERFIL
 async function guardarFechaContratoPerfil() {
     const dia = document.getElementById('perfil-dia-contrato').value;
