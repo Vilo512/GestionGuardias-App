@@ -498,6 +498,10 @@ function normalizeConfig(config) {
         delete config.servicios;
     }
 
+    // 1. Preparamos variables para agrupar servicios globales
+    let serviciosUnicos = [];
+    let nombresUnicos = new Set();
+
     config.planes.forEach(plan => {
         if (!plan.servicios) plan.servicios = [];
         plan.servicios.forEach(s => {
@@ -505,7 +509,6 @@ function normalizeConfig(config) {
             if (s.plazasPorDia === undefined) s.plazasPorDia = s.soloAdmin ? 5 : 1; 
             if (s.requiereHabilitacion === undefined) s.requiereHabilitacion = (s.nombre === 'Pediatría');
             
-            // 💡 MIGRACIÓN Y NUEVOS DATOS: Pernocta y Horas
             if (s.generaSaliente && !s.pernocta) s.pernocta = s.generaSaliente; 
             if (!s.pernocta) s.pernocta = { laborable: true, vispera: true, fin_de_semana: (s.nombre!=='PAC Balaguer'), festivo_intersemanal: (s.nombre!=='PAC Balaguer') };
             if (!s.horas) s.horas = { laborable: 17, vispera: 17, festivo: 24 };
@@ -513,9 +516,18 @@ function normalizeConfig(config) {
             if (!s.reglasObligatorias) s.reglasObligatorias = [];
             if (!s.color || !/^#[0-9A-F]{6}$/i.test(s.color)) s.color = '#3b82f6';
             if (!s.reglaIntercambio) s.reglaIntercambio = 'superior';
+
+            // 2. Extraemos el servicio único
+            if (!nombresUnicos.has(s.nombre)) {
+                nombresUnicos.add(s.nombre);
+                serviciosUnicos.push(s);
+            }
         });
     });
+
+    // 👉 PARCHE MAESTRO: Restaurar la lista global para que Mercadillo y Salientes no colapsen
     config.servicios = serviciosUnicos;
+
     return config;
 }
 
