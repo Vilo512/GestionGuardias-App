@@ -1576,8 +1576,14 @@ function getServiceColor(svcName) {
 
 // Ayudante para verificar habilitaciones dinámicas
 function isServiceEnabledOnDate(svcName, dk) {
-    if (state.habilitaciones && state.habilitaciones[dk] && state.habilitaciones[dk][svcName]) return true;
-    if (svcName === 'Pediatría' && state.pedWhitelist && state.pedWhitelist[dk]) return true; // Retrocompatibilidad
+    // 1. Miramos en el objeto central que guarda todas las habilitaciones
+    if (state.habilitaciones && state.habilitaciones[dk] && state.habilitaciones[dk][svcName]) {
+        return true;
+    }
+    // 2. Retrocompatibilidad para Pediatría
+    if (svcName === 'Pediatría' && state.pedWhitelist && state.pedWhitelist[dk]) {
+        return true;
+    }
     return false;
 }
 
