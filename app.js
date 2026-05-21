@@ -683,7 +683,7 @@ function hasAvailableLegalSlots(user, y, m, svc, rule) {
         if (isUserBusyOnDay(user, dk)) continue;
 
         // 5. ¿El servicio está lleno este día?
-        let currentAssigned = Object.keys(dayShifts).filter(u => dayShifts[u] === svc.nombre).length;
+        let currentAssigned = Object.keys(dayShifts || {}).filter(u => dayShifts[u] === svc.nombre).length;
         if (currentAssigned >= svc.plazasPorDia) continue; 
 
         // 6. ¿Genera conflicto de saliente si se lo pongo?
@@ -1370,7 +1370,7 @@ function renderMainCalendar() {
     
     // 🛡️ AQUÍ ESTABA EL ERROR: Recorremos los servicios definidos arriba
     todosLosServicios.forEach(svc => {
-        let assigned = Object.keys(dayShifts).filter(u => dayShifts[u] === svc.nombre);
+        let assigned = Object.keys(dayShifts || {}).filter(u => dayShifts[u] === svc.nombre);
         if (showOnlyMine && loggedInUser) assigned = assigned.filter(u => u === loggedInUser);
         assigned.forEach(u => {
             html += `<div class="shift-badge" style="background:${svc.color};">👤 ${getInitials(u)}</div>`;
@@ -1411,7 +1411,7 @@ function openShiftModal(y, m, d, dateKey) {
   // Cambiamos el bucle para que recorra SOLO tus servicios autorizados para esta fecha
 serviciosDisponibles.forEach((svc, svcIdx) => {
     html += `<div class="shift-option" style="flex-direction:column; align-items:stretch;"><div class="shift-option-header"><strong style="color:${svc.color};">${svc.nombre}</strong></div>`;
-    const holders = Object.keys(dayShifts).filter(u => dayShifts[u] === svc.nombre);
+    const holders = Object.keys(dayShifts || {}).filter(u => dayShifts[u] === svc.nombre);
     
     if (isAdmin) {
 // A) INTERFAZ PARA EL ADMINISTRADOR
@@ -1488,7 +1488,7 @@ async function toggleShift(dateKey, svc) {
   if (!state.shifts[dateKey]) state.shifts[dateKey] = {};
   if (state.shifts[dateKey][loggedInUser] === svc) delete state.shifts[dateKey][loggedInUser];
   else state.shifts[dateKey][loggedInUser] = svc;
-  if (Object.keys(state.shifts[dateKey]).length === 0) delete state.shifts[dateKey];
+  if (Object.keys(state.shifts[dateKey] || {}).length === 0) delete state.shifts[dateKey];
   document.getElementById('shift-modal').remove(); renderMainCalendar(); await saveState();
 }
 async function adminForceAssign(dateKey, svc, y, m, d, selectId) {
@@ -1498,7 +1498,7 @@ async function adminForceAssign(dateKey, svc, y, m, d, selectId) {
   document.getElementById('shift-modal').remove(); renderMainCalendar(); await saveState(); openShiftModal(y, m, d, dateKey);
 }
 async function adminForceRemove(dateKey, resToRemove, y, m, d) {
-  if (state.shifts[dateKey]) { delete state.shifts[dateKey][resToRemove]; if (Object.keys(state.shifts[dateKey]).length === 0) delete state.shifts[dateKey]; }
+  if (state.shifts[dateKey]) { delete state.shifts[dateKey][resToRemove]; if (Object.keys(state.shifts[dateKey] || {}).length === 0) delete state.shifts[dateKey]; }
   document.getElementById('shift-modal').remove(); renderMainCalendar(); await saveState(); openShiftModal(y, m, d, dateKey);
 }
 async function userSkipTurn(y, m) {
@@ -1547,7 +1547,7 @@ function renderMercadoCalendar() {
     let html = `<div class="day-number">${d}</div>`;
     
     promoConfig.servicios.forEach(svc => {
-        let assigned = Object.keys(dayShifts).filter(u => dayShifts[u] === svc.nombre);
+        let assigned = Object.keys(dayShifts || {}).filter(u => dayShifts[u] === svc.nombre);
         if (showOnlyMine && loggedInUser) assigned = assigned.filter(u => u === loggedInUser);
         assigned.forEach(u => {
             let isVre = u.startsWith('VRE');
@@ -2566,14 +2566,15 @@ function getHistoricoFestivosResidentes(targetY, targetM) {
     
     const targetDate = new Date(targetY, targetM, 1);
 
-    Object.keys(getComputedShifts()).forEach(dk => {
+    const computed = getComputedShifts();
+    Object.keys(computed).forEach(dk => {
         const parts = dk.split('_');
         const y = parseInt(parts[0]), m = parseInt(parts[1]) - 1, d = parseInt(parts[2]);
         
         // 1. Filtro temporal estricto: solo el pasado del mismo año de residencia
         if (y > targetY || (y === targetY && m >= targetM)) return;
         
-        Object.keys(state.shifts[dk]).forEach(user => {
+        Object.keys(computed[dk] || {}).forEach(user => {
             const uProfile = globalProfiles.find(p => p.nombre_mostrar === user);
             if (!uProfile) return;
 
