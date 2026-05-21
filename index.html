@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AsignaGuardias App 9.5.0</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="header">
+  <h2 style="margin:0; font-size:1.2rem;">AsignaGuardias App 9.5.0</h2>
+  <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+    <div id="user-display"></div>
+    <span id="status-badge">Conectando...</span>
+  </div>
+</div>
+
+<div class="tabs" style="display:none;">
+    <button class="tab active" onclick="nav('cal')" id="tab-cal">Calendario</button>
+    <button class="tab" onclick="nav('merc')" id="tab-merc">Mercadillo 🛒</button>
+    <button class="tab" onclick="nav('rot')" id="tab-rot">Rotación</button>
+    <button class="tab" onclick="nav('grupos')" id="tab-grupos">Grupos 🏥</button> 
+    <button class="tab" onclick="nav('help')" id="tab-help">Cómo usar 📖</button>
+    <button class="tab" onclick="nav('perfil')" id="tab-perfil">👤 Mi Perfil</button>
+    <button class="tab" onclick="nav('admin')" id="tab-admin" style="display:none;">Admin 🔒</button>
+</div>
+  
+  <div id="pane-onboarding" style="display:none;">
+    <div class="card" style="text-align:center; max-width: 600px; margin: 0 auto; border: 2px solid var(--adu);">
+      <h3 style="color:var(--adu); margin-bottom: 1rem;">👋 ¡Hola, <span id="onb-name"></span>!</h3>
+      <p style="color:#64748b; margin-bottom: 1.5rem; font-size: 0.95rem;">Selecciona tu centro y especialidad para unirte.</p>
+	  <div style="background:#f8fafc; padding: 1.5rem; border-radius: 8px; border: 1px solid #cbd5e1; margin-bottom: 1.5rem; text-align: left;">
+        <label style="font-size: 0.8rem; font-weight: bold;">1. Selecciona Hospital</label>
+        <select id="sel-hospital" onchange="onHospitalChange()"><option value="">Cargando hospitales...</option></select>
+        
+        <label style="font-size: 0.8rem; font-weight: bold;">2. Especialidad (Contenedor Único)</label>
+        <select id="sel-servicio" disabled><option value="">Primero elige un hospital</option></select>
+
+        <label style="font-size: 0.8rem; font-weight: bold; margin-top: 10px; display: block;">3. Fecha de INICIO de Residencia (R1)</label>
+        <p style="font-size: 0.75rem; color: #64748b; margin-bottom: 4px;">Atención: Esta fecha es fija y calculará tu plan de guardias para los próximos 4-5 años.</p>
+        <input type="date" id="onb-fecha-inicio" style="margin-bottom: 1rem;">
+
+        <button class="primary" style="width:100%; margin-top: 10px;" onclick="solicitarUnirse()">Solicitar Acceso</button>
+      </div>
+      <div style="padding-top: 1rem; border-top: 1px dashed #cbd5e1;">
+        <button class="danger" style="background: white; color: var(--dark); border-color: var(--dark);" onclick="abrirCrearPromocion()">+ Dar de alta Nueva Especialidad</button>
+      </div>
+    </div>
+  </div>
+  
+<div id="pane-pending" style="display:none;">
+    <div class="card" style="text-align:center; max-width: 500px; margin: 0 auto; background:#fef9c3; border: 1px solid #fde047;">
+      <h3 style="color:#854d0e;">⏳ Solicitud Pendiente</h3>
+      <p style="color:#854d0e; font-size: 0.9rem;">Has solicitado unirte a un grupo. El administrador debe aprobar tu solicitud para que puedas acceder.</p>
+      <button class="danger" style="margin-top:15px;" onclick="abandonarGrupo()">Cancelar Solicitud</button>
+    </div>
+  </div>
+
+  <div id="pane-cal" style="display:none;">
+    <div class="card">
+      <div class="cal-header-nav">
+        <button onclick="changeMonth(-1)">◀ Ant</button>
+        <div style="text-align: center;">
+          <h3 id="main-cal-title" style="margin:0; font-size:1.1rem;">Mes Año</h3>
+          <span style="font-size:0.75rem; color:var(--dark); font-weight:bold;">CALENDARIO ORIGINAL (RRHH)</span><br>
+          <button id="btn-filter" onclick="toggleFilter()" style="margin-top:4px; padding:2px 10px; font-size:0.75rem; border-radius:12px; border:1px solid var(--dark); background:transparent; color:var(--dark);">👁️ Ver solo mis guardias</button>
+        </div>
+        <button onclick="changeMonth(1)">Sig ▶</button>
+      </div>
+		
+      <div id="alerta-carga-mensual"></div>
+      <div id="turn-banner"></div>
+      
+      <div class="cal-grid">
+        <div class="cal-day-name">L</div><div class="cal-day-name">M</div><div class="cal-day-name">X</div>
+        <div class="cal-day-name">J</div><div class="cal-day-name">V</div><div class="cal-day-name">S</div><div class="cal-day-name">D</div>
+      </div>
+      <div id="main-cal-body" class="cal-grid"></div>
+    </div>
+  </div>
+
+  <div id="pane-merc" style="display:none;">
+    <div class="card" style="border: 2px solid var(--merc);">
+      <div class="cal-header-nav">
+        <button onclick="changeMonth(-1)">◀ Ant</button>
+        <div style="text-align: center;">
+          <h3 id="merc-cal-title" style="margin:0; font-size:1.1rem; color:var(--merc);">Mes Año</h3>
+          <span style="font-size:0.75rem; color:var(--merc); font-weight:bold;">MERCADILLO EN VIVO</span><br>
+          <button id="btn-filter-merc" onclick="toggleFilter()" style="margin-top:4px; padding:2px 10px; font-size:0.75rem; border-radius:12px; border:1px solid var(--merc); background:transparent; color:var(--merc);">👁️ Ver solo mis guardias</button>
+        </div>
+        <button onclick="changeMonth(1)">Sig ▶</button>
+      </div>
+      <div class="cal-grid">
+        <div class="cal-day-name">L</div><div class="cal-day-name">M</div><div class="cal-day-name">X</div>
+        <div class="cal-day-name">J</div><div class="cal-day-name">V</div><div class="cal-day-name">S</div><div class="cal-day-name">D</div>
+      </div>
+      <div id="merc-cal-body" class="cal-grid"></div>
+    </div>
+
+    <div id="merc-logged-zone" style="display:none;">
+      <div class="card" style="background:#f8fafc; border:1px solid #cbd5e1;">
+        <h3 style="margin-bottom:0.5rem; color:var(--adu);">📥 Mi Buzón de Cambios/Ventas</h3>
+        <div id="merc-inbox"></div>
+      </div>
+      <div class="card">
+        <h3 style="margin-bottom:0.5rem;">📜 Log Público de Mercadillo</h3>
+        <div id="merc-log"></div>
+      </div>
+    </div>
+    <div id="merc-unlogged-zone" class="card" style="text-align:center; background:#fef9c3; color:#854d0e;">
+      ⚠️ Identifícate para operar en el mercadillo.
+    </div>
+  </div>
+
+  <div id="pane-rot" style="display:none;">
+    <div class="card">
+      <div class="cal-header-nav">
+        <button onclick="changeMonth(-1)">◀ Ant</button>
+        <h3 id="rot-title" style="margin:0; font-size:1.1rem;">Rotación</h3>
+        <button onclick="changeMonth(1)">Sig ▶</button>
+      </div>
+      <p style="color:#64748b; font-size:0.9rem; margin-bottom:1rem;">Orden de elección mensual.</p>
+      <div id="rot-content"></div>
+      <div id="admin-rot-tools" style="display:none; margin-top:2rem; padding-top:1rem; border-top:2px dashed #cbd5e1;">
+        <h4 style="margin-bottom:0.5rem;">⚙️ Editor Manual de Órdenes</h4>
+        <div id="setup-groups"></div>
+        <button onclick="editorAddGroup()" style="margin-bottom:1rem;">+ Añadir Grupo Vacío</button>
+        <div style="display:flex; flex-wrap:wrap; gap:8px; background:#f8fafc; padding:10px; border-radius:8px; border:1px solid #e2e8f0;">
+          <button class="primary" onclick="saveCustomMonth()">Guardar SOLO para este mes</button>
+          <button class="danger" onclick="saveAsNewBase()">Fijar como NUEVA BASE</button>
+          <button onclick="clearCustomMonth()">Restaurar cálculo automático</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+<div id="pane-grupos" style="display:none;">
+    <div class="card" style="border-left: 4px solid var(--adu);">
+      <h3>Mi Grupo Actual</h3>
+      <div id="grupos-current-info"></div>
+    </div>
+    
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:10px;">
+          <h3 style="margin:0;">Explorar Otros Grupos</h3>
+          <button class="primary icon-btn" style="background:var(--adu); font-size:0.9rem; padding:8px 12px;" onclick="abrirCrearPromocion()">+ Crear Nueva Promoción</button>
+      </div>
+      <p style="color:#64748b; font-size:0.9rem; margin-bottom:1.5rem;">Busca tu hospital y servicio para solicitar acceso. Si cambias de grupo, perderás acceso a tu calendario actual.</p>
+      <div id="grupos-list-container"></div>
+    </div>
+  </div>
+  
+  <div id="pane-help" style="display:none;">
+    <div class="card">
+      <h3>Guía rápida de AsignaGuardias 🩺</h3>
+      <div class="help-section">
+        <h4>Motor Dinámico V9.5</h4>
+        <p>El sistema ahora es 100% dinámico. Las reglas, cupos y salientes varían según la configuración que tu administrador haya establecido en la pestaña Ajustes. Solo tienes que seguir las indicaciones del cartel amarillo cuando sea tu turno.</p>
+      </div>
+    </div>
+  </div>
+	
+	<div id="pane-perfil" style="display:none;">
+    <div id="contenido-principal"></div>
+  </div>
+
+  <div id="pane-admin" style="display:none;">
+    <div id="admin-panel" style="display:none;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:10px;">
+				<div class="tabs" style="margin:0; border:none; padding:0;">
+          <button class="tab active" onclick="navAdmin('calendario')" id="atab-calendario">Calendario 📅</button>
+          <button class="tab" onclick="navAdmin('excepciones')" id="atab-excepciones">Excepciones</button>
+          <button class="tab" onclick="navAdmin('export')" id="atab-export" style="color:var(--merc);">Exportar ⬇️</button>
+          <button class="tab" onclick="navAdmin('cuentas')" id="atab-cuentas">Cuentas</button>
+          <button class="tab" onclick="navAdmin('ajustes')" id="atab-ajustes">Ajustes ⚙️</button>
+          <button class="tab" onclick="navAdmin('seguridad')" id="atab-seguridad">Peligro ⚠️</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div id="admin-cal-views">
+          <div class="cal-header-nav">
+            <button onclick="changeMonth(-1)">◀ Ant</button>
+            <h3 id="admin-cal-title" style="margin:0; font-size:1.1rem;">Mes Año</h3>
+            <button onclick="changeMonth(1)">Sig ▶</button>
+          </div>
+			
+			<div id="aview-calendario" style="margin-bottom:1rem; background:#f8fafc; padding:10px; border-radius:8px; border:1px solid #cbd5e1; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+              <label style="font-weight:bold; font-size:0.9rem;">🖌️ Pincel activo:</label>
+              <select id="admin-paint-tool" onchange="renderAdminCalendar()" style="margin:0; max-width:300px; padding:6px; font-size:0.9rem;"></select>
+          </div>
+
+          <div id="admin-cal-container">
+            <div class="cal-grid">
+              <div class="cal-day-name">L</div><div class="cal-day-name">M</div><div class="cal-day-name">X</div>
+              <div class="cal-day-name">J</div><div class="cal-day-name">V</div><div class="cal-day-name">S</div><div class="cal-day-name">D</div>
+            </div>
+            <div id="admin-cal-body" class="cal-grid"></div>
+          </div>
+        </div>
+        
+        <div id="aview-excepciones" style="display:none;">
+          <h3>Gestión de Excepciones</h3>
+          <div class="rot-group" style="background:#fffbeb; border-color:#fde047;">
+            <h4 style="color:#854d0e;">🔔 Solicitudes Pendientes de Validación</h4>
+            <div id="admin-pending-list"></div>
+          </div>
+          <div class="rot-group">
+            <h4>Motivos automáticos permitidos</h4>
+            <div id="admin-reasons-list"></div>
+            <div style="display:flex; gap:4px; margin-top:12px; border-top:1px solid #e2e8f0; padding-top:8px;">
+              <input type="text" id="new-reason-input" placeholder="Ej: Baja maternal..." style="margin:0;">
+              <button class="primary" onclick="adminAddExceptionReason()">Añadir</button>
+            </div>
+          </div>
+          <div class="rot-group">
+            <h4 style="margin:0; margin-bottom:1rem;">Registro Histórico de Saltos</h4>
+            <div id="admin-logs-list"></div>
+          </div>
+        </div>
+
+        <div id="aview-export" style="display:none;">
+          <h3>Exportación Universal</h3>
+          <p style="font-size:0.85rem; color:#64748b; margin-bottom:1.5rem;">Descarga un Excel multi-hoja con el cuadrante global y las tablas específicas de cada servicio.</p>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+             <button class="primary" onclick="exportUniversal(false)">⬇️ Descargar Original (RRHH)</button>
+             <button class="merc" onclick="exportUniversal(true)">⬇️ Descargar Mercadillo (Actualizado)</button>
+          </div>
+        </div>
+
+        <div id="aview-cuentas" style="display:none;">
+          <h3>Gestión de Usuarios</h3>
+          <div id="accounts-list"></div>
+        </div>
+
+		<div id="aview-ajustes" style="display:none;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:10px;">
+              <div>
+                  <h3 style="margin-bottom:0.2rem;">Planes de Guardia por Año</h3>
+                  <p style="color:#64748b; font-size:0.9rem; margin:0;">Configura qué servicios, cupos y reglas se aplican a cada nivel (R1, R2...).</p>
+              </div>
+              <button class="primary" style="background:var(--dark); padding: 0.6rem 1.5rem;" onclick="adminSaveConfig()">💾 Guardar Todos los Planes</button>
+          </div>
+          <div id="admin-config-container"></div>
+          <button class="primary icon-btn" style="background:var(--adu); margin-top:1rem; width:100%; padding:0.8rem; font-size:1rem;" onclick="adminAddPlan()">+ Añadir Nuevo Plan de Guardia (Ej: R2)</button>
+    </div>
+
+        <div id="aview-seguridad" style="display:none;">
+          <h3>Seguridad y Destrucción</h3>
+          
+          <div style="margin-top: 1rem; padding: 1.5rem; border: 2px dashed #f59e0b; border-radius: 8px; background: #fffbeb;">
+            <h4 style="color: #854d0e; margin-bottom: 0.5rem;">🎓 Graduar / Vaciar Generación</h4>
+            <p style="font-size: 0.85rem; color: #854d0e; margin-bottom: 1rem;">Expulsa a todos los residentes y limpia los calendarios, pero <b>mantiene intactas las reglas, servicios y ajustes</b> para la próxima generación.</p>
+            <button class="primary" style="background: #f59e0b; color: white;" onclick="adminVaciarGeneracion()">🎓 Vaciar Contenedor</button>
+          </div>
+
+          <div style="margin-top: 1.5rem; padding: 1.5rem; border: 2px dashed #ef4444; border-radius: 8px; background: #fef2f2;">
+            <p style="font-size: 0.85rem; color: #7f1d1d; margin-bottom: 1rem;">[SÓLO SI TE HAS EQUIVOCADO EN LA CREACIÓN.] Borrar esta promoción eliminará permanentemente todos los calendarios, guardias y reglas. Esta acción <b>NO se puede deshacer</b>. </p>
+            <button class="danger" style="background: #ef4444; color: white;" onclick="adminDeletePromotion()">🗑️ Borrar Promoción y Calendarios</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  By Vincenzo Palavicino, all rights reserved
+</div>
+
+<div id="modal-container"></div>
+<datalist id="lista-usuarios-aprobados"></datalist>
+
+<script src="app.js"></script>
+</body>
+</html>

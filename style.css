@@ -1,0 +1,75 @@
+:root { --ped: #10b981; --pac: #f59e0b; --adu: #3b82f6; --fest: #ef4444; --dark: #1e293b; --light: #f8fafc; --merc: #8b5cf6; }
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+body { background: #f1f5f9; color: #334155; display: flex; flex-direction: column; min-height: 100vh; }
+
+/* Layout & Cards (Header Blanco) */
+.header { background: white; color: var(--dark); padding: 1rem; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; flex-wrap: wrap; gap: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.container { max-width: 1200px; margin: 1rem auto; padding: 0 1rem; flex: 1; width: 100%; }
+.card { background: white; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); max-width: 950px; margin-left: auto; margin-right: auto; width: 100%; }
+h2, h3 { margin-bottom: 1rem; color: var(--dark); }
+
+/* Status Badge & User Info */
+#status-badge { font-size: 0.75rem; padding: 4px 8px; border-radius: 12px; background: #475569; color: white; font-weight: bold; }
+.status-error { background: var(--fest) !important; }
+.status-ok { background: var(--ped) !important; }
+
+.user-badge { background: #e2e8f0; padding: 4px 10px; border-radius: 20px; font-size: 0.85rem; display: flex; align-items: center; gap: 8px; color: var(--dark); font-weight: 500; }
+
+/* Navigation Tabs */
+.tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; overflow-x: auto; padding-bottom: 4px; }
+.tab { padding: 0.75rem 1.5rem; border-radius: 8px; border: none; background: #e2e8f0; color: #64748b; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.tab.active { background: var(--dark); color: white; }
+#tab-merc { color: var(--merc); border: 1px solid transparent; }
+#tab-merc.active { background: var(--merc); color: white; }
+
+/* Forms & Buttons */
+button { padding: 0.6rem 1rem; border-radius: 8px; border: 1px solid #cbd5e1; background: white; cursor: pointer; font-weight: 500; transition: opacity 0.2s; }
+button:hover { opacity: 0.9; }
+button.primary { background: var(--dark); color: white; border: none; }
+button.danger { background: white; color: var(--fest); border-color: var(--fest); }
+button.merc { background: var(--merc); color: white; border: none; }
+button.icon-btn { padding: 4px 8px; font-size: 0.85rem; border-radius: 6px; }
+input, select { padding: 0.6rem; border-radius: 8px; border: 1px solid #cbd5e1; width: 100%; margin-bottom: 1rem; }
+
+/* Calendars */
+.cal-header-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.cal-day-name { text-align: center; font-weight: bold; font-size: 0.75rem; padding: 0.5rem 0; color: #64748b; }
+.cal-cell { background: white; border: 1px solid #e2e8f0; border-radius: 6px; min-height: 90px; padding: 4px; display: flex; flex-direction: column; cursor: pointer; transition: border-color 0.2s; }
+.cal-cell:hover { border-color: #94a3b8; }
+.cal-cell.empty { background: transparent; border: none; cursor: default; }
+.day-number { font-weight: bold; font-size: 0.85rem; margin-bottom: 2px; color: #475569; }
+
+/* Specific Calendar Modes */
+.cal-cell.is-festivo { border: 2px solid var(--fest); background: #fee2e2; }
+.cal-cell.is-ped-ok { background: #fef9c3; border-color: #fde047; }
+.cal-cell.is-fest-ped { border: 2px solid var(--fest); background: linear-gradient(135deg, #fee2e2 50%, #fef9c3 50%); }
+.cal-cell.is-whitelisted { background: #ecfdf5; border-color: var(--ped); }
+.cal-cell.locked-ped { background: #f1f5f9; opacity: 0.6; }
+
+/* Shift Badges */
+.shift-badge { font-size: 0.7rem; padding: 2px 4px; border-radius: 4px; color: white; margin-bottom: 2px; font-weight: 700; letter-spacing: 0.2px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bg-vre { background: #94a3b8 !important; }
+
+/* Modals & Config */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000; }
+.modal { background: white; padding: 1.5rem; border-radius: 12px; width: 90%; max-width: 550px; max-height: 90vh; overflow-y: auto; }
+.shift-option { display: flex; flex-direction: column; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 0.5rem; background: var(--light); }
+.shift-option-header { display: flex; justify-content: space-between; align-items: flex-start; width: 100%; }
+
+.rot-group { background: var(--light); padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border: 1px solid #e2e8f0; }
+.editor-row { display: flex; align-items: center; gap: 4px; margin-bottom: 6px; }
+.account-row { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; border-bottom: 1px solid #e2e8f0; }
+.trade-row { display: flex; flex-direction: column; gap: 6px; padding: 10px; background: white; border: 1px solid #cbd5e1; border-radius: 8px; margin-bottom: 8px; font-size: 0.85rem; }
+
+.cfg-card { background: white; border: 1px solid #cbd5e1; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+.tag-btn { padding: 4px 8px; font-size: 0.75rem; border-radius: 4px; border: 1px solid #cbd5e1; background: white; cursor: pointer; transition: 0.2s; }
+.tag-btn.active { background: var(--dark); color: white; border-color: var(--dark); }
+
+.footer { text-align: center; padding: 1.5rem; color: #64748b; font-size: 0.8rem; background: #e2e8f0; margin-top: 2rem; }
+.help-section { margin-bottom: 1.5rem; }
+.help-section h4 { color: var(--dark); border-bottom: 2px solid #e2e8f0; padding-bottom: 0.5rem; margin-bottom: 0.5rem; }
+.help-section p, .help-section li { font-size: 0.95rem; color: #475569; line-height: 1.6; margin-bottom: 0.5rem; }
+
+/* Utility */
+.hidden { display: none !important; }
