@@ -720,6 +720,7 @@ function getUserProgress(user, y, m) {
     const serviciosActivos = activePlan ? activePlan.servicios : [];
 
     let totalFestivosHacidos = 0;
+    const computedShifts = getComputedShifts();
 
     serviciosActivos.forEach(svc => {
         let countTotal = 0;
@@ -727,7 +728,7 @@ function getUserProgress(user, y, m) {
         
         for (let d = 1; d <= getDaysInMonth(y, m); d++) {
             const dk = formatDateKey(y, m, d);
-            if (state.shifts[dk] && state.shifts[dk][user] === svc.nombre) {
+            if (computedShifts[dk] && computedShifts[dk][user] === svc.nombre) {
                 countTotal++;
                 shiftsByTag[getDayTag(y, m, d)]++;
             }
@@ -762,7 +763,7 @@ function getUserProgress(user, y, m) {
         const tag = getDayTag(y, m, d);
         if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
             const dk = formatDateKey(y, m, d);
-            if (state.shifts[dk] && state.shifts[dk][user]) {
+            if (computedShifts[dk] && computedShifts[dk][user]) {
                 totalFestivosHacidos++;
             }
         }
@@ -2620,7 +2621,7 @@ function getHistoricoFestivosResidentes(targetY, targetM) {
                 const tag = getDayTag(y, m, d);
                 let isObligatorio = false;
                 for (let plan of promoConfig.planes || []) {
-                    let sc = plan.servicios.find(s => s.nombre === state.shifts[dk][user]);
+                    let sc = plan.servicios.find(s => s.nombre === computed[dk][user]);
                     if (sc && sc.coberturaObligatoria) isObligatorio = true;
                 }
                 
@@ -2669,6 +2670,10 @@ function renderAlertaCargaMensual() {
             </div>
             Este mes tiene <b>${Math.ceil(analisis.exceso)} festivo(s) de exceso pendientes</b>. 
             El sistema exige que ${nombresImplicados} <b>asuman +1 festivo obligatorio</b> en su asignación por justicia distributiva (tienen el menor histórico del grupo).
+            
+            <div style="margin-top:15px;">
+                <button onclick="ejecutarAsignacionForzosa(${y}, ${m})" class="primary" style="background:var(--fest); width:100%;">⚡ Ejecutar Asignación Forzosa Automática</button>
+            </div>
         </div>`;
     } else if (analisis.estado === 'subasta_abierta') {
         container.innerHTML = `
@@ -2680,6 +2685,140 @@ function renderAlertaCargaMensual() {
             Si siguen desiertos al cerrar el plazo, el motor se los exigirá forzosamente a: ${nombresImplicados}.
         </div>`;
     }
+}
+
+async function ejecutarAsignacionForzosa(y, m) {
+    if (!confirm("¿Seguro que quieres inyectar automáticamente las guardias pendientes a los nominados?")) return;
+    
+    const analisis = getAnalisisFestivos(y, m);
+    if (analisis.estado === 'libre' || analisis.estado === 'subasta_resuelta') return alert("No hay exceso que repartir.");
+    
+    const totalDias = getDaysInMonth(y, m);
+    let huecosLibres = []; 
+    
+    for (let d = 1; d <= totalDias; d++) {
+        const tag = getDayTag(y, m, d);
+        if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
+            const dk = formatDateKey(y, m, d);
+            const uProfile = currentUserProfile; 
+            const referenceDk = formatDateKey(y, m, 15);
+            const miPlan = getPlanForUserOnDate(uProfile, referenceDk) || promoConfig.planes?.[0];
+            if (!miPlan) continue;
+            
+            miPlan.servicios.forEach(svc => {
+                if (svc.requiereHabilitacion && !state.pedWhitelist[dk]) return;
+                
+                let assignedCount = 0;
+                if (state.shifts[dk]) {
+                    for (let u in state.shifts[dk]) {
+                        if (state.shifts[dk][u] === svc.nombre && !u.startsWith('VRE')) assignedCount++;
+                    }
+                }
+                const needed = (svc.plazasPorDia || 1);
+                if (assignedCount < needed) {
+                    for (let i = 0; i < (needed - assignedCount); i++) {
+                        huecosLibres.push({ dk, svc: svc.nombre });
+                    }
+                }
+            });
+        }
+    }
+    
+    if (huecosLibres.length === 0) return alert("No se han detectado huecos de festivos libres en el calendario.");
+    
+    const historico = getHistoricoFestivosResidentes(y, m);
+    
+    const activosMes = getAllResidents().filter(residente => {
+        const tieneBaja = (state.bajasLargas||[]).some(baja => {
+            if (baja.user !== residente || baja.estado !== 'aprobada') return false;
+            const bInicio = new Date(baja.fechaInicio);
+            const bFin = new Date(baja.fechaFin);
+            return (bInicio <= new Date(y, m, totalDias) && bFin >= new Date(y, m, 1));
+        });
+        return !tieneBaja;
+    });
+    
+    let residentesAleatorios = [...activosMes].sort(() => Math.random() - 0.5);
+    const candidatos = residentesAleatorios.sort((a, b) => historico[a] - historico[b]);
+    
+    let asignacionesLog = [];
+    let saltadosLog = [];
+    let huecosAsignados = 0;
+    
+    for (let c = 0; c < candidatos.length; c++) {
+        const residente = candidatos[c];
+        
+        let huecoElegidoIndex = -1;
+        for (let h = 0; h < huecosLibres.length; h++) {
+            const hueco = huecosLibres[h];
+            
+            let projected = JSON.parse(JSON.stringify(state.shifts || {}));
+            if (!projected[hueco.dk]) projected[hueco.dk] = {};
+            
+            if (projected[hueco.dk][residente]) continue;
+            
+            projected[hueco.dk][residente] = hueco.svc;
+            
+            const conflicts = getIllegalShiftsForUser(residente, projected);
+            if (conflicts.length === 0) {
+                huecoElegidoIndex = h;
+                break;
+            }
+        }
+        
+        if (huecoElegidoIndex !== -1) {
+            const hueco = huecosLibres[huecoElegidoIndex];
+            if (!state.shifts[hueco.dk]) state.shifts[hueco.dk] = {};
+            state.shifts[hueco.dk][residente] = hueco.svc;
+            
+            huecosLibres.splice(huecoElegidoIndex, 1);
+            asignacionesLog.push(`${residente} -> ${hueco.svc} (${formatDK(hueco.dk)})`);
+            huecosAsignados++;
+            
+            if (huecosLibres.length === 0) break;
+        } else {
+            if (analisis.nominados.includes(residente)) {
+                saltadosLog.push(residente);
+            }
+        }
+    }
+    
+    await saveState();
+    renderAll();
+    
+    let mensajeFinal = `Asignación Forzosa Completada.\n\nSe asignaron ${huecosAsignados} guardias:\n${asignacionesLog.join('\\n')}`;
+    if (saltadosLog.length > 0) {
+        mensajeFinal += `\n\n⚠️ Debido a que los siguientes nominados no podían cubrir las guardias por incompatibilidad con salientes u otras guardias, se nominó automáticamente a los siguientes en la lista: ${saltadosLog.join(', ')}`;
+    }
+    
+    alert(mensajeFinal);
+}
+
+async function guardarNombrePerfil() {
+    const nuevoNombre = document.getElementById('perfil-nombre-mostrar').value.trim();
+    if (!nuevoNombre) return alert("El nombre no puede estar vacío.");
+    if (nuevoNombre === currentUserProfile.nombre_mostrar) return alert("El nombre es el mismo.");
+    
+    // Check if another user already has this name
+    const existe = globalProfiles.find(p => p.nombre_mostrar === nuevoNombre && p.id !== currentUserProfile.id);
+    if (existe) return alert("Ese nombre ya está en uso por otra persona.");
+
+    const confirmacion = confirm(`¿Estás seguro de cambiar tu nombre de '${currentUserProfile.nombre_mostrar}' a '${nuevoNombre}'? (Esto requerirá que recargues la app)`);
+    if (!confirmacion) return;
+
+    // Actualizar Supabase
+    const { error } = await supabaseClient
+        .from('perfiles')
+        .update({ nombre_mostrar: nuevoNombre })
+        .eq('id', currentUserProfile.id);
+
+    if (error) {
+        console.error(error);
+        return alert("Error al guardar el nombre en la base de datos.");
+    }
+    
+    alert("Nombre actualizado correctamente. Por favor, refresca la página para aplicar los cambios en toda la app.");
+    window.location.reload();
 }
 
 // ==========================================
@@ -2699,16 +2838,13 @@ function getAnalisisFestivos(y, m) {
 
     for (let d = 1; d <= totalDias; d++) {
         const tag = getDayTag(y, m, d);
-        const dk = formatDateKey(y, m, d);
-        
-        miPlan.servicios.forEach(svc => {
-            if (svc.requiereHabilitacion && !state.pedWhitelist[dk]) return;
-            
-            // Sumamos si es finde/festivo, O si el servicio es de cobertura obligatoria (aplica a todos los días habilitados)
-            if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal' || svc.coberturaObligatoria) {
+        if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
+            const dk = formatDateKey(y, m, d);
+            miPlan.servicios.forEach(svc => {
+                if (svc.requiereHabilitacion && !state.pedWhitelist[dk]) return;
                 huecosFestivosObligatorios += (svc.plazasPorDia || 1);
-            }
-        });
+            });
+        }
     }
 
     const residentes = getAllResidents();
@@ -2721,7 +2857,7 @@ function getAnalisisFestivos(y, m) {
     if (excesoReal <= 0) return { estado: 'libre', exceso: 0, nominados: [], minimoBase };
 
     // Calcular nominados por justicia histórica
-    const historico = getHistoricoFestivosResidentes();
+    const historico = getHistoricoFestivosResidentes(y, m);
     const residentesOrdenados = [...residentes].sort((a, b) => historico[a] - historico[b]);
     const nominados = residentesOrdenados.slice(0, Math.ceil(excesoReal));
 
@@ -2908,6 +3044,18 @@ function renderPerfilUsuario() {
         </div>
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
             
+            <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between;">
+                <div>
+                    <h3 style="margin-bottom: 12px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">✏️ Datos Personales</h3>
+                    <div style="margin-bottom: 12px;">
+                        <label style="font-size: 0.8rem; font-weight: bold; color: #64748b; display: block; margin-bottom: 4px;">Nombre y Apellidos:</label>
+                        <input type="text" id="perfil-nombre-mostrar" value="${uProfile.nombre_mostrar}" style="margin:0; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%; background: white;">
+                    </div>
+                    <p style="font-size: 0.8rem; color: #94a3b8; line-height: 1.4;">* Escribe tu nombre real si Google lo capturó mal. Esto te cambiará el nombre en toda la aplicación.</p>
+                </div>
+                <button onclick="guardarNombrePerfil()" style="width:100%; margin-top: 16px; background: var(--dark); color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer;">💾 Actualizar Nombre</button>
+            </div>
+
             <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between;">
                 <div>
                     <h3 style="margin-bottom: 12px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">🪪 Datos de Contrato</h3>
