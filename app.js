@@ -1796,6 +1796,7 @@ function renderAdminAjustes() {
                      <option value="historico_laborables" ${svc.subastaCriterio === 'historico_laborables' ? 'selected' : ''}>A quien tenga menos Laborables (Globales)</option>
                      <option value="historico_intersemanales" ${svc.subastaCriterio === 'historico_intersemanales' ? 'selected' : ''}>A quien tenga menos Fest. Intersemanales (Globales)</option>
                      <option value="historico_total" ${svc.subastaCriterio === 'historico_total' ? 'selected' : ''}>A quien tenga menos Guardias Totales (Globales)</option>
+                     <option value="historico_servicio" ${svc.subastaCriterio === 'historico_servicio' ? 'selected' : ''}>A quien haya hecho menos guardias de éste servicio</option>
                      <option value="aleatorio" ${svc.subastaCriterio === 'aleatorio' ? 'selected' : ''}>Aleatorio (Sorteo ciego)</option>
                  </select>
              </div>
@@ -2673,7 +2674,7 @@ function calcularViabilidadFestivosMensual(ano, mes) {
     };
 }
 	
-function getHistoricoFestivosResidentes(targetY, targetM, validTags) {
+function getHistoricoFestivosResidentes(targetY, targetM, validTags, targetSvc = null) {
     if (!validTags) validTags = ['fin_de_semana', 'festivo_intersemanal'];
     
     let historico = {};
@@ -2704,16 +2705,8 @@ function getHistoricoFestivosResidentes(targetY, targetM, validTags) {
 
             // 4. SOLO contamos si estamos en el mismo año de residencia
             if (nivelGuardia === nivelObjetivo) {
-                const tag = getDayTag(y, m, d);
-                let isObligatorio = false;
-                for (let plan of promoConfig.planes || []) {
-                    let sc = plan.servicios.find(s => s.nombre === computed[dk][user]);
-                    if (sc && sc.coberturaObligatoria) isObligatorio = true;
-                }
-                
-                if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal' || isObligatorio) {
-                    if (historico[user] !== undefined) historico[user]++;
-                }
+                if (targetSvc && computed[dk][user] !== targetSvc) return;
+                if (historico[user] !== undefined) historico[user]++;
             }
         });
     });
@@ -2743,6 +2736,7 @@ function renderAlertaCargaMensual() {
     else if (analisis.criterio === 'historico_laborables') criterioTexto = "tienen el menor histórico de Laborables";
     else if (analisis.criterio === 'historico_intersemanales') criterioTexto = "tienen el menor histórico de Fest. Intersemanales";
     else if (analisis.criterio === 'historico_total') criterioTexto = "tienen el menor histórico de Guardias en Total";
+    else if (analisis.criterio === 'historico_servicio') criterioTexto = `tienen el menor histórico de guardias en ${analisis.servicio}`;
 
     const nombresImplicados = analisis.nominados.map(r => `<b>${r}</b> ${analisis.criterio !== 'aleatorio' ? `(${analisis.historico[r]||0} contados)` : ''}`).join(', ');
 
@@ -2986,6 +2980,8 @@ function getAnalisisFestivos(y, m) {
                 historico = getHistoricoFestivosResidentes(y, m, ['festivo_intersemanal']);
             } else if (svc.subastaCriterio === 'historico_total') {
                 historico = getHistoricoFestivosResidentes(y, m, ['laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal']);
+            } else if (svc.subastaCriterio === 'historico_servicio') {
+                historico = getHistoricoFestivosResidentes(y, m, ['laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal'], svc.nombre);
             }
             
             let nominados = [];
