@@ -1784,6 +1784,7 @@ function renderAdminAjustes() {
                      <option value="historico_festivos" ${svc.subastaCriterio === 'historico_festivos' ? 'selected' : ''}>A quien tenga menos Festivos (Globales)</option>
                      <option value="historico_laborables" ${svc.subastaCriterio === 'historico_laborables' ? 'selected' : ''}>A quien tenga menos Laborables (Globales)</option>
                      <option value="historico_intersemanales" ${svc.subastaCriterio === 'historico_intersemanales' ? 'selected' : ''}>A quien tenga menos Fest. Intersemanales (Globales)</option>
+                     <option value="historico_total" ${svc.subastaCriterio === 'historico_total' ? 'selected' : ''}>A quien tenga menos Guardias Totales (Globales)</option>
                      <option value="aleatorio" ${svc.subastaCriterio === 'aleatorio' ? 'selected' : ''}>Aleatorio (Sorteo ciego)</option>
                  </select>
              </div>
@@ -2726,6 +2727,7 @@ function renderAlertaCargaMensual() {
     if (analisis.criterio === 'historico_festivos') criterioTexto = "tienen el menor histórico de Festivos";
     else if (analisis.criterio === 'historico_laborables') criterioTexto = "tienen el menor histórico de Laborables";
     else if (analisis.criterio === 'historico_intersemanales') criterioTexto = "tienen el menor histórico de Fest. Intersemanales";
+    else if (analisis.criterio === 'historico_total') criterioTexto = "tienen el menor histórico de Guardias en Total";
 
     const nombresImplicados = analisis.nominados.map(r => `<b>${r}</b> ${analisis.criterio !== 'aleatorio' ? `(${analisis.historico[r]||0} contados)` : ''}`).join(', ');
 
@@ -2967,6 +2969,8 @@ function getAnalisisFestivos(y, m) {
                 historico = getHistoricoFestivosResidentes(y, m, ['laborable']);
             } else if (svc.subastaCriterio === 'historico_intersemanales') {
                 historico = getHistoricoFestivosResidentes(y, m, ['festivo_intersemanal']);
+            } else if (svc.subastaCriterio === 'historico_total') {
+                historico = getHistoricoFestivosResidentes(y, m, ['laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal']);
             }
             
             let nominados = [];
