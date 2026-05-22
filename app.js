@@ -761,9 +761,12 @@ function getUserProgress(user, y, m) {
 
         let missingTotal = Math.max(0, svc.cupoMensualTotal - countTotal);
         let totalForgiven = false;
+        let isSecretaria = !!svc.dadasPorSecretaria;
         
         if (missingTotal > 0) {
-            if (!hasAvailableLegalSlotsForService(user, y, m, svc)) {
+            if (isSecretaria) {
+                totalForgiven = true;
+            } else if (!hasAvailableLegalSlotsForService(user, y, m, svc)) {
                 totalForgiven = true;
             }
         }
@@ -787,10 +790,14 @@ function getUserProgress(user, y, m) {
         });
 
         if ((missingTotal > 0 && !totalForgiven) || !rulesOk) isFinished = false;
-        progress[svc.nombre] = { countTotal, missingTotal, missingRules, rulesOk, totalForgiven };
+        progress[svc.nombre] = { countTotal, missingTotal, missingRules, rulesOk, totalForgiven, isSecretaria };
         if (missingTotal > 0) {
             if (totalForgiven) {
-                messages.push(`<span style="color:var(--fest);"><s>${missingTotal} ${svc.nombre}</s> (Perdonado: sin huecos compatibles)</span>`);
+                if (isSecretaria) {
+                    messages.push(`<span style="color:var(--fest);"><s>${missingTotal} ${svc.nombre}</s> (Secretaría)</span>`);
+                } else {
+                    messages.push(`<span style="color:var(--fest);"><s>${missingTotal} ${svc.nombre}</s> (Perdonado: sin huecos compatibles)</span>`);
+                }
             } else {
                 messages.push(`<b>${missingTotal} ${svc.nombre}</b>`);
             }
@@ -1765,6 +1772,10 @@ function renderAdminAjustes() {
                 <input type="checkbox" id="cfg-hab-${pIdx}-${i}" ${svc.requiereHabilitacion ? 'checked' : ''} style="width:auto; margin:0;">
                 🔒 Requiere Habilitación Manual (Pintar en Calendario Admin)
              </label>
+             <label style="font-size:0.85rem; font-weight:bold; display:flex; align-items:center; gap:8px; margin-top:8px;">
+                <input type="checkbox" id="cfg-sec-${pIdx}-${i}" ${svc.dadasPorSecretaria ? 'checked' : ''} style="width:auto; margin:0;">
+                👩‍💼 Guardias dadas por secretaría (NO obliga a elegir en mercadillo)
+             </label>
            </div>
            
            <div style="margin-bottom:15px; padding:10px; background:#fff7ed; border-radius:6px; border:1px solid #fed7aa;">
@@ -1880,6 +1891,7 @@ function adminAddService(pIdx) {
   promoConfig.planes[pIdx].servicios.push({ 
       nombre: "Nuevo Servicio", cupoMensualTotal: 1, plazasPorDia: 1, color: "#94a3b8", 
       requiereHabilitacion: false, 
+      dadasPorSecretaria: false,
       subastaTrigger: [],
       subastaCriterio: 'historico_festivos',
       pernocta: { laborable: true, vispera: true, fin_de_semana: false, festivo_intersemanal: false },
@@ -1944,6 +1956,9 @@ function syncConfigFromUI() {
 
       const habSvc = document.getElementById(`cfg-hab-${pIdx}-${i}`);
       if (habSvc) svc.requiereHabilitacion = habSvc.checked;
+      
+      const secSvc = document.getElementById(`cfg-sec-${pIdx}-${i}`);
+      if (secSvc) svc.dadasPorSecretaria = secSvc.checked;
 
       // NUEVO: Sincronizar Reglas de Subasta Bespoke
       svc.subastaTrigger = [];
