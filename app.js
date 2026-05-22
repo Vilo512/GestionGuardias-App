@@ -15,7 +15,7 @@ function getCellBackgroundStyle(dk, y, m, d, filterLevel = 'ALL') {
             if (filterLevel !== 'ALL' && plan.nombre !== filterLevel) return;
             if (plan.servicios) {
                 plan.servicios.forEach(svc => {
-                    if (svc.requiereHabilitacion && isServiceEnabledOnDate(svc.nombre, dk)) {
+                    if (svc.requiereHabilitacion && isServiceEnabledOnDate(svc.nombre, dk, plan.nombre)) {
                         // color con algo de transparencia
                         colors.push(svc.color + '40'); 
                     }
@@ -1304,8 +1304,13 @@ function getServiceColor(svcName) {
 }
 
 // Ayudante para verificar habilitaciones dinámicas
-function isServiceEnabledOnDate(svcName, dk) {
-    const pData = (promoConfig.planes || []).find(p => p.servicios.some(s => s.nombre === svcName));
+function isServiceEnabledOnDate(svcName, dk, planName = null) {
+    let pData;
+    if (planName) {
+        pData = (promoConfig.planes || []).find(p => p.nombre === planName);
+    } else {
+        pData = (promoConfig.planes || []).find(p => p.servicios.some(s => s.nombre === svcName));
+    }
     if (!pData) return false;
     const svc = pData.servicios.find(s => s.nombre === svcName);
     if (!svc) return false;
@@ -1495,7 +1500,7 @@ holders.forEach(h => {
 
         if (isUserPending && !isMine) { disabled = true; reason = "Turno bloqueado (Pendiente Admin)."; }
         else if (isIllegal && !isMine) { disabled = true; reason = "Ilegal: Choca con Saliente"; }
-        else if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dateKey) && !isMine) { disabled = true; reason = "Día no habilitado."; }
+        else if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dateKey, myPlanOnDate ? myPlanOnDate.nombre : null) && !isMine) { disabled = true; reason = "Día no habilitado."; }
         else if (isUserBusyOnDay(loggedInUser, dateKey) && !isMine) { disabled = true; reason = "Ya tienes guardia hoy."; }
         else if (!isMyTurn && !isMine) { disabled = true; reason = `Bloqueado (Toca a ${turnUser}).`; }
         else if (pd > 0 && holders.length >= pd && !isMine) { disabled = true; reason = `Completo (${holders.length}/${pd}).`; }
@@ -2050,9 +2055,6 @@ async function adminSaveConfig() {
 // ==========================================
 // EL NUEVO EXPORTADOR UNIVERSAL
 // ==========================================
-// ==========================================
-// EL NUEVO EXPORTADOR UNIVERSAL
-// ==========================================
 function openExportModal() {
     if (!promoConfig || !promoConfig.planes || promoConfig.planes.length === 0) {
         alert("No hay ningún Plan de Guardias configurado.");
@@ -2272,7 +2274,7 @@ function renderAdminCalendar() {
             const svcName = parts[0]; 
             const planName = parts[1];
             
-            const isEnabled = isServiceEnabledOnDate(svcName, dateKey);
+            const isEnabled = isServiceEnabledOnDate(svcName, dateKey, planName);
             
             const targetPlan = promoConfig.planes.find(p => p.nombre === planName);
             const targetSvc = targetPlan ? targetPlan.servicios.find(s => s.nombre === svcName) : null;
