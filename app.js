@@ -1881,7 +1881,7 @@ function renderAdminAjustes() {
         <div style="display:grid; gap:12px; grid-template-columns: 1fr 1fr;">
             <div>
                 <label style="font-size:0.85rem; font-weight:bold;">🎯 Mínimo Festivos/Fines de Semana globales al mes:</label>
-                <input type="number" id="cfg-plan-min-festivos-${pIdx}" value="${plan.minGlobalFestivos || 1}" min="0" style="width:100%; margin-top:4px;">
+                <input type="number" id="cfg-plan-min-festivos-${pIdx}" value="${plan.minGlobalFestivos !== undefined ? plan.minGlobalFestivos : 1}" min="0" style="width:100%; margin-top:4px;">
             </div>
         </div>
     </div>`;
@@ -1950,7 +1950,7 @@ function syncConfigFromUI() {
     const excesoModoSelect = document.getElementById(`cfg-plan-exceso-modo-${pIdx}`);
     
     if (minFestivosInput) {
-        plan.minGlobalFestivos = parseInt(minFestivosInput.value) || 0;
+        plan.minGlobalFestivos = parseInt(minFestivosInput.value) >= 0 ? parseInt(minFestivosInput.value) : 1;
     }
     if (excesoModoSelect) {
         plan.excesoModo = excesoModoSelect.value;
@@ -2721,11 +2721,13 @@ function calcularViabilidadFestivosMensual(ano, mes) {
 
     const cargaMedia = huecosFestivosObligatorios / totalResidentes;    const minimoExigible = Math.floor(cargaMedia); 
     
+    let minGlob = (promoConfig.planes && promoConfig.planes[0] && promoConfig.planes[0].minGlobalFestivos !== undefined) ? promoConfig.planes[0].minGlobalFestivos : 1;
+    
     return {
         huecosFestivosObligatorios,
         cargaMedia: cargaMedia.toFixed(2),
-        minimoExigible: Math.max(promoConfig.minGlobalFestivos || 1, minimoExigible),
-        necesitaRepartoEquitativo: cargaMedia > (promoConfig.minGlobalFestivos || 1)
+        minimoExigible: Math.max(minGlob, minimoExigible),
+        necesitaRepartoEquitativo: cargaMedia > minGlob
     };
 }
 	
