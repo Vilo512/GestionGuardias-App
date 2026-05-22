@@ -896,18 +896,6 @@ async function renderGruposView() {
             let statusBadge = currentUserProfile.estado === 'aprobado' 
                 ? `<span style="background:var(--ped); color:white; padding:4px 10px; border-radius:12px; font-size:0.8rem; font-weight:bold;">✅ Acceso Activo</span>`
                 : `<span style="background:#f59e0b; color:white; padding:4px 10px; border-radius:12px; font-size:0.8rem; font-weight:bold;">⏳ Pendiente de aprobación</span>`;
-                
-            let savedDate = currentUserProfile.fecha_cambio_contrato || currentUserProfile.fecha_inicio_residencia || '';
-            let dDia = '01', dMes = '01';
-            if (savedDate) { const parts = savedDate.split('-'); if (parts.length === 3) { dMes = parts[1]; dDia = parts[2]; } }
-
-            let diaOptions = Array.from({length: 31}, (_, i) => { let v = String(i+1).padStart(2,'0'); return `<option value="${v}" ${v === dDia ? 'selected' : ''}>${i+1}</option>`; }).join('');
-            let mesOptions = MONTHS.map((m, i) => { let v = String(i+1).padStart(2,'0'); return `<option value="${v}" ${v === dMes ? 'selected' : ''}>${m}</option>`; }).join('');
-
-            // EL CHIVATO DEL MOTOR TEMPORAL: Consultamos qué somos HOY
-            let hoyDK = formatDateKey(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
-            let planActivoHoy = getPlanForUserOnDate(currentUserProfile, hoyDK);
-            let nombrePlanHoy = planActivoHoy ? planActivoHoy.nombre : '<span style="color:var(--fest);">No residente (Fecha futura)</span>';
 
             currentContainer.innerHTML = `
                 <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:15px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom: 15px;">
@@ -1733,18 +1721,34 @@ function renderAdminAjustes() {
              </div>
           </div>
           
-				<div style="margin-bottom:15px; padding:10px; background:#f8fafc; border-radius:6px; border:1px dashed #cbd5e1;">
+           <div style="margin-bottom:15px; padding:10px; background:#f8fafc; border-radius:6px; border:1px dashed #cbd5e1;">
              <label style="font-size:0.85rem; font-weight:bold; display:flex; align-items:center; gap:8px;">
-                <input type="checkbox" id="cfg-hab-${pIdx}-${i}" ${svc.requiereHabilitacion ? 'checked' : ''} style="width:auto; margin:0;" onchange="document.getElementById('cfg-cob-box-${pIdx}-${i}').style.display = this.checked ? 'block' : 'none'">
+                <input type="checkbox" id="cfg-hab-${pIdx}-${i}" ${svc.requiereHabilitacion ? 'checked' : ''} style="width:auto; margin:0;">
                 🔒 Requiere Habilitación Manual (Pintar en Calendario Admin)
              </label>
-             <div id="cfg-cob-box-${pIdx}-${i}" style="display: ${svc.requiereHabilitacion ? 'block' : 'none'}; margin-top:8px; margin-left:24px;">
-                 <label style="font-size:0.8rem; display:flex; align-items:center; gap:8px; color:#854d0e;">
-                    <input type="checkbox" id="cfg-cob-${pIdx}-${i}" ${svc.coberturaObligatoria ? 'checked' : ''} style="width:auto; margin:0;">
-                    ⚠️ Obligatorio cubrir todos los huecos habilitados (Aplica Justicia Histórica si quedan libres)
-                 </label>
+           </div>
+           
+           <div style="margin-bottom:15px; padding:10px; background:#fff7ed; border-radius:6px; border:1px solid #fed7aa;">
+             <label style="font-size:0.85rem; font-weight:bold; display:block; margin-bottom:6px; color:#9a3412;">🏛️ Subasta y Justicia Distributiva</label>
+             <div style="margin-bottom: 8px;">
+                 <label style="font-size:0.8rem; color:#9a3412; display:block; margin-bottom:4px;">Activar inyección forzosa para huecos desiertos en días de tipo:</label>
+                 <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                     <label style="font-size:0.75rem;"><input type="checkbox" id="cfg-sub-lab-${pIdx}-${i}" ${(svc.subastaTrigger||[]).includes('laborable') ? 'checked' : ''}> Laborable</label>
+                     <label style="font-size:0.75rem;"><input type="checkbox" id="cfg-sub-vis-${pIdx}-${i}" ${(svc.subastaTrigger||[]).includes('vispera') ? 'checked' : ''}> Víspera</label>
+                     <label style="font-size:0.75rem;"><input type="checkbox" id="cfg-sub-fin-${pIdx}-${i}" ${(svc.subastaTrigger||[]).includes('fin_de_semana') ? 'checked' : ''}> Finde</label>
+                     <label style="font-size:0.75rem;"><input type="checkbox" id="cfg-sub-fes-${pIdx}-${i}" ${(svc.subastaTrigger||[]).includes('festivo_intersemanal') ? 'checked' : ''}> Festivo Inter.</label>
+                 </div>
              </div>
-          </div>
+             <div>
+                 <label style="font-size:0.8rem; color:#9a3412; display:block; margin-bottom:4px;">Criterio de reparto automático (quién recibe la guardia):</label>
+                 <select id="cfg-sub-crit-${pIdx}-${i}" style="font-size:0.8rem; width:100%; border:1px solid #fdba74; border-radius:4px; padding:4px;">
+                     <option value="historico_festivos" ${svc.subastaCriterio === 'historico_festivos' ? 'selected' : ''}>A quien tenga menos Festivos (Globales)</option>
+                     <option value="historico_laborables" ${svc.subastaCriterio === 'historico_laborables' ? 'selected' : ''}>A quien tenga menos Laborables (Globales)</option>
+                     <option value="historico_intersemanales" ${svc.subastaCriterio === 'historico_intersemanales' ? 'selected' : ''}>A quien tenga menos Fest. Intersemanales (Globales)</option>
+                     <option value="aleatorio" ${svc.subastaCriterio === 'aleatorio' ? 'selected' : ''}>Aleatorio (Sorteo ciego)</option>
+                 </select>
+             </div>
+           </div>
 
 		  <div style="margin-bottom:15px; padding:10px; background:#f8fafc; border-radius:6px; border:1px dashed #cbd5e1;">
              <label style="font-size:0.85rem; font-weight:bold; display:block; margin-bottom:6px;">🤝 Reglas del Mercadillo (Intercambio)</label>
@@ -1836,6 +1840,8 @@ function adminAddService(pIdx) {
   promoConfig.planes[pIdx].servicios.push({ 
       nombre: "Nuevo Servicio", cupoMensualTotal: 1, plazasPorDia: 1, color: "#94a3b8", 
       requiereHabilitacion: false, 
+      subastaTrigger: [],
+      subastaCriterio: 'historico_festivos',
       pernocta: { laborable: true, vispera: true, fin_de_semana: false, festivo_intersemanal: false },
       horas: { laborable: 17, vispera: 17, festivo: 24 },
       reglasObligatorias: [],
@@ -1899,9 +1905,15 @@ function syncConfigFromUI() {
       const habSvc = document.getElementById(`cfg-hab-${pIdx}-${i}`);
       if (habSvc) svc.requiereHabilitacion = habSvc.checked;
 
-			const cobSvc = document.getElementById(`cfg-cob-${pIdx}-${i}`);
-      if (cobSvc) svc.coberturaObligatoria = cobSvc.checked;
-			
+      // NUEVO: Sincronizar Reglas de Subasta Bespoke
+      svc.subastaTrigger = [];
+      if (document.getElementById(`cfg-sub-lab-${pIdx}-${i}`)?.checked) svc.subastaTrigger.push('laborable');
+      if (document.getElementById(`cfg-sub-vis-${pIdx}-${i}`)?.checked) svc.subastaTrigger.push('vispera');
+      if (document.getElementById(`cfg-sub-fin-${pIdx}-${i}`)?.checked) svc.subastaTrigger.push('fin_de_semana');
+      if (document.getElementById(`cfg-sub-fes-${pIdx}-${i}`)?.checked) svc.subastaTrigger.push('festivo_intersemanal');
+      
+      const subCrit = document.getElementById(`cfg-sub-crit-${pIdx}-${i}`);
+      if (subCrit) svc.subastaCriterio = subCrit.value;
       const interSvc = document.getElementById(`cfg-intercambio-${pIdx}-${i}`);
       if (interSvc) svc.reglaIntercambio = interSvc.value;
 
@@ -2383,6 +2395,19 @@ async function toggleResidenteFijo(nombre) {
     renderEditor();
 }
 
+async function toggleResidenteExcluido(nombre) {
+    if (!state.excluidosSubastas) state.excluidosSubastas = [];
+    if (state.excluidosSubastas.includes(nombre)) {
+        state.excluidosSubastas = state.excluidosSubastas.filter(n => n !== nombre);
+    } else {
+        if (confirm(`¿Seguro que quieres excluir a ${nombre} de las subastas forzosas? (No se le tendrán en cuenta sus guardias para calcular el exceso)`)) {
+            state.excluidosSubastas.push(nombre);
+        }
+    }
+    await saveState();
+    renderEditor();
+}
+
 	
 // ==========================================
 // RENDERIZADOR DEL EDITOR
@@ -2393,6 +2418,7 @@ function renderEditor() {
     let flatIdxCounter = 0;
     
     if (!state.residentesFijos) state.residentesFijos = [];
+    if (!state.excluidosSubastas) state.excluidosSubastas = [];
     
     // Determinamos si el primer grupo que viene son los fijos
     let tieneGrupoFijos = editingGroups.length > 0 && editingGroups[0].some(n => state.residentesFijos.includes(n));
@@ -2413,13 +2439,15 @@ function renderEditor() {
         g.map((res) => {
             const currentFlat = flatIdxCounter++;
             const esFijo = state.residentesFijos.includes(res);
+            const esExcluido = state.excluidosSubastas.includes(res);
             
             return `
-            <div class="editor-row" style="background: white; padding:6px; border:1px solid ${esFijo ? '#fef08a' : '#e2e8f0'}; border-radius:6px; margin-bottom:4px;">
+            <div class="editor-row" style="background: white; padding:6px; border:1px solid ${esFijo ? '#fef08a' : '#e2e8f0'}; border-radius:6px; margin-bottom:4px; ${esExcluido ? 'opacity:0.7;' : ''}">
                 <span style="display:inline-block; width:150px; font-weight:500; font-size:0.95rem; color:var(--dark);">
-                    ${res} ${esFijo ? '📌' : ''}
+                    ${res} ${esFijo ? '📌' : ''} ${esExcluido ? '👻 (Excluido)' : ''}
                 </span>
                 <div style="display:flex; gap:4px;">
+                    <button class="icon-btn" style="background: ${esExcluido ? '#fecaca' : '#f1f5f9'}; border-color: ${esExcluido ? '#ef4444' : '#cbd5e1'};" onclick="toggleResidenteExcluido('${res}')" title="Excluir de Subastas Forzosas">👻</button>
                     <button class="icon-btn" style="background: ${esFijo ? '#fef08a' : '#f1f5f9'}; border-color: ${esFijo ? '#ca8a04' : '#cbd5e1'};" onclick="toggleResidenteFijo('${res}')" title="Conmutar Estado Fijo/Móvil">📌</button>
                     <button class="icon-btn" style="background:#f1f5f9;" onclick="moveResLinear(${currentFlat}, 'up')">⬆️</button>
                     <button class="icon-btn" style="background:#f1f5f9;" onclick="moveResLinear(${currentFlat}, 'down')">⬇️</button>
@@ -2590,14 +2618,14 @@ function calcularViabilidadFestivosMensual(ano, mes) {
     };
 }
 	
-function getHistoricoFestivosResidentes(targetY, targetM) {
+function getHistoricoFestivosResidentes(targetY, targetM, validTags) {
+    if (!validTags) validTags = ['fin_de_semana', 'festivo_intersemanal'];
+    
     let historico = {};
     getAllResidents().forEach(r => historico[r] = 0);
     
     if (!state.shifts) return historico;
     
-    const targetDate = new Date(targetY, targetM, 1);
-
     const computed = getComputedShifts();
     Object.keys(computed).forEach(dk => {
         const parts = dk.split('_');
@@ -2605,6 +2633,9 @@ function getHistoricoFestivosResidentes(targetY, targetM) {
         
         // 1. Filtro temporal estricto: solo el pasado del mismo año de residencia
         if (y > targetY || (y === targetY && m >= targetM)) return;
+        
+        const tag = getDayTag(y, m, d);
+        if (!validTags.includes(tag)) return;
         
         Object.keys(computed[dk] || {}).forEach(user => {
             const uProfile = globalProfiles.find(p => p.nombre_mostrar === user);
@@ -2641,118 +2672,102 @@ function renderAlertaCargaMensual() {
     
     const y = curDate.getFullYear();
     const m = curDate.getMonth();
+    const mk = getRotationKey(y, m);
+    if (!state.configMes || !state.configMes[mk]) {
+        container.innerHTML = ''; return;
+    }
+    
     const analisis = getAnalisisFestivos(y, m);
     
     if (analisis.estado === 'libre') {
         container.innerHTML = ''; return;
     }
 
-    if (analisis.estado === 'subasta_resuelta') {
-        const heroes = analisis.voluntarios.length > 0 ? ` (¡Gracias a ${analisis.voluntarios.join(', ')} por cubrir el exceso!)` : '';
-        container.innerHTML = `
-        <div style="background: #ecfccb; border: 2px solid #84cc16; color: #3f6212; padding: 15px; border-radius: 12px; margin-bottom: 20px; font-size: 0.9rem; line-height: 1.5;">
-            <div style="display:flex; align-items:center; gap:8px; font-weight: bold; font-size: 1rem; margin-bottom: 6px;">
-                🎉 ¡Exceso de Festivos Cubierto!
-            </div>
-            El mes tenía huecos extra, pero la promoción ya los ha asumido${heroes}. El motor vuelve a su estado normal.
-        </div>`;
-        return;
-    }
+    let criterioTexto = "suerte aleatoria";
+    if (analisis.criterio === 'historico_festivos') criterioTexto = "tienen el menor histórico de Festivos";
+    else if (analisis.criterio === 'historico_laborables') criterioTexto = "tienen el menor histórico de Laborables";
+    else if (analisis.criterio === 'historico_intersemanales') criterioTexto = "tienen el menor histórico de Fest. Intersemanales";
 
-    const nombresImplicados = analisis.nominados.map(r => `<b>${r}</b> (${analisis.historico[r]} globales)`).join(', ');
+    const nombresImplicados = analisis.nominados.map(r => `<b>${r}</b> ${analisis.criterio !== 'aleatorio' ? `(${analisis.historico[r]||0} contados)` : ''}`).join(', ');
 
-    if (analisis.estado === 'critico' || analisis.estado === 'subasta_cerrada') {
-        const titulo = analisis.estado === 'critico' ? '🚨 Mes Crítico (Asignación Directa)' : '⚖️ Subasta Cerrada (Justicia Histórica)';
+    if (analisis.estado === 'subasta_cerrada') {
         container.innerHTML = `
         <div style="background: #fff7ed; border: 2px dashed #f97316; color: #c2410c; padding: 15px; border-radius: 12px; margin-bottom: 20px; font-size: 0.9rem; line-height: 1.5;">
             <div style="display:flex; align-items:center; gap:8px; font-weight: bold; font-size: 1rem; margin-bottom: 6px;">
-                ${titulo}
+                ⚖️ Subasta Cerrada - Justicia Distributiva (${analisis.svcNombre})
             </div>
-            Este mes tiene <b>${Math.ceil(analisis.exceso)} festivo(s) de exceso pendientes</b>. 
-            El sistema exige que ${nombresImplicados} <b>asuman +1 festivo obligatorio</b> en su asignación por justicia distributiva (tienen el menor histórico del grupo).
+            Quedan <b>${Math.ceil(analisis.exceso)} guardia(s) pendientes</b> en <b>${analisis.svcNombre}</b>. 
+            El motor exige que ${nombresImplicados} <b>asuman la carga obligatoria</b> ya que ${criterioTexto}.
             
             <div style="margin-top:15px;">
-                <button onclick="ejecutarAsignacionForzosa(${y}, ${m})" class="primary" style="background:var(--fest); width:100%;">⚡ Ejecutar Asignación Forzosa Automática</button>
+                <button onclick="ejecutarAsignacionForzosa(${y}, ${m}, '${analisis.svcNombre}')" class="primary" style="background:var(--fest); width:100%;">⚡ Ejecutar Asignación Forzosa para ${analisis.svcNombre}</button>
             </div>
         </div>`;
     } else if (analisis.estado === 'subasta_abierta') {
         container.innerHTML = `
         <div style="background: #f0fdf4; border: 2px dashed #22c55e; color: #166534; padding: 15px; border-radius: 12px; margin-bottom: 20px; font-size: 0.9rem; line-height: 1.5;">
             <div style="display:flex; align-items:center; gap:8px; font-weight: bold; font-size: 1rem; margin-bottom: 6px;">
-                📢 Subasta Voluntaria Abierta (Quedan ${analisis.diasParaCierre} días)
+                📢 Subasta Voluntaria Abierta - ${analisis.svcNombre} (Quedan ${analisis.horasRestantes} horas)
             </div>
-            Quedan <b>${Math.ceil(analisis.exceso)} festivo(s) de exceso</b> este mes. Cualquier residente puede adjudicárselos voluntariamente ahora mismo. 
-            Si siguen desiertos al cerrar el plazo, el motor se los exigirá forzosamente a: ${nombresImplicados}.
+            Quedan <b>${Math.ceil(analisis.exceso)} guardia(s) desiertas</b> en <b>${analisis.svcNombre}</b>. Cualquier residente puede adjudicárselas voluntariamente ahora mismo. 
+            Si siguen desiertas al expirar el tiempo, el motor se las exigirá forzosamente a: ${nombresImplicados}.
             
             <div style="margin-top:15px;">
-                <button onclick="forzarCierreSubasta(${y}, ${m})" class="primary icon-btn" style="background:#dc2626; border-color:#b91c1c;">🚫 Forzar Cierre de Subasta Ahora</button>
+                <button onclick="forzarCierreSubasta(${y}, ${m}, '${analisis.svcNombre}')" class="primary icon-btn" style="background:#dc2626; border-color:#b91c1c;">🚫 Forzar Cierre de Subasta de ${analisis.svcNombre} Ahora</button>
             </div>
         </div>`;
     }
 }
 
-async function forzarCierreSubasta(y, m) {
-    if (!confirm("¿Seguro que quieres cerrar la subasta inmediatamente? Se requerirá la inyección forzosa para cubrir los huecos restantes.")) return;
+async function forzarCierreSubasta(y, m, svcNombre) {
+    if (!confirm(`¿Seguro que quieres cerrar la subasta de ${svcNombre} inmediatamente? Se requerirá la inyección forzosa para cubrir los huecos restantes.`)) return;
     if (!state.subastasCerradasForzosas) state.subastasCerradasForzosas = {};
-    state.subastasCerradasForzosas[`${y}_${m}`] = true;
+    state.subastasCerradasForzosas[`${y}_${m}_${svcNombre}`] = true;
     await saveState();
     renderAll();
 }
 
-async function ejecutarAsignacionForzosa(y, m) {
-    if (!confirm("¿Seguro que quieres inyectar automáticamente las guardias pendientes a los nominados?")) return;
+async function ejecutarAsignacionForzosa(y, m, targetSvcNombre) {
+    if (!confirm(`¿Seguro que quieres inyectar automáticamente las guardias pendientes de ${targetSvcNombre} a los nominados?`)) return;
     
     const analisis = getAnalisisFestivos(y, m);
-    if (analisis.estado === 'libre' || analisis.estado === 'subasta_resuelta') return alert("No hay exceso que repartir.");
+    if (analisis.estado === 'libre' || analisis.svcNombre !== targetSvcNombre) return alert("El estado ha cambiado. Recarga la página.");
     
     const totalDias = getDaysInMonth(y, m);
     let huecosLibres = []; 
     
+    const uProfile = currentUserProfile; 
+    const referenceDk = formatDateKey(y, m, 15);
+    const miPlan = getPlanForUserOnDate(uProfile, referenceDk) || promoConfig.planes?.[0];
+    if (!miPlan) return;
+    
+    const svc = miPlan.servicios.find(s => s.nombre === targetSvcNombre);
+    if (!svc) return;
+    
     for (let d = 1; d <= totalDias; d++) {
         const tag = getDayTag(y, m, d);
-        if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
+        if ((svc.subastaTrigger || []).includes(tag)) {
             const dk = formatDateKey(y, m, d);
-            const uProfile = currentUserProfile; 
-            const referenceDk = formatDateKey(y, m, 15);
-            const miPlan = getPlanForUserOnDate(uProfile, referenceDk) || promoConfig.planes?.[0];
-            if (!miPlan) continue;
+            if (svc.requiereHabilitacion && !state.pedWhitelist[dk]) continue;
             
-            miPlan.servicios.forEach(svc => {
-                if (svc.requiereHabilitacion && !state.pedWhitelist[dk]) return;
-                
-                let assignedCount = 0;
-                if (state.shifts[dk]) {
-                    for (let u in state.shifts[dk]) {
-                        if (state.shifts[dk][u] === svc.nombre && !u.startsWith('VRE')) assignedCount++;
-                    }
+            let assignedCount = 0;
+            if (state.shifts[dk]) {
+                for (let u in state.shifts[dk]) {
+                    if (state.shifts[dk][u] === svc.nombre && !u.startsWith('VRE')) assignedCount++;
                 }
-                const needed = (svc.plazasPorDia || 1);
-                if (assignedCount < needed) {
-                    for (let i = 0; i < (needed - assignedCount); i++) {
-                        huecosLibres.push({ dk, svc: svc.nombre });
-                    }
+            }
+            const needed = (svc.plazasPorDia || 1);
+            if (assignedCount < needed) {
+                for (let i = 0; i < (needed - assignedCount); i++) {
+                    huecosLibres.push({ dk, svc: svc.nombre });
                 }
-            });
+            }
         }
     }
     
-    if (huecosLibres.length === 0) return alert("No se han detectado huecos de festivos libres en el calendario.");
+    if (huecosLibres.length === 0) return alert("No se han detectado huecos libres de este servicio en el calendario.");
     
-    const historico = getHistoricoFestivosResidentes(y, m);
-    
-    const activosMes = getAllResidents().filter(residente => {
-        const tieneBaja = (state.bajasLargas||[]).some(baja => {
-            if (baja.user !== residente || baja.estado !== 'aprobada') return false;
-            const bInicio = new Date(baja.fechaInicio);
-            const bFin = new Date(baja.fechaFin);
-            return (bInicio <= new Date(y, m, totalDias) && bFin >= new Date(y, m, 1));
-        });
-        return !tieneBaja;
-    });
-    
-    let residentesAleatorios = [...activosMes].sort(() => Math.random() - 0.5);
-    const candidatos = residentesAleatorios.sort((a, b) => historico[a] - historico[b]);
-    
+    const candidatos = analisis.nominados;
     let asignacionesLog = [];
     let saltadosLog = [];
     let huecosAsignados = 0;
@@ -2787,20 +2802,20 @@ async function ejecutarAsignacionForzosa(y, m) {
             asignacionesLog.push(`${residente} -> ${hueco.svc} (${formatDK(hueco.dk)})`);
             huecosAsignados++;
             
-            if (huecosLibres.length === 0) break;
+            // To be totally fair and sequentially re-evaluate, we break immediately after ONE assignment
+            // The Admin will click the button again, which triggers full recalculation.
+            break;
         } else {
-            if (analisis.nominados.includes(residente)) {
-                saltadosLog.push(residente);
-            }
+            saltadosLog.push(residente);
         }
     }
     
     await saveState();
     renderAll();
     
-    let mensajeFinal = `Asignación Forzosa Completada.\n\nSe asignaron ${huecosAsignados} guardias:\n${asignacionesLog.join('\\n')}`;
+    let mensajeFinal = `Inyección Forzosa procesada.\n\nSe asignaron ${huecosAsignados} guardias:\n${asignacionesLog.join('\\n')}`;
     if (saltadosLog.length > 0) {
-        mensajeFinal += `\n\n⚠️ Debido a que los siguientes nominados no podían cubrir las guardias por incompatibilidad con salientes u otras guardias, se nominó automáticamente a los siguientes en la lista: ${saltadosLog.join(', ')}`;
+        mensajeFinal += `\n\n⚠️ Los nominados originales no podían cubrir por incompatibilidad con salientes. Quedan huecos, pulsa otra vez para calcular nuevos nominados.`;
     }
     
     alert(mensajeFinal);
@@ -2837,63 +2852,119 @@ async function guardarNombrePerfil() {
 // CALCULADORA DE FASES Y SUBASTAS (JUSTICIA)
 // ==========================================
 function getAnalisisFestivos(y, m) {
-    let huecosFestivosObligatorios = 0;
+    const mk = getRotationKey(y, m);
+    let rondaTerminada = false;
+    
+    if (state.configMes && state.configMes[mk] && getCurrentTurn(y, m) === null) {
+        rondaTerminada = true;
+    }
+    
+    if (!rondaTerminada) {
+        return { estado: 'libre', exceso: 0, nominados: [], svcNombre: null };
+    }
+    
+    const keyMes = `${y}_${m}`;
+    if (!state.fechaFinRonda) state.fechaFinRonda = {};
+    if (!state.fechaFinRonda[keyMes]) {
+        state.fechaFinRonda[keyMes] = Date.now();
+        saveState(); // Fire and forget
+    }
+    
+    const uProfile = currentUserProfile;
+    const referenceDk = formatDateKey(y, m, 15);
+    const miPlan = getPlanForUserOnDate(uProfile, referenceDk) || promoConfig.planes?.[0];
+    if (!miPlan) return { estado: 'libre', exceso: 0, nominados: [], svcNombre: null };
+    
     const totalDias = getDaysInMonth(y, m);
     
-    // Asumimos el plan del usuario actual para calcular la carga (normalmente R1 y R2 comparten necesidades globales)
-    const uProfile = currentUserProfile;
-	const referenceDk = formatDateKey(y, m, 15);
-    const miPlan = getPlanForUserOnDate(uProfile, referenceDk) || promoConfig.planes?.[0];
-    const minimoBase = miPlan ? (miPlan.minGlobalFestivos || 1) : 1;
-
-    if (!miPlan) return { estado: 'libre', exceso: 0, nominados: [], minimoBase };
-
-    for (let d = 1; d <= totalDias; d++) {
-        const tag = getDayTag(y, m, d);
-        if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
-            const dk = formatDateKey(y, m, d);
-            miPlan.servicios.forEach(svc => {
-                if (svc.requiereHabilitacion && !state.pedWhitelist[dk]) return;
-                huecosFestivosObligatorios += (svc.plazasPorDia || 1);
-            });
-        }
-    }
-
-    const residentes = getAllResidents();
-    const totalResidents = residentes.length;
-    if (totalResidents === 0) return { estado: 'libre', exceso: 0, nominados: [], minimoBase };
-
-    const huecosBase = minimoBase * totalResidents;
-    const excesoReal = huecosFestivosObligatorios - huecosBase;
-
-    if (excesoReal <= 0) return { estado: 'libre', exceso: 0, nominados: [], minimoBase };
-
-    // Calcular nominados por justicia histórica
-    const historico = getHistoricoFestivosResidentes(y, m);
-    const residentesOrdenados = [...residentes].sort((a, b) => historico[a] - historico[b]);
-    const nominados = residentesOrdenados.slice(0, Math.ceil(excesoReal));
-
-    // Determinar Fase de Subasta o Crítica
-    let estado = 'critico';
-    let diasParaCierre = 0;
+    const residentes = getAllResidents().filter(residente => {
+        if (state.excluidosSubastas && state.excluidosSubastas.includes(residente)) return false;
+        const tieneBaja = (state.bajasLargas||[]).some(baja => {
+            if (baja.user !== residente || baja.estado !== 'aprobada') return false;
+            const bInicio = new Date(baja.fechaInicio);
+            const bFin = new Date(baja.fechaFin);
+            return (bInicio <= new Date(y, m, totalDias) && bFin >= new Date(y, m, 1));
+        });
+        return !tieneBaja;
+    });
     
-    if (excesoReal <= 2) {
-        // Cierra el día 15 del mes ANTERIOR
-        const fechaCierre = new Date(y, m - 1, 15);
-        const hoy = new Date();
-        hoy.setHours(0,0,0,0);
+    if (residentes.length === 0) return { estado: 'libre', exceso: 0, nominados: [], svcNombre: null };
+
+    for (let i = 0; i < miPlan.servicios.length; i++) {
+        const svc = miPlan.servicios[i];
         
-        const isForzada = state.subastasCerradasForzosas && state.subastasCerradasForzosas[`${y}_${m}`];
+        if (!svc.subastaTrigger || svc.subastaTrigger.length === 0) continue;
         
-        if (hoy < fechaCierre && !isForzada) {
-            estado = 'subasta_abierta';
-            diasParaCierre = Math.ceil((fechaCierre - hoy) / (1000 * 60 * 60 * 24));
-        } else {
-            estado = 'subasta_cerrada';
+        let huecosObligatoriosSvc = 0;
+        let huecosAsignadosSvc = 0;
+        
+        for (let d = 1; d <= totalDias; d++) {
+            const dk = formatDateKey(y, m, d);
+            const tag = getDayTag(y, m, d);
+            
+            if (svc.subastaTrigger.includes(tag)) {
+                if (svc.requiereHabilitacion && !state.pedWhitelist[dk]) continue;
+                
+                const needed = (svc.plazasPorDia || 1);
+                huecosObligatoriosSvc += needed;
+                
+                if (state.shifts[dk]) {
+                    for (let u in state.shifts[dk]) {
+                        if (state.shifts[dk][u] === svc.nombre && !u.startsWith('VRE')) {
+                            huecosAsignadosSvc++;
+                        }
+                    }
+                }
+            }
+        }
+        
+        const excesoSvc = huecosObligatoriosSvc - huecosAsignadosSvc;
+        
+        if (excesoSvc > 0) {
+            let historico = {};
+            if (svc.subastaCriterio === 'historico_festivos') {
+                historico = getHistoricoFestivosResidentes(y, m, ['fin_de_semana', 'festivo_intersemanal']);
+            } else if (svc.subastaCriterio === 'historico_laborables') {
+                historico = getHistoricoFestivosResidentes(y, m, ['laborable']);
+            } else if (svc.subastaCriterio === 'historico_intersemanales') {
+                historico = getHistoricoFestivosResidentes(y, m, ['festivo_intersemanal']);
+            }
+            
+            let nominados = [];
+            let residentesAleatorios = [...residentes].sort(() => Math.random() - 0.5);
+            
+            if (svc.subastaCriterio === 'aleatorio') {
+                nominados = residentesAleatorios.slice(0, excesoSvc);
+            } else {
+                const residentesOrdenados = residentesAleatorios.sort((a, b) => (historico[a] || 0) - (historico[b] || 0));
+                nominados = residentesOrdenados.slice(0, excesoSvc);
+            }
+            
+            const inicioRonda = state.fechaFinRonda[keyMes];
+            const horasTranscurridas = (Date.now() - inicioRonda) / (1000 * 60 * 60);
+            
+            let estado = 'subasta_abierta';
+            const isForzada = state.subastasCerradasForzosas && state.subastasCerradasForzosas[`${y}_${m}_${svc.nombre}`];
+            
+            if (horasTranscurridas >= 48 || isForzada) {
+                estado = 'subasta_cerrada';
+            }
+            
+            const horasRestantes = Math.max(0, 48 - horasTranscurridas);
+            
+            return { 
+                estado, 
+                exceso: excesoSvc, 
+                nominados, 
+                svcNombre: svc.nombre,
+                horasRestantes: Math.floor(horasRestantes),
+                criterio: svc.subastaCriterio,
+                historico
+            };
         }
     }
-
-    return { estado, exceso: excesoReal, nominados, minimoBase, diasParaCierre, historico };
+    
+    return { estado: 'libre', exceso: 0, nominados: [], svcNombre: null };
 }
 
 function getCurrentTurn(y, m) {
