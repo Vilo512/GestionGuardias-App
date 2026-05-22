@@ -694,7 +694,7 @@ function hasAvailableLegalSlots(user, y, m, svc, rule) {
 
         // 5. ¿El servicio está lleno este día?
         let currentAssigned = Object.keys(dayShifts || {}).filter(u => dayShifts[u] === svc.nombre).length;
-        if (currentAssigned >= svc.plazasPorDia) continue; 
+        if (currentAssigned >= (svc.plazasPorDia || 1)) continue; 
 
         // 6. ¿Genera conflicto de saliente si se lo pongo?
         let tempShifts = JSON.parse(JSON.stringify(state.shifts || {}));
@@ -704,6 +704,31 @@ function hasAvailableLegalSlots(user, y, m, svc, rule) {
 
         // ¡Si sobrevive a todo, hay hueco legal!
         return true; 
+    }
+    return false;
+}
+
+function hasAvailableLegalSlotsForService(user, y, m, svc) {
+    for (let d = 1; d <= getDaysInMonth(y, m); d++) {
+        const dk = formatDateKey(y, m, d);
+        
+        if (svc.requiereHabilitacion && !state.pedWhitelist[dk]) continue;
+        
+        const dayShifts = state.shifts[dk] || {};
+        if (dayShifts[user] === svc.nombre) continue;
+        if (isUserBusyOnDay(user, dk)) continue;
+        
+        let currentAssigned = Object.keys(dayShifts || {}).filter(u => dayShifts[u] === svc.nombre).length;
+        if (currentAssigned >= (svc.plazasPorDia || 1)) continue;
+
+        let projected = JSON.parse(JSON.stringify(state.shifts || {}));
+        if (!projected[dk]) projected[dk] = {};
+        projected[dk][user] = svc.nombre;
+        const conflicts = getIllegalShiftsForUser(user, projected);
+        
+        if (conflicts.length === 0) {
+            return true;
+        }
     }
     return false;
 }
@@ -735,6 +760,14 @@ function getUserProgress(user, y, m) {
         }
 
         let missingTotal = Math.max(0, svc.cupoMensualTotal - countTotal);
+        let totalForgiven = false;
+        
+        if (missingTotal > 0) {
+            if (!hasAvailableLegalSlotsForService(user, y, m, svc)) {
+                totalForgiven = true;
+            }
+        }
+        
         let missingRules = [];
         let rulesOk = true;
 
@@ -753,9 +786,15 @@ function getUserProgress(user, y, m) {
             }
         });
 
-        if (missingTotal > 0 || !rulesOk) isFinished = false;
-        progress[svc.nombre] = { countTotal, missingTotal, missingRules, rulesOk };
-        if (missingTotal > 0) messages.push(`<b>${missingTotal} ${svc.nombre}</b>`);
+        if ((missingTotal > 0 && !totalForgiven) || !rulesOk) isFinished = false;
+        progress[svc.nombre] = { countTotal, missingTotal, missingRules, rulesOk, totalForgiven };
+        if (missingTotal > 0) {
+            if (totalForgiven) {
+                messages.push(`<span style="color:var(--fest);"><s>${missingTotal} ${svc.nombre}</s> (Perdonado: sin huecos compatibles)</span>`);
+            } else {
+                messages.push(`<b>${missingTotal} ${svc.nombre}</b>`);
+            }
+        }
     });
 
     // REGLA TRANSVERSAL
@@ -1770,7 +1809,7 @@ function renderAdminAjustes() {
           </div>
 
           <div style="margin-bottom:15px;">
-             <label style="font-size:0.85rem; font-weight:bold; display:block; margin-bottom:6px;">🌙 Matriz de Pernocta (Genera Saliente Forzoso)</label>
+             <label style="font-size:0.85rem; font-weight:bold; display:block; margin-bottom:6px;">🌙 ¿Qué días generan saliente?</label>
              <div style="display:flex; gap:10px; flex-wrap:wrap;">
                 <label style="font-size:0.8rem; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="cfg-sal-lab-${pIdx}-${i}" ${svc.pernocta.laborable ? 'checked' : ''} style="width:auto; margin:0;"> Laborable</label>
                 <label style="font-size:0.8rem; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="cfg-sal-vis-${pIdx}-${i}" ${svc.pernocta.vispera ? 'checked' : ''} style="width:auto; margin:0;"> Víspera/Vier</label>
