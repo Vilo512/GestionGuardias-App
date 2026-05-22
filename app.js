@@ -2050,47 +2050,158 @@ async function adminSaveConfig() {
 // ==========================================
 // EL NUEVO EXPORTADOR UNIVERSAL
 // ==========================================
-function exportUniversal(isMercado) {
-    const y = curDate.getFullYear(), m = curDate.getMonth(), days = getDaysInMonth(y, m);
+// ==========================================
+// EL NUEVO EXPORTADOR UNIVERSAL
+// ==========================================
+function openExportModal() {
+    if (!promoConfig || !promoConfig.planes || promoConfig.planes.length === 0) {
+        alert("No hay ningún Plan de Guardias configurado.");
+        return;
+    }
+    
+    // 1. Llenar Planes
+    const planSel = document.getElementById('exp-plan');
+    planSel.innerHTML = '';
+    promoConfig.planes.forEach(p => {
+        planSel.innerHTML += `<option value="${p.nombre}">${p.nombre}</option>`;
+    });
+    
+    // 2. Llenar Servicios
+    updateExportServices();
+    
+    // 3. Llenar Meses (buscando en el historial de shifts guardado o en los 12 meses)
+    const periodSel = document.getElementById('exp-period');
+    periodSel.innerHTML = '<option value="ALL">Todo el Histórico Disponible</option>';
+    
+    // Recopilar meses únicos del state.shifts
+    let uniqueMonths = new Set();
+    if (state.shifts) {
+        for (let dk in state.shifts) {
+            uniqueMonths.add(dk.substring(0, 7)); // "2024_01"
+        }
+    }
+    let sortedMonths = Array.from(uniqueMonths).sort().reverse(); // Más recientes primero
+    sortedMonths.forEach(mStr => {
+        const [y, m] = mStr.split('_');
+        periodSel.innerHTML += `<option value="${mStr}">${MONTHS[parseInt(m) - 1]} ${y}</option>`;
+    });
+
+    document.getElementById('export-modal').style.display = 'flex';
+}
+
+function updateExportServices() {
+    const planName = document.getElementById('exp-plan').value;
+    const plan = promoConfig.planes.find(p => p.nombre === planName);
+    const svcSel = document.getElementById('exp-svc');
+    
+    svcSel.innerHTML = '<option value="ALL">Todos los servicios del Plan</option>';
+    if (plan && plan.servicios) {
+        plan.servicios.forEach(s => {
+            svcSel.innerHTML += `<option value="${s.nombre}">${s.nombre}</option>`;
+        });
+    }
+}
+
+function executeExport() {
+    const planName = document.getElementById('exp-plan').value;
+    const svcName = document.getElementById('exp-svc').value;
+    const period = document.getElementById('exp-period').value;
+    const isMercado = document.getElementById('exp-type').value === 'merc';
+    
+    const plan = promoConfig.planes.find(p => p.nombre === planName);
+    if (!plan) return;
+
     const shiftsToUse = isMercado ? getComputedShifts() : state.shifts;
     const suffix = isMercado ? "Mercadillo" : "Original";
-    const residents = getAllResidents();
-    const wb = XLSX.utils.book_new();
     
+    // Averiguar qué residentes pertenecen al plan (filtrando los que tienen ese plan como asociado o es el plan default)
+    const residents = getAllResidents().filter(u => {
+        let p = globalProfiles.find(prof => prof.nombre_mostrar === u);
+        let planDelUser = p ? p.plan_asociado : null;
+        if (!planDelUser) planDelUser = promoConfig.planes[0].nombre;
+        return planDelUser === planName;
+    });
+
+    if (residents.length === 0) {
+        alert("No se han encontrado residentes asignados a este Plan de Guardias.");
+        return;
+    }
+
+    const wb = XLSX.utils.book_new();
     const STYLE_FESTIVO = { fill: { fgColor: { rgb: "FEE2E2" } }, font: { color: { rgb: "EF4444" }, bold: true } };
 
-    // HOJA 1: Global (Resumen Mensual)
-    const dataGlobal = []; const hGlobal = ["Residente", ...Array.from({length: days}, (_, i) => `${i+1}/${m+1}`), "Total"]; dataGlobal.push(hGlobal);
-    residents.forEach(user => { 
-        const row = [user]; let total = 0; 
-        for(let d=1; d<=days; d++) { 
-            const ds = shiftsToUse[formatDateKey(y, m, d)] || {}; 
-            let mySvc = ds[user];
-            if (!mySvc && isMercado) { const vre = Object.keys(ds).find(k => k.startsWith('VRE_') && ds[k]); if(vre) mySvc = "VRE"; }
-            if (mySvc) total++; 
-            row.push(mySvc ? mySvc.substring(0,3).toUpperCase() : ""); 
-        } 
-        row.push(total); dataGlobal.push(row); 
-    });
-    const wsGlobal = XLSX.utils.aoa_to_sheet(dataGlobal); 
-    for(let d=1; d<=days; d++) { if (state.festivos[formatDateKey(y, m, d)]) { for (let r = 0; r <= residents.length; r++) { const cell = wsGlobal[XLSX.utils.encode_cell({r: r, c: d})]; if (cell) cell.s = STYLE_FESTIVO; } } }
-    XLSX.utils.book_append_sheet(wb, wsGlobal, `Global ${suffix}`);
-
-    // HOJAS ESPECÍFICAS POR SERVICIO
-    promoConfig.servicios.forEach(svc => {
-        const dataSvc = []; const hSvc = ["Fecha", "Día", "Asignados"]; dataSvc.push(hSvc);
-        for (let d = 1; d <= days; d++) { 
-            const dk = formatDateKey(y, m, d); const ds = shiftsToUse[dk] || {}; 
-            const tag = getDayTag(y, m, d);
-            const assigned = Object.keys(ds).filter(u => ds[u] === svc.nombre).map(u => u.startsWith('VRE') ? 'EXTERNO' : u).join(', ');
-            dataSvc.push([`${d}/${m + 1}`, tag, assigned]); 
+    // Determinar qué meses exportar
+    let monthsToExport = [];
+    if (period === 'ALL') {
+        let uniqueMonths = new Set();
+        if (shiftsToUse) {
+            for (let dk in shiftsToUse) uniqueMonths.add(dk.substring(0, 7));
         }
-        const wsSvc = XLSX.utils.aoa_to_sheet(dataSvc);
-        for(let d=1; d<=days; d++) { if (state.festivos[formatDateKey(y, m, d)]) { for (let c = 0; c <= 2; c++) { const cell = wsSvc[XLSX.utils.encode_cell({r: d, c: c})]; if (cell) cell.s = STYLE_FESTIVO; } } }
-        XLSX.utils.book_append_sheet(wb, wsSvc, `${svc.nombre.substring(0,10)}`);
+        monthsToExport = Array.from(uniqueMonths).sort();
+    } else {
+        monthsToExport = [period];
+    }
+
+    if (monthsToExport.length === 0) {
+        alert("No hay datos de guardias para exportar.");
+        return;
+    }
+
+    monthsToExport.forEach(mStr => {
+        const [yStr, mStrIdx] = mStr.split('_');
+        const y = parseInt(yStr), m = parseInt(mStrIdx) - 1;
+        const days = getDaysInMonth(y, m);
+        const sheetName = `${MONTHS[m].substring(0,3)} ${y}`;
+
+        // Construir la tabla de este mes
+        const dataGlobal = []; 
+        const hGlobal = ["Residente"];
+        
+        // Determinar qué servicios mostrar
+        let targetServices = svcName === 'ALL' ? plan.servicios.map(s => s.nombre) : [svcName];
+        
+        // Cabecera de días
+        for (let d = 1; d <= days; d++) hGlobal.push(`${d}`);
+        hGlobal.push("Total");
+        dataGlobal.push(hGlobal);
+
+        residents.forEach(user => { 
+            const row = [user]; let total = 0; 
+            for(let d=1; d<=days; d++) { 
+                const ds = shiftsToUse[formatDateKey(y, m, d)] || {}; 
+                let mySvc = ds[user];
+                if (!mySvc && isMercado) { 
+                    const vre = Object.keys(ds).find(k => k.startsWith('VRE_') && ds[k]); 
+                    if(vre && targetServices.includes(ds[vre])) mySvc = ds[vre]; 
+                }
+                
+                if (mySvc && targetServices.includes(mySvc)) {
+                    total++; 
+                    row.push(mySvc.substring(0,3).toUpperCase()); 
+                } else {
+                    row.push(""); 
+                }
+            } 
+            row.push(total); dataGlobal.push(row); 
+        });
+
+        const ws = XLSX.utils.aoa_to_sheet(dataGlobal); 
+        for(let d=1; d<=days; d++) { 
+            if (state.festivos && state.festivos[formatDateKey(y, m, d)]) { 
+                for (let r = 0; r <= residents.length; r++) { 
+                    const cell = ws[XLSX.utils.encode_cell({r: r, c: d})]; 
+                    if (cell) cell.s = STYLE_FESTIVO; 
+                } 
+            } 
+        }
+        
+        // Solo añadimos la hoja si hay residentes (ya filtrados arriba)
+        XLSX.utils.book_append_sheet(wb, ws, sheetName);
     });
 
-    XLSX.writeFile(wb, `Guardias_${suffix}_${MONTHS[m]}_${y}.xlsx`);
+    let filename = `Guardias_${planName}_${svcName === 'ALL' ? 'Todos' : svcName}_${suffix}.xlsx`;
+    XLSX.writeFile(wb, filename);
+    document.getElementById('export-modal').style.display = 'none';
 }
 
 // RESTO DE FUNCIONES MENORES (Mercadillo UI, Admin Logs...)

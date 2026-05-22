@@ -223,11 +223,10 @@
         </div>
 
         <div id="aview-export" style="display:none;">
-          <h3>Exportación Universal</h3>
-          <p style="font-size:0.85rem; color:#64748b; margin-bottom:1.5rem;">Descarga un Excel multi-hoja con el cuadrante global y las tablas específicas de cada servicio.</p>
+          <h3>Exportación Avanzada</h3>
+          <p style="font-size:0.85rem; color:#64748b; margin-bottom:1.5rem;">Descarga un Excel personalizado filtrando por Plan de Guardia, Servicio y Mes.</p>
           <div style="display:flex; gap:10px; flex-wrap:wrap;">
-             <button class="primary" onclick="exportUniversal(false)">⬇️ Descargar Original (RRHH)</button>
-             <button class="merc" onclick="exportUniversal(true)">⬇️ Descargar Mercadillo (Actualizado)</button>
+             <button class="primary" style="padding: 0.8rem 1.5rem; font-size:1.1rem;" onclick="openExportModal()">📊 Abrir Exportador Avanzado</button>
           </div>
         </div>
 
@@ -270,8 +269,32 @@
 <div id="modal-container"></div>
 <datalist id="lista-usuarios-aprobados"></datalist>
 
+    <div id="export-modal" class="modal" style="display:none;">
+        <div class="modal-content" style="max-width:500px;">
+            <h2 style="margin-top:0; color:var(--dark);">📊 Exportar Excel</h2>
+            
+            <label style="display:block; margin-top:1rem; font-weight:bold;">1. Selecciona el Plan de Guardias:</label>
+            <select id="exp-plan" style="width:100%; padding:8px;" onchange="updateExportServices()"></select>
 
+            <label style="display:block; margin-top:1rem; font-weight:bold;">2. Selecciona el Servicio:</label>
+            <select id="exp-svc" style="width:100%; padding:8px;"></select>
 
-<script src="app.js"></script>
+            <label style="display:block; margin-top:1rem; font-weight:bold;">3. Selecciona el Mes / Periodo:</label>
+            <select id="exp-period" style="width:100%; padding:8px;"></select>
+
+            <label style="display:block; margin-top:1rem; font-weight:bold;">4. Origen de los Datos:</label>
+            <select id="exp-type" style="width:100%; padding:8px;">
+                <option value="merc">Mercadillo (Guardias Finales Actualizadas)</option>
+                <option value="orig">Calendario Original (Plantilla Inicial RRHH)</option>
+            </select>
+
+            <div style="margin-top:1.5rem; display:flex; justify-content:flex-end; gap:10px;">
+                <button onclick="document.getElementById('export-modal').style.display='none'">Cancelar</button>
+                <button class="primary" onclick="executeExport()">⬇️ Descargar Excel</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
 </body>
 </html>
