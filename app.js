@@ -2683,8 +2683,20 @@ function renderAlertaCargaMensual() {
             </div>
             Quedan <b>${Math.ceil(analisis.exceso)} festivo(s) de exceso</b> este mes. Cualquier residente puede adjudicárselos voluntariamente ahora mismo. 
             Si siguen desiertos al cerrar el plazo, el motor se los exigirá forzosamente a: ${nombresImplicados}.
+            
+            <div style="margin-top:15px;">
+                <button onclick="forzarCierreSubasta(${y}, ${m})" class="primary icon-btn" style="background:#dc2626; border-color:#b91c1c;">🚫 Forzar Cierre de Subasta Ahora</button>
+            </div>
         </div>`;
     }
+}
+
+async function forzarCierreSubasta(y, m) {
+    if (!confirm("¿Seguro que quieres cerrar la subasta inmediatamente? Se requerirá la inyección forzosa para cubrir los huecos restantes.")) return;
+    if (!state.subastasCerradasForzosas) state.subastasCerradasForzosas = {};
+    state.subastasCerradasForzosas[`${y}_${m}`] = true;
+    await saveState();
+    renderAll();
 }
 
 async function ejecutarAsignacionForzosa(y, m) {
@@ -2871,7 +2883,9 @@ function getAnalisisFestivos(y, m) {
         const hoy = new Date();
         hoy.setHours(0,0,0,0);
         
-        if (hoy < fechaCierre) {
+        const isForzada = state.subastasCerradasForzosas && state.subastasCerradasForzosas[`${y}_${m}`];
+        
+        if (hoy < fechaCierre && !isForzada) {
             estado = 'subasta_abierta';
             diasParaCierre = Math.ceil((fechaCierre - hoy) / (1000 * 60 * 60 * 24));
         } else {
