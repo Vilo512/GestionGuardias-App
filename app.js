@@ -694,7 +694,7 @@ function hasAvailableLegalSlots(user, y, m, svc, rule) {
 
         // 5. ¿El servicio está lleno este día?
         let currentAssigned = Object.keys(dayShifts || {}).filter(u => dayShifts[u] === svc.nombre).length;
-        if (currentAssigned >= (svc.plazasPorDia || 1)) continue; 
+        if (svc.plazasPorDia > 0 && currentAssigned >= svc.plazasPorDia) continue; 
 
         // 6. ¿Genera conflicto de saliente si se lo pongo?
         let tempShifts = JSON.parse(JSON.stringify(state.shifts || {}));
@@ -719,7 +719,7 @@ function hasAvailableLegalSlotsForService(user, y, m, svc) {
         if (isUserBusyOnDay(user, dk)) continue;
         
         let currentAssigned = Object.keys(dayShifts || {}).filter(u => dayShifts[u] === svc.nombre).length;
-        if (currentAssigned >= (svc.plazasPorDia || 1)) continue;
+        if (svc.plazasPorDia > 0 && currentAssigned >= svc.plazasPorDia) continue;
 
         let projected = JSON.parse(JSON.stringify(state.shifts || {}));
         if (!projected[dk]) projected[dk] = {};
@@ -1482,7 +1482,7 @@ holders.forEach(h => {
         else if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dateKey) && !isMine) { disabled = true; reason = "Día no habilitado."; }
         else if (isUserBusyOnDay(loggedInUser, dateKey) && !isMine) { disabled = true; reason = "Ya tienes guardia hoy."; }
         else if (!isMyTurn && !isMine) { disabled = true; reason = `Bloqueado (Toca a ${turnUser}).`; }
-        else if (holders.length >= svc.plazasPorDia && !isMine) { disabled = true; reason = `Completo (${holders.length}/${svc.plazasPorDia}).`; }
+        else if (svc.plazasPorDia > 0 && holders.length >= svc.plazasPorDia && !isMine) { disabled = true; reason = `Completo (${holders.length}/${svc.plazasPorDia}).`; }
         else if (isMyTurn && !isMine && !isUserPending) {
             if (pData && pData.countTotal >= svc.cupoMensualTotal) { disabled = true; reason = "Cupo mensual completado."; }
             if (!disabled && pData && pData.missingTotal === 1 && !pData.rulesOk) {
@@ -1491,7 +1491,7 @@ holders.forEach(h => {
             }
         }
 
-        let occStr = holders.length > 0 ? `Ocupado (${holders.length}/${svc.plazasPorDia})` : 'Libre';
+        let occStr = holders.length > 0 ? `Ocupado (${holders.length}${svc.plazasPorDia > 0 ? '/' + svc.plazasPorDia : ''})` : 'Libre';
         
 // B) INTERFAZ PARA EL RESIDENTE LOGUEADO
 if (isMine) {
@@ -1755,8 +1755,8 @@ function renderAdminAjustes() {
                 <input type="number" id="cfg-cupo-${pIdx}-${i}" value="${svc.cupoMensualTotal}" min="0" style="margin:0;">
              </div>
              <div style="flex:1; min-width:120px;">
-                <label style="font-size:0.8rem; color:#64748b; display:block; margin-bottom:4px;">Plazas por día</label>
-                <input type="number" id="cfg-plazas-${pIdx}-${i}" value="${svc.plazasPorDia}" min="1" style="margin:0;">
+                <label style="font-size:0.8rem; color:#64748b; display:block; margin-bottom:4px;">Plazas por día (0 = ilimitado)</label>
+                <input type="number" id="cfg-plazas-${pIdx}-${i}" value="${svc.plazasPorDia}" min="0" style="margin:0;">
              </div>
 				<div style="flex:1; min-width:80px; display:flex; flex-direction:column;">
                 <label style="font-size:0.8rem; color:#64748b; margin-bottom:4px;">Color</label>
@@ -1950,7 +1950,7 @@ function syncConfigFromUI() {
       if (cupoSvc) svc.cupoMensualTotal = parseInt(cupoSvc.value) || 0;
 
       const plazasSvc = document.getElementById(`cfg-plazas-${pIdx}-${i}`);
-      if (plazasSvc) svc.plazasPorDia = parseInt(plazasSvc.value) || 1;
+      if (plazasSvc) svc.plazasPorDia = parseInt(plazasSvc.value) >= 0 ? parseInt(plazasSvc.value) : 1;
 
       const colSvc = document.getElementById(`cfg-col-${pIdx}-${i}`);
       if (colSvc) svc.color = colSvc.value;
@@ -2654,7 +2654,7 @@ function calcularViabilidadFestivosMensual(ano, mes) {
                 
                 // Si es festivo/fin de semana, O si el servicio exige cobertura total siempre
                 if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal' || svc.coberturaObligatoria) {
-                    huecosFestivosObligatorios += (svc.plazasPorDia || 1);
+                    huecosFestivosObligatorios += (svc.plazasPorDia > 0 ? svc.plazasPorDia : 0);
                 }
             });
         }
@@ -2806,7 +2806,7 @@ async function ejecutarAsignacionForzosa(y, m, targetSvcNombre) {
                     if (state.shifts[dk][u] === svc.nombre && !u.startsWith('VRE')) assignedCount++;
                 }
             }
-            const needed = (svc.plazasPorDia || 1);
+            const needed = (svc.plazasPorDia > 0 ? svc.plazasPorDia : 0);
             if (assignedCount < needed) {
                 for (let i = 0; i < (needed - assignedCount); i++) {
                     huecosLibres.push({ dk, svc: svc.nombre });
@@ -2955,7 +2955,7 @@ function getAnalisisFestivos(y, m) {
             if (svc.subastaTrigger.includes(tag)) {
                 if (svc.requiereHabilitacion && !state.pedWhitelist[dk]) continue;
                 
-                const needed = (svc.plazasPorDia || 1);
+                const needed = (svc.plazasPorDia > 0 ? svc.plazasPorDia : 0);
                 huecosObligatoriosSvc += needed;
                 
                 if (state.shifts[dk]) {
