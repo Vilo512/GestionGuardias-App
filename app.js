@@ -694,7 +694,8 @@ function hasAvailableLegalSlots(user, y, m, svc, rule) {
 
         // 5. ¿El servicio está lleno este día?
         let currentAssigned = Object.keys(dayShifts || {}).filter(u => dayShifts[u] === svc.nombre).length;
-        if (svc.plazasPorDia > 0 && currentAssigned >= svc.plazasPorDia) continue; 
+        let pd = getPlazasForDay(svc, dk);
+        if (pd > 0 && currentAssigned >= pd) continue; 
 
         // 6. ¿Genera conflicto de saliente si se lo pongo?
         let tempShifts = JSON.parse(JSON.stringify(state.shifts || {}));
@@ -719,7 +720,8 @@ function hasAvailableLegalSlotsForService(user, y, m, svc) {
         if (isUserBusyOnDay(user, dk)) continue;
         
         let currentAssigned = Object.keys(dayShifts || {}).filter(u => dayShifts[u] === svc.nombre).length;
-        if (svc.plazasPorDia > 0 && currentAssigned >= svc.plazasPorDia) continue;
+        let pd = getPlazasForDay(svc, dk);
+        if (pd > 0 && currentAssigned >= pd) continue;
 
         let projected = JSON.parse(JSON.stringify(state.shifts || {}));
         if (!projected[dk]) projected[dk] = {};
@@ -1303,15 +1305,28 @@ function getServiceColor(svcName) {
 
 // Ayudante para verificar habilitaciones dinámicas
 function isServiceEnabledOnDate(svcName, dk) {
-    // 1. Miramos en el objeto central que guarda todas las habilitaciones
-    if (state.habilitaciones && state.habilitaciones[dk] && state.habilitaciones[dk][svcName]) {
+    const pData = (promoConfig.planes || []).find(p => p.servicios.some(s => s.nombre === svcName));
+    if (!pData) return false;
+    const svc = pData.servicios.find(s => s.nombre === svcName);
+    if (!svc) return false;
+    
+    if (!svc.requiereHabilitacion) return true;
+    
+    if (state.habilitaciones && state.habilitaciones[dk] && state.habilitaciones[dk][svcName] !== false && state.habilitaciones[dk][svcName] !== undefined) {
         return true;
     }
-    // 2. Retrocompatibilidad para Pediatría
-    if (svcName === 'Pediatría' && state.pedWhitelist && state.pedWhitelist[dk]) {
+    if (svcName === 'Pediatría' && state.pedWhitelist && state.pedWhitelist[dk] !== false && state.pedWhitelist[dk] !== undefined) {
         return true;
     }
     return false;
+}
+
+function getPlazasForDay(svc, dk) {
+    if (svc.requiereHabilitacion && state.habilitaciones && state.habilitaciones[dk] && state.habilitaciones[dk][svc.nombre] !== undefined && state.habilitaciones[dk][svc.nombre] !== false) {
+        let val = state.habilitaciones[dk][svc.nombre];
+        if (typeof val === 'number') return val;
+    }
+    return svc.plazasPorDia >= 0 ? svc.plazasPorDia : 1;
 }
 
 // ==========================================
@@ -1476,13 +1491,14 @@ holders.forEach(h => {
         
         let disabled = false; let reason = "";
         let pData = pDataFull[svc.nombre];
+        let pd = getPlazasForDay(svc, dateKey);
 
         if (isUserPending && !isMine) { disabled = true; reason = "Turno bloqueado (Pendiente Admin)."; }
         else if (isIllegal && !isMine) { disabled = true; reason = "Ilegal: Choca con Saliente"; }
         else if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dateKey) && !isMine) { disabled = true; reason = "Día no habilitado."; }
         else if (isUserBusyOnDay(loggedInUser, dateKey) && !isMine) { disabled = true; reason = "Ya tienes guardia hoy."; }
         else if (!isMyTurn && !isMine) { disabled = true; reason = `Bloqueado (Toca a ${turnUser}).`; }
-        else if (svc.plazasPorDia > 0 && holders.length >= svc.plazasPorDia && !isMine) { disabled = true; reason = `Completo (${holders.length}/${svc.plazasPorDia}).`; }
+        else if (pd > 0 && holders.length >= pd && !isMine) { disabled = true; reason = `Completo (${holders.length}/${pd}).`; }
         else if (isMyTurn && !isMine && !isUserPending) {
             if (pData && pData.countTotal >= svc.cupoMensualTotal) { disabled = true; reason = "Cupo mensual completado."; }
             if (!disabled && pData && pData.missingTotal === 1 && !pData.rulesOk) {
@@ -1491,7 +1507,7 @@ holders.forEach(h => {
             }
         }
 
-        let occStr = holders.length > 0 ? `Ocupado (${holders.length}${svc.plazasPorDia > 0 ? '/' + svc.plazasPorDia : ''})` : 'Libre';
+        let occStr = holders.length > 0 ? `Ocupado (${holders.length}${pd > 0 ? '/' + pd : ''})` : 'Libre';
         
 // B) INTERFAZ PARA EL RESIDENTE LOGUEADO
 if (isMine) {
@@ -2141,32 +2157,71 @@ function renderAdminCalendar() {
         
         // Lógica de habilitación
         if (currentVal.startsWith('svc_')) {
-            // Extraemos info del valor: "svc_NombreServicio_NombrePlan"
             const parts = currentVal.replace('svc_', '').split('_');
             const svcName = parts[0]; 
             const planName = parts[1];
             
-            // Verificamos estado (aquí usamos el nombre del servicio para buscar en el state)
             const isEnabled = isServiceEnabledOnDate(svcName, dateKey);
             
-            // Buscamos color configurado en ese plan específico
             const targetPlan = promoConfig.planes.find(p => p.nombre === planName);
             const targetSvc = targetPlan ? targetPlan.servicios.find(s => s.nombre === svcName) : null;
             const colorHex = targetSvc ? targetSvc.color : '#fde047';
             
-            /* handled by getCellBackgroundStyle */
+            if (isEnabled && targetSvc) {
+                let pd = getPlazasForDay(targetSvc, dateKey);
+                let dayShifts = state.shifts && state.shifts[dateKey] ? Object.keys(state.shifts[dateKey]).filter(u => state.shifts[dateKey][u] === svcName).length : 0;
+                cell.innerHTML += `<div style="font-size:0.65rem; background:rgba(255,255,255,0.7); border-radius:3px; padding:1px 3px; display:inline-block; position:absolute; bottom:2px; right:2px;">${dayShifts}${pd > 0 ? '/' + pd : ''}</div>`;
+                cell.style.position = 'relative';
+            }
+
+            let longPressTimer;
+            const clearTimer = () => clearTimeout(longPressTimer);
             
-// 💡 CORRECCIÓN: Aseguramos que la lógica de cambio de estado sea correcta
-            cell.onclick = () => {
+            cell.onmousedown = (e) => {
+                // Ignore right click
+                if (e.button !== 0) return;
+                
+                longPressTimer = setTimeout(() => {
+                    // LONG PRESS: Custom value
+                    if (!state.habilitaciones) state.habilitaciones = {};
+                    if (!state.habilitaciones[dateKey]) state.habilitaciones[dateKey] = {};
+                    
+                    const current = state.habilitaciones[dateKey][svcName];
+                    let num = prompt("Introduce el número de plazas PERSONALIZADO para este día (o 0 para ilimitado, o deja vacío para cancelar):", typeof current === 'number' ? current : (targetSvc ? targetSvc.plazasPorDia : 1));
+                    if (num === null || num.trim() === '') return;
+                    
+                    let parsed = parseInt(num);
+                    if (!isNaN(parsed) && parsed >= 0) {
+                        state.habilitaciones[dateKey][svcName] = parsed;
+                    }
+                    
+                    if (svcName === 'Pediatría') state.pedWhitelist[dateKey] = state.habilitaciones[dateKey][svcName] !== false;
+                    
+                    saveState(); 
+                    renderAdminCalendar();
+                }, 600);
+            };
+            
+            cell.onmouseup = (e) => {
+                if (e.button !== 0) return;
+                clearTimer();
+            };
+            
+            cell.onmouseleave = clearTimer;
+            cell.ondragstart = clearTimer;
+
+            cell.onclick = (e) => {
+                if (e.detail === 0) return; // sometimes triggered by long press cancel
+                
                 if (!state.habilitaciones) state.habilitaciones = {};
                 if (!state.habilitaciones[dateKey]) state.habilitaciones[dateKey] = {};
                 
-                // Si el valor es true, lo pone a false. Si es undefined o false, lo pone a true.
-                const estadoActual = !!state.habilitaciones[dateKey][svcName];
-                state.habilitaciones[dateKey][svcName] = !estadoActual;
+                const actual = state.habilitaciones[dateKey][svcName];
+                const currentlyEnabled = actual !== undefined && actual !== false;
                 
-                // Sincro legacy
-                if (svcName === 'Pediatría') state.pedWhitelist[dateKey] = state.habilitaciones[dateKey][svcName];
+                state.habilitaciones[dateKey][svcName] = currentlyEnabled ? false : (targetSvc ? targetSvc.plazasPorDia : 1);
+                
+                if (svcName === 'Pediatría') state.pedWhitelist[dateKey] = !!state.habilitaciones[dateKey][svcName];
                 
                 saveState(); 
                 renderAdminCalendar(); 
