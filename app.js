@@ -2699,13 +2699,16 @@ function getAnalisisFestivos(y, m) {
 
     for (let d = 1; d <= totalDias; d++) {
         const tag = getDayTag(y, m, d);
-        if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal') {
-            const dk = formatDateKey(y, m, d);
-            miPlan.servicios.forEach(svc => {
-                if (svc.requiereHabilitacion && !state.pedWhitelist[dk]) return;
+        const dk = formatDateKey(y, m, d);
+        
+        miPlan.servicios.forEach(svc => {
+            if (svc.requiereHabilitacion && !state.pedWhitelist[dk]) return;
+            
+            // Sumamos si es finde/festivo, O si el servicio es de cobertura obligatoria (aplica a todos los días habilitados)
+            if (tag === 'fin_de_semana' || tag === 'festivo_intersemanal' || svc.coberturaObligatoria) {
                 huecosFestivosObligatorios += (svc.plazasPorDia || 1);
-            });
-        }
+            }
+        });
     }
 
     const residentes = getAllResidents();
