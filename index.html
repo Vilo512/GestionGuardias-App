@@ -19,7 +19,7 @@
 </div>
 
 <div class="tabs" style="display:none;">
-    <button class="tab active" onclick="nav('cal')" id="tab-cal">Calendario</button>
+    <button class="tab active" onclick="nav('cal')" id="tab-cal">Asignar guardias 🗓️</button>
     <button class="tab" onclick="nav('merc')" id="tab-merc">Mercadillo 🛒</button>
     <button class="tab" onclick="nav('rot')" id="tab-rot">Rotación</button>
     <button class="tab" onclick="nav('grupos')" id="tab-grupos">Grupos 🏥</button> 
@@ -61,6 +61,9 @@
 
   <div id="pane-cal" style="display:none;">
     <div class="card">
+      <div style="background:#fffbeb; border-left:4px solid #f59e0b; padding:10px; margin-bottom:15px; font-size:0.9rem; color:#92400e;">
+         ⚠️ <strong>ATENCIÓN:</strong> En esta pestaña se realiza la Asignación Inicial de guardias. Una vez termines de elegir, tu cuadrante <strong>NO se modificará aquí</strong>. Para realizar cambios, cesiones o intercambios con compañeros a posteriori, dirígete a la pestaña <strong>Mercadillo 🛒</strong>.
+      </div>
       <div class="cal-header-nav">
         <button onclick="changeMonth(-1)">◀ Ant</button>
         <div style="text-align: center;">
@@ -155,10 +158,32 @@
   
   <div id="pane-help" style="display:none;">
     <div class="card">
-      <h3>Guía rápida de AsignaGuardias 🩺</h3>
+      <h3 style="margin-bottom:1rem;">📖 Guía de Uso de AsignaGuardias</h3>
+      
+      <div class="help-section" style="margin-bottom: 2rem;">
+        <h4 style="color:var(--dark); border-bottom: 1px solid #e2e8f0; padding-bottom:0.5rem;">👤 PARA USUARIOS (Residentes)</h4>
+        
+        <p><strong>1. Tu Perfil (👤 Mi Perfil)</strong><br>
+        Aquí verás tu contador histórico de guardias, podrás configurar tu apodo y activar el envío de correos electrónicos. Es vital que introduzcas tu email real para recibir notificaciones cuando te toque elegir guardia o si alguien te compra una guardia en el Mercadillo.</p>
+
+        <p><strong>2. Calendario de Asignación (Asignar guardias 🗓️)</strong><br>
+        Cuando el Administrador abra el mes, recibirás un email. Al entrar aquí, si es tu turno, podrás elegir **todas tus guardias del mes de golpe**. Fíjate bien en el panel superior: debes cumplir los cupos mínimos por servicio y el mínimo de festivos exigidos. Si la guardia es ilegal (ej. no respetas el descanso post-guardia), el sistema te impedirá guardar. Si quedan guardias huérfanas al acabar el plazo general, el algoritmo las sorteará e inyectará a quienes tengan menos guardias históricas acumuladas.</p>
+
+        <p><strong>3. Cambios y Cesiones (Mercadillo 🛒)</strong><br>
+        Una vez tengas tus guardias asignadas, si quieres cambiar, vender o regalar una guardia, debes ir al Mercadillo. Puedes publicar tus guardias para que otros las compren, o comprar las de tus compañeros. Todo movimiento genera una notificación por email. En esta misma pestaña encontrarás un <strong>Registro Público</strong> donde queda anotado de forma transparente quién ha comprado o vendido cada guardia.</p>
+      </div>
+
       <div class="help-section">
-        <h4>Motor Dinámico V9.5</h4>
-        <p>El sistema ahora es 100% dinámico. Las reglas, cupos y salientes varían según la configuración que tu administrador haya establecido en la pestaña Ajustes. Solo tienes que seguir las indicaciones del cartel amarillo cuando sea tu turno.</p>
+        <h4 style="color:#b91c1c; border-bottom: 1px solid #e2e8f0; padding-bottom:0.5rem;">👑 PARA ADMINISTRADORES</h4>
+        
+        <p><strong>1. Configuración de Reglas (Admin -> Ajustes)</strong><br>
+        Define cupos mensuales, reglas de salientes y qué servicios entran en Subasta (y con qué criterio se desempatan). Puedes exportar estas reglas en TXT para máxima transparencia.</p>
+
+        <p><strong>2. Habilitación de Días (Admin -> Calendario)</strong><br>
+        Si has configurado un servicio con la opción <em>"Requiere habilitación manual"</em> (ej. Pediatría solo algunos días), debes ir a la pestaña <strong>Admin -> Calendario</strong>. Selecciona el servicio en el "Pincel activo" y haz clic en los días concretos del calendario para "pintarlos" y habilitar que los residentes puedan elegir ese servicio en esos días. Los días no pintados estarán bloqueados.</p>
+
+        <p><strong>3. Gestión del Turno</strong><br>
+        En la pestaña Admin, verás quién está eligiendo. Puedes saltar el turno manualmente o cerrar el mes (lo que disparará la Subasta automática y cerrará el cuadrante). Tras cerrar, puedes ir a "Exportar" para sacar el Excel para RRHH.</p>
       </div>
     </div>
   </div>
