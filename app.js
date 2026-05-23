@@ -3505,6 +3505,18 @@ function renderPerfilUsuario() {
 
             <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between;">
                 <div>
+                    <h3 style="margin-bottom: 12px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">🎓 Inicio de Residencia</h3>
+                    <div style="margin-bottom: 12px;">
+                        <label style="font-size: 0.8rem; font-weight: bold; color: #64748b; display: block; margin-bottom: 4px;">Fecha de Inicio Oficial (R1):</label>
+                        <input type="date" id="perfil-fecha-inicio" value="${uProfile.fecha_inicio_residencia || ''}" style="margin:0; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%; background: white;">
+                    </div>
+                    <p style="font-size: 0.8rem; color: #94a3b8; line-height: 1.4;">* Esta es la fecha exacta (con año) en la que empezaste el contrato de R1. Sirve para saber qué plan aplicarte.</p>
+                </div>
+                <button onclick="guardarFechaInicioPerfil()" style="width:100%; margin-top: 16px; background: var(--merc); color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer;">🔄 Actualizar Inicio</button>
+            </div>
+
+            <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between;">
+                <div>
                     <h3 style="margin-bottom: 12px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">🪪 Datos de Contrato</h3>
                     <div style="margin-bottom: 12px;">
                         <label style="font-size: 0.8rem; font-weight: bold; color: #64748b; display: block; margin-bottom: 4px;">Día y Mes de Cambio de Nivel (R):</label>
