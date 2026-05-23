@@ -1181,6 +1181,36 @@ function navAdmin(sub) {
   if (sub === 'calendario') renderAdminCalendar();
   if (sub === 'excepciones') renderAdminExceptions();
   if (sub === 'ajustes') renderAdminAjustes();
+  if (sub === 'seguridad') renderAdminSeguridad();
+}
+
+async function renderAdminSeguridad() {
+    const { data: promo, error } = await supabaseClient.from('promociones').select('servicio, nombre').eq('id', currentUserProfile.promocion_id).single();
+    if (!error && promo) {
+        document.getElementById('edit-promo-servicio').value = promo.servicio || '';
+        document.getElementById('edit-promo-nombre').value = promo.nombre || '';
+    }
+}
+
+async function adminUpdatePromoDetails() {
+    const newServicio = document.getElementById('edit-promo-servicio').value.trim();
+    const newNombre = document.getElementById('edit-promo-nombre').value.trim();
+    if (!newServicio || !newNombre) return alert("Los campos no pueden estar vacíos.");
+    
+    setStatus('Guardando...');
+    const { error } = await supabaseClient.from('promociones').update({
+        servicio: newServicio,
+        nombre: newNombre
+    }).eq('id', currentUserProfile.promocion_id);
+    
+    if (error) {
+        alert("Error al actualizar: " + error.message);
+        setStatus('Error ❌');
+    } else {
+        alert("¡Datos de la promoción actualizados correctamente!");
+        setStatus('Conectado ✅');
+        window.location.reload(); // Reload to refresh headers
+    }
 }
 
 function changeMonth(delta) {

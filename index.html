@@ -200,8 +200,8 @@
           <button class="tab" onclick="navAdmin('excepciones')" id="atab-excepciones">Excepciones</button>
           <button class="tab" onclick="navAdmin('export')" id="atab-export" style="color:var(--merc);">Exportar ⬇️</button>
           <button class="tab" onclick="navAdmin('cuentas')" id="atab-cuentas">Cuentas</button>
-          <button class="tab" onclick="navAdmin('ajustes')" id="atab-ajustes">Ajustes ⚙️</button>
-          <button class="tab" onclick="navAdmin('seguridad')" id="atab-seguridad">Peligro ⚠️</button>
+          <button class="tab" onclick="navAdmin('ajustes')" id="atab-ajustes">Planes de guardias ⚙️</button>
+          <button class="tab" onclick="navAdmin('seguridad')" id="atab-seguridad">Ajustes ⚙️</button>
         </div>
       </div>
 
@@ -276,11 +276,21 @@
     </div>
 
         <div id="aview-seguridad" style="display:none;">
-          <h3>Seguridad y Destrucción</h3>
+          <h3>Ajustes de la Promoción</h3>
           
-          
+          <div style="margin-top: 1.5rem; padding: 1.5rem; border: 1px solid #cbd5e1; border-radius: 8px; background: #f8fafc;">
+            <p style="font-size: 0.85rem; color: #475569; margin-bottom: 1rem;">Edita el nombre de tu especialidad o el alias del grupo si te equivocaste al crearlo.</p>
+            <div style="display:flex; flex-direction:column; gap:10px;">
+                <label style="font-weight:bold; font-size:0.9rem;">Especialidad:</label>
+                <input type="text" id="edit-promo-servicio" placeholder="Ej. Traumatología" style="padding:8px; border:1px solid #cbd5e1; border-radius:4px;">
+                <label style="font-weight:bold; font-size:0.9rem;">Alias/Contenedor:</label>
+                <input type="text" id="edit-promo-nombre" placeholder="Ej. Toda la Residencia" style="padding:8px; border:1px solid #cbd5e1; border-radius:4px;">
+                <button class="primary" style="background:var(--dark); max-width:200px; margin-top:5px;" onclick="adminUpdatePromoDetails()">Guardar Cambios</button>
+            </div>
+          </div>
 
-          <div style="margin-top: 1.5rem; padding: 1.5rem; border: 2px dashed #ef4444; border-radius: 8px; background: #fef2f2;">
+          <div style="margin-top: 2rem; padding: 1.5rem; border: 2px dashed #ef4444; border-radius: 8px; background: #fef2f2;">
+            <h4 style="color:#b91c1c; margin-top:0;">⚠️ Zona de Peligro</h4>
             <p style="font-size: 0.85rem; color: #7f1d1d; margin-bottom: 1rem;">[SÓLO SI TE HAS EQUIVOCADO EN LA CREACIÓN.] Borrar esta promoción eliminará permanentemente todos los calendarios, guardias y reglas. Esta acción <b>NO se puede deshacer</b>. </p>
             <button class="danger" style="background: #ef4444; color: white;" onclick="adminDeletePromotion()">🗑️ Borrar Promoción y Calendarios</button>
           </div>
