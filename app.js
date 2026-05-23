@@ -2553,7 +2553,7 @@ async function renderAccountsList() {
               if (u.rol !== 'admin') {
                   acciones += `<button class="primary icon-btn" style="margin-right:4px; background:var(--dark);" onclick="adminCambiarRol('${u.id}', 'admin')">Hacer Delegado</button>`;
               } else {
-                  acciones += `<button class="danger icon-btn" style="margin-right:4px;" onclick="adminCambiarRol('${u.id}', 'user')">Quitar Delegado</button>`;
+                  acciones += `<button class="danger icon-btn" style="margin-right:4px;" onclick="adminCambiarRol('${u.id}', 'residente')">Quitar Delegado</button>`;
               }
               acciones += `<button class="primary icon-btn" style="background:var(--adu);" onclick="adminTraspasarCorona('${u.id}', '${u.nombre_mostrar}')">Coronar Dueño</button>`;
           }
@@ -2572,7 +2572,7 @@ async function renderAccountsList() {
 async function adminRenunciarPrivilegios() {
     if (!confirm("¿Seguro que quieres renunciar a tus privilegios de Administrador? Volverás a ser un residente normal y perderás el acceso a esta pestaña.")) return;
     setStatus('Renunciando...');
-    await supabaseClient.from('perfiles').update({ rol: 'user' }).eq('id', currentUserProfile.id);
+    await supabaseClient.from('perfiles').update({ rol: 'residente' }).eq('id', currentUserProfile.id);
     window.location.reload();
 }
 
