@@ -2102,7 +2102,7 @@ function exportarReglasTexto() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `Reglas_Subastas_AsignaGuardias.txt`;
+    a.download = `Reglas_Subastas_GestionGuardias.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
