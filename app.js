@@ -2578,8 +2578,10 @@ async function adminRenunciarPrivilegios() {
 
 async function adminCambiarRol(userId, nuevoRol) {
     setStatus('Actualizando rol...');
-    await supabaseClient.from('perfiles').update({ rol: nuevoRol }).eq('id', userId);
-    renderAccountsList();
+    const { error } = await supabaseClient.from('perfiles').update({ rol: nuevoRol }).eq('id', userId);
+    if(error) alert("Error: " + error.message);
+    await renderAccountsList();
+    setStatus('Conectado ✅');
 }
 
 async function adminTraspasarCorona(userId, userName) {
@@ -2587,7 +2589,8 @@ async function adminTraspasarCorona(userId, userName) {
     setStatus('Traspasando corona...');
     await supabaseClient.from('promociones').update({ creador_id: userId }).eq('id', currentUserProfile.promocion_id);
     await supabaseClient.from('perfiles').update({ rol: 'admin' }).eq('id', userId); 
-    renderAccountsList();
+    await renderAccountsList();
+    setStatus('Conectado ✅');
 }
 
 async function adminAprobarUsuario(userId, userName) {
@@ -2604,11 +2607,14 @@ async function adminAprobarUsuario(userId, userName) {
     // 3. Dejamos que las matemáticas tracen las nuevas fronteras 3-4
     state.baseGroups = reempaquetarGrupos(filaIndia);
     
-    await saveState(); await renderAccountsList(); setStatus('Sincronizado ✅');
+    await saveState(); 
+    await renderAccountsList(); 
+    setStatus('Conectado ✅');
 }
 
 async function adminExpulsarUsuario(userId, userName) {
     if(!confirm(`¿Seguro que quieres expulsar a ${userName}?`)) return;
+    setStatus('Expulsando...');
     await supabaseClient.from('perfiles').update({ promocion_id: null, estado: 'pendiente' }).eq('id', userId);
     
     // 1. Convertimos en fila india y extirpamos al que se va
@@ -2618,13 +2624,17 @@ async function adminExpulsarUsuario(userId, userName) {
     // 2. Las matemáticas cierran el hueco y retraza las fronteras
     state.baseGroups = reempaquetarGrupos(filaIndia);
     
-    await saveState(); renderAccountsList();
+    await saveState(); 
+    await renderAccountsList();
+    setStatus('Conectado ✅');
 }
 
 async function adminRechazarUsuario(userId) {
     if(!confirm("¿Rechazar solicitud?")) return;
+    setStatus('Rechazando...');
     await supabaseClient.from('perfiles').update({ promocion_id: null, estado: 'pendiente' }).eq('id', userId);
-    renderAccountsList();
+    await renderAccountsList();
+    setStatus('Conectado ✅');
 }
 
 function renderRotationView() { 
