@@ -2490,7 +2490,15 @@ async function adminVaciarGeneracion() {
 async function adminDeletePromotion() { if (!confirm("⚠️ ¡ALERTA ROJA! ⚠️\nEstás a punto de borrar TODA la promoción y sus calendarios.\nNO se puede deshacer.")) return; if (prompt("Escribe BORRAR en mayúsculas para confirmar:") !== "BORRAR") return; setStatus('Destruyendo grupo...'); const { error } = await supabaseClient.from('promociones').delete().eq('id', currentUserProfile.promocion_id); if (error) alert("Error: " + error.message); else window.location.reload(); }
 
 function renderMercadoInboxAndLog() {
-  if (!loggedInUser) return; const inb = document.getElementById('merc-inbox'); const log = document.getElementById('merc-log'); let myInbox = (state.trades || []).filter(t => (t.status === 'pending' && t.target === loggedInUser) || (t.status === 'undo_pending' && t.undoRequester !== loggedInUser && (t.requester === loggedInUser || t.target === loggedInUser))); if (myInbox.length === 0) inb.innerHTML = `<span style="font-size:0.85rem; color:#94a3b8;">No tienes solicitudes pendientes.</span>`; else { inb.innerHTML = myInbox.map(t => { let desc = ""; if (t.status === 'undo_pending') desc = `⚠️ <b>${t.undoRequester}</b> quiere DESHACER la operación del ${t.timestamp}.`; else if (t.type === 'venta') desc = `💵 <b>${t.requester}</b> te quiere VENDER su guardia de ${t.s1} (${formatDK(t.d1)}).`; else if (t.type === 'compra') desc = `🛒 <b>${t.requester}</b> te quiere COMPRAR tu guardia de ${t.s1} (${formatDK(t.d1)}).`; else if (t.type === 'cambio') desc = `🔄 <b>${t.requester}</b> quiere CAMBIAR su ${t.s1} (${formatDK(t.d1)}) por tu ${t.s2} (${formatDK(t.d2)}).`; return `<div class="trade-row" style="border-left:3px solid var(--merc);"><div>${desc}</div><div style="display:flex; gap:8px;"><button class="primary" style="background:var(--ped); font-size:0.75rem;" onclick="processTrade(${t.id}, true)">✅ Aceptar</button><button class="danger" style="font-size:0.75rem;" onclick="processTrade(${t.id}, false)">❌ Rechazar</button></div></div>`; }).join(''); } let allLogs = (state.trades || []).filter(t => t.status === 'approved' || t.status === 'undone' || t.status === 'undo_pending' || t.status === 'pending'); if (allLogs.length === 0) log.innerHTML = `<span style="font-size:0.85rem; color:#94a3b8;">El historial de mercado está vacío.</span>`; else { log.innerHTML = allLogs.slice().reverse().map(t => { let desc = ""; let isPending = t.status === 'pending'; if (t.type === 'venta') desc = isPending ? `⏳ <b>${t.requester}</b> quiere VENDER su ${t.s1} (${formatDK(t.d1)}) a <b>${t.target}</b>.` : `💵 <b>${t.requester}</b> vendió su ${t.s1} (${formatDK(t.d1)}) a <b>${t.target}</b>.`; else if (t.type === 'compra') desc = isPending ? `⏳ <b>${t.requester}</b> quiere COMPRAR ${t.s1} (${formatDK(t.d1)}) a <b>${t.target}</b>.` : `🛒 <b>${t.requester}</b> compró ${t.s1} (${formatDK(t.d1)}) de <b>${t.target}</b>.`; else if (t.type === 'cambio') desc = isPending ? `⏳ <b>${t.requester}</b> quiere CAMBIAR su ${t.s1} (${formatDK(t.d1)}) por la de <b>${t.target}</b> (${formatDK(t.d2)}).` : `🔄 <b>${t.requester}</b> cambió su ${t.s1} (${formatDK(t.d1)}) por la de <b>${t.target}</b> (${formatDK(t.d2)}).`; let actionBtn = ""; if (t.status === 'approved' && (t.requester === loggedInUser || t.target === loggedInUser)) actionBtn = `<button class="danger icon-btn" style="font-size:0.7rem; padding:2px 6px;" onclick="requestTradeUndo(${t.id})">Deshacer</button>`; else if (isPending && t.requester === loggedInUser) actionBtn = `<button class="danger icon-btn" style="font-size:0.7rem; padding:2px 6px;" onclick="cancelPendingTrade(${t.id})">Cancelar Solicitud</button>`; let statusStyle = ""; let statusLabel = ""; if (t.status === 'undone') { statusStyle = "opacity:0.5; background:#f1f5f9;"; statusLabel = '<b style="color:var(--fest);">(DESHECHO)</b>'; } else if (t.status === 'undo_pending') { statusStyle = "border-left: 3px solid var(--pac);"; statusLabel = '<b style="color:var(--pac);">(DESHACER PENDIENTE)</b>'; } else if (t.status === 'pending') { statusStyle = "border-left: 3px solid #cbd5e1; background:#f8fafc;"; statusLabel = '<b style="color:#64748b;">(PENDIENTE)</b>'; } return `<div class="trade-row" style="${statusStyle}"><div style="display:flex; justify-content:space-between; align-items:flex-start;"><span>${desc} ${statusLabel}</span>${actionBtn}</div><span style="font-size:0.7rem; color:#94a3b8;">${t.timestamp}</span></div>`; }).join(''); }
+  if (!loggedInUser) return; const inb = document.getElementById('merc-inbox'); const log = document.getElementById('merc-log'); let myInbox = (state.trades || []).filter(t => (t.status === 'pending' && t.target === loggedInUser) || (t.status === 'undo_pending' && t.undoRequester !== loggedInUser && (t.requester === loggedInUser || t.target === loggedInUser))); if (myInbox.length === 0) inb.innerHTML = `<span style="font-size:0.85rem; color:#94a3b8;">No tienes solicitudes pendientes.</span>`; else { inb.innerHTML = myInbox.map(t => { let desc = ""; if (t.status === 'undo_pending') desc = `⚠️ <b>${t.undoRequester}</b> quiere DESHACER la operación del ${t.timestamp}.`; else if (t.type === 'venta') desc = `💵 <b>${t.requester}</b> te quiere VENDER su guardia de ${t.s1} (${formatDK(t.d1)}).`; else if (t.type === 'compra') desc = `🛒 <b>${t.requester}</b> te quiere COMPRAR tu guardia de ${t.s1} (${formatDK(t.d1)}).`; else if (t.type === 'cambio') desc = `🔄 <b>${t.requester}</b> quiere CAMBIAR su ${t.s1} (${formatDK(t.d1)}) por tu ${t.s2} (${formatDK(t.d2)}).`; return `<div class="trade-row" style="border-left:3px solid var(--merc);"><div>${desc}</div><div style="display:flex; gap:8px;"><button class="primary" style="background:var(--ped); font-size:0.75rem;" onclick="processTrade(${t.id}, true)">✅ Aceptar</button><button class="danger" style="font-size:0.75rem;" onclick="processTrade(${t.id}, false)">❌ Rechazar</button></div></div>`; }).join(''); } let allLogs = (state.trades || []).filter(t => {
+    if (!['approved', 'undone', 'undo_pending', 'pending'].includes(t.status)) return false;
+    if (t.timestamp) {
+        const [datePart] = t.timestamp.split(' ');
+        const [d, m, y] = datePart.split('/');
+        if (parseInt(m) !== curDate.getMonth() + 1 || parseInt(y) !== curDate.getFullYear()) return false;
+    }
+    return true;
+}); if (allLogs.length === 0) log.innerHTML = `<span style="font-size:0.85rem; color:#94a3b8;">El historial de mercado está vacío.</span>`; else { log.innerHTML = allLogs.slice().reverse().map(t => { let desc = ""; let isPending = t.status === 'pending'; if (t.type === 'venta') desc = isPending ? `⏳ <b>${t.requester}</b> quiere VENDER su ${t.s1} (${formatDK(t.d1)}) a <b>${t.target}</b>.` : `💵 <b>${t.requester}</b> vendió su ${t.s1} (${formatDK(t.d1)}) a <b>${t.target}</b>.`; else if (t.type === 'compra') desc = isPending ? `⏳ <b>${t.requester}</b> quiere COMPRAR ${t.s1} (${formatDK(t.d1)}) a <b>${t.target}</b>.` : `🛒 <b>${t.requester}</b> compró ${t.s1} (${formatDK(t.d1)}) de <b>${t.target}</b>.`; else if (t.type === 'cambio') desc = isPending ? `⏳ <b>${t.requester}</b> quiere CAMBIAR su ${t.s1} (${formatDK(t.d1)}) por la de <b>${t.target}</b> (${formatDK(t.d2)}).` : `🔄 <b>${t.requester}</b> cambió su ${t.s1} (${formatDK(t.d1)}) por la de <b>${t.target}</b> (${formatDK(t.d2)}).`; let actionBtn = ""; if (t.status === 'approved' && (t.requester === loggedInUser || t.target === loggedInUser)) actionBtn = `<button class="danger icon-btn" style="font-size:0.7rem; padding:2px 6px;" onclick="requestTradeUndo(${t.id})">Deshacer</button>`; else if (isPending && t.requester === loggedInUser) actionBtn = `<button class="danger icon-btn" style="font-size:0.7rem; padding:2px 6px;" onclick="cancelPendingTrade(${t.id})">Cancelar Solicitud</button>`; let statusStyle = ""; let statusLabel = ""; if (t.status === 'undone') { statusStyle = "opacity:0.5; background:#f1f5f9;"; statusLabel = '<b style="color:var(--fest);">(DESHECHO)</b>'; } else if (t.status === 'undo_pending') { statusStyle = "border-left: 3px solid var(--pac);"; statusLabel = '<b style="color:var(--pac);">(DESHACER PENDIENTE)</b>'; } else if (t.status === 'pending') { statusStyle = "border-left: 3px solid #cbd5e1; background:#f8fafc;"; statusLabel = '<b style="color:#64748b;">(PENDIENTE)</b>'; } return `<div class="trade-row" style="${statusStyle}"><div style="display:flex; justify-content:space-between; align-items:flex-start;"><span>${desc} ${statusLabel}</span>${actionBtn}</div><span style="font-size:0.7rem; color:#94a3b8;">${t.timestamp}</span></div>`; }).join(''); }
 }
 async function cancelPendingTrade(id) { if (!confirm("¿Cancelar solicitud?")) return; state.trades = state.trades.filter(t => t.id !== id); await saveState(); checkAutomaticGraduation();
     renderAll(); }
@@ -3736,4 +3744,57 @@ function checkAutomaticGraduation() {
     if (changed) {
         saveState();
     }
+}
+
+// ==========================================
+// EXPORTADOR DE LOG MERCADILLO
+// ==========================================
+function exportarLogMercadillo() {
+    const fromVal = document.getElementById('export-merc-desde').value;
+    const toVal = document.getElementById('export-merc-hasta').value;
+    
+    if (!fromVal || !toVal) return alert("Por favor, selecciona las fechas Desde y Hasta.");
+    if (fromVal > toVal) return alert("La fecha Desde no puede ser posterior a Hasta.");
+    
+    // Validar rango máximo 1 año (12 meses)
+    const [fromY, fromM] = fromVal.split('-');
+    const [toY, toM] = toVal.split('-');
+    const monthsDiff = (parseInt(toY) - parseInt(fromY)) * 12 + (parseInt(toM) - parseInt(fromM));
+    if (monthsDiff > 12) return alert("El rango máximo de exportación es de 1 año (12 meses).");
+    
+    const fromDate = new Date(parseInt(fromY), parseInt(fromM) - 1, 1);
+    const toDate = new Date(parseInt(toY), parseInt(toM), 0); // last day of toMonth
+    
+    const trades = (state.trades || []).filter(t => {
+        if (t.status !== 'approved' && t.status !== 'undone') return false;
+        if (!t.timestamp) return false;
+        const [datePart] = t.timestamp.split(' ');
+        const [d, m, y] = datePart.split('/');
+        const tradeDate = new Date(parseInt(y), parseInt(m) - 1, parseInt(d));
+        return tradeDate >= fromDate && tradeDate <= toDate;
+    });
+    
+    if (trades.length === 0) return alert("No se encontraron operaciones completadas en este rango de fechas.");
+    
+    const wb = XLSX.utils.book_new();
+    const data = [["ID", "Fecha Operación", "Tipo", "Estado", "Solicitante", "Destinatario", "Día 1", "Servicio 1", "Día 2", "Servicio 2"]];
+    
+    trades.forEach(t => {
+        data.push([
+            t.id,
+            t.timestamp,
+            t.type.toUpperCase(),
+            t.status.toUpperCase(),
+            t.requester,
+            t.target,
+            t.d1 ? formatDK(t.d1) : "-",
+            t.s1 || "-",
+            t.d2 ? formatDK(t.d2) : "-",
+            t.s2 || "-"
+        ]);
+    });
+    
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    XLSX.utils.book_append_sheet(wb, ws, "Log Mercadillo");
+    XLSX.writeFile(wb, `Log_Mercadillo_${fromVal}_a_${toVal}.xlsx`);
 }

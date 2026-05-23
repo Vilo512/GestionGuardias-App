@@ -248,10 +248,33 @@
         </div>
 
         <div id="aview-export" style="display:none;">
-          <h3>Exportación Avanzada</h3>
-          <p style="font-size:0.85rem; color:#64748b; margin-bottom:1.5rem;">Descarga un Excel personalizado filtrando por Plan de Guardia, Servicio y Mes.</p>
-          <div style="display:flex; gap:10px; flex-wrap:wrap;">
-             <button class="primary" style="padding: 0.8rem 1.5rem; font-size:1.1rem;" onclick="openExportModal()">📊 Abrir Exportador Avanzado</button>
+          <h3>Centro de Exportación</h3>
+          <p style="font-size:0.85rem; color:#64748b; margin-bottom:1.5rem;">Descarga todos los datos de tu promoción en distintos formatos.</p>
+          
+          <div style="display:flex; flex-direction:column; gap:15px;">
+              <div style="padding:15px; border:1px solid #cbd5e1; border-radius:8px; background:white;">
+                  <h4 style="margin-top:0; margin-bottom:8px; color:var(--dark);">🗓️ Cuadrantes Finales (Excel)</h4>
+                  <p style="font-size:0.8rem; color:#64748b; margin-bottom:10px;">Exporta los turnos mensuales asignados por el sistema para enviar a Recursos Humanos.</p>
+                  <button class="primary" style="padding: 0.6rem 1rem;" onclick="openExportModal()">Abrir Exportador de Cuadrantes</button>
+              </div>
+
+              <div style="padding:15px; border:1px solid #cbd5e1; border-radius:8px; background:white;">
+                  <h4 style="margin-top:0; margin-bottom:8px; color:var(--dark);">🛒 Historial del Mercadillo (Excel)</h4>
+                  <p style="font-size:0.8rem; color:#64748b; margin-bottom:10px;">Descarga un registro (log) de todas las operaciones de compra, venta y cambio aprobadas por los residentes.</p>
+                  <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                      <label style="font-size:0.85rem; font-weight:bold;">Desde:</label>
+                      <input type="month" id="export-merc-desde" style="padding:6px; border:1px solid #cbd5e1; border-radius:4px;">
+                      <label style="font-size:0.85rem; font-weight:bold;">Hasta:</label>
+                      <input type="month" id="export-merc-hasta" style="padding:6px; border:1px solid #cbd5e1; border-radius:4px;">
+                      <button class="primary" style="padding: 0.6rem 1rem; background:var(--merc);" onclick="exportarLogMercadillo()">Descargar Log</button>
+                  </div>
+              </div>
+
+              <div style="padding:15px; border:1px solid #cbd5e1; border-radius:8px; background:white;">
+                  <h4 style="margin-top:0; margin-bottom:8px; color:var(--dark);">📜 Reglas y Configuración (TXT)</h4>
+                  <p style="font-size:0.8rem; color:#64748b; margin-bottom:10px;">Descarga las normas de reparto en texto plano para máxima transparencia con tus residentes.</p>
+                  <button class="primary" style="background:#0f172a; padding: 0.6rem 1rem;" onclick="exportarReglasTexto()">Descargar Reglas</button>
+              </div>
           </div>
         </div>
 
@@ -266,8 +289,7 @@
                   <h3 style="margin-bottom:0.2rem;">Planes de Guardia por Año</h3>
                   <p style="color:#64748b; font-size:0.9rem; margin:0;">Configura qué servicios, cupos y reglas se aplican a cada nivel (R1, R2...).</p>
               </div>
-              <div style="display:flex; gap:10px;">
-                  <button class="primary" style="background:#0f172a; padding: 0.6rem 1.5rem;" onclick="exportarReglasTexto()">📄 Exportar Reglas (TXT)</button>
+              <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:20px; padding-top:15px; border-top:1px solid #cbd5e1;">
                   <button class="primary" style="background:var(--dark); padding: 0.6rem 1.5rem;" onclick="adminSaveConfig()">💾 Guardar Todos los Planes</button>
               </div>
           </div>
