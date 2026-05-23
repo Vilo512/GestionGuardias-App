@@ -3779,7 +3779,7 @@ function exportarLogMercadillo() {
     const wb = XLSX.utils.book_new();
     const data = [["ID", "Fecha Operación", "Tipo", "Estado", "Solicitante", "Destinatario", "Día 1", "Servicio 1", "Día 2", "Servicio 2"]];
     
-    trades.forEach(t => {
+    trades.slice().reverse().forEach(t => {
         data.push([
             t.id,
             t.timestamp,
