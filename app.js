@@ -2547,15 +2547,21 @@ async function renderAccountsList() {
           }
       } else {
           // Acciones sobre TUS COMPAÑEROS
-          acciones += `<button class="danger icon-btn" style="margin-right:4px;" onclick="adminExpulsarUsuario('${u.id}', '${u.nombre_mostrar}')">Expulsar</button>`;
-          
           if (isDueño) {
+              // El Dueño puede expulsar a cualquiera
+              acciones += `<button class="danger icon-btn" style="margin-right:4px;" onclick="adminExpulsarUsuario('${u.id}', '${u.nombre_mostrar}')">Expulsar</button>`;
+              
               if (u.rol !== 'admin') {
                   acciones += `<button class="primary icon-btn" style="margin-right:4px; background:var(--dark);" onclick="adminCambiarRol('${u.id}', 'admin')">Hacer Delegado</button>`;
               } else {
                   acciones += `<button class="danger icon-btn" style="margin-right:4px;" onclick="adminCambiarRol('${u.id}', null)">Quitar Delegado</button>`;
               }
               acciones += `<button class="primary icon-btn" style="background:var(--adu);" onclick="adminTraspasarCorona('${u.id}', '${u.nombre_mostrar}')">Coronar Dueño</button>`;
+          } else {
+              // Eres un Delegado. Solo puedes interactuar con residentes normales.
+              if (u.rol !== 'admin') {
+                  acciones += `<button class="danger icon-btn" style="margin-right:4px;" onclick="adminExpulsarUsuario('${u.id}', '${u.nombre_mostrar}')">Expulsar</button>`;
+              }
           }
       }
 
