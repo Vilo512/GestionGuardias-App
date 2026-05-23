@@ -2104,6 +2104,8 @@ function exportarReglasTexto() {
         
         serviciosOrdenados.forEach((svc, index) => {
             texto += `  Prioridad ${index + 1} (Orden numérico: ${svc.ordenSubasta || (index+1)}) -> SERVICIO: ${svc.nombre}\n`;
+            texto += `    - Cupo exigido por mes: ${svc.cupoMensualTotal || 0} guardias\n`;
+            texto += `    - Slots por día por defecto: ${svc.plazasPorDia || 0} residente(s)\n`;
             
             let triggers = (svc.subastaTrigger || []).join(", ");
             if (triggers === "") triggers = "Ninguno (No lanza subasta)";
