@@ -1030,7 +1030,7 @@ async function abandonarGrupo() {
 
 async function solicitarCambioGrupo(destinoId) {
   if (!confirm("¿Seguro que deseas solicitar el cambio a este grupo? Tu estado volverá a estar pendiente o se evaluará si está vacío.")) return;
-  await ejecutarSalidaFinal(destinoId);
+  await iniciarProcesoSalida(destinoId);
 }
 
 // EL PUNTO DE CONTROL (La Radiografía)
@@ -1049,7 +1049,6 @@ async function iniciarProcesoSalida(destinoId) {
     if (error) return alert("Error al leer el grupo: " + error.message);
 
     // 2. Averiguamos quiénes somos nosotros en el organigrama
-    // En el futuro, cargaremos promoConfig completo, pero por seguridad lo bajamos directo
     const { data: promo } = await supabaseClient.from('promociones').select('creador_id').eq('id', currentUserProfile.promocion_id).single();
     const isDueño = promo && promo.creador_id === currentUserProfile.id;
     
@@ -1066,73 +1065,23 @@ async function iniciarProcesoSalida(destinoId) {
         return ejecutarSalidaFinal(destinoId);
     }
 
-    // CAMINO C: Sucesión Obligatoria (Eres el Dueño y hay gente dentro)
-    abrirModalSucesion(otrosUsuarios, destinoId, promo.id);
-}
-
-// EL MODAL DE SUCESIÓN
-function abrirModalSucesion(otrosUsuarios, destinoId, promoIdActual) {
-    // Separar delegados de residentes normales para dar prioridad
+    // CAMINO C: Sucesión Obligatoria Automática (Eres el Dueño y hay gente dentro)
     const delegados = otrosUsuarios.filter(u => u.rol === 'admin');
     const residentes = otrosUsuarios.filter(u => u.rol !== 'admin');
-
-    const modal = document.createElement('div'); 
-    modal.className = 'modal-overlay'; 
-    modal.id = 'sucesion-modal';
+    const sucesor = delegados.length > 0 ? delegados[0] : residentes[0];
     
-    let html = `
-    <div class="modal" style="border-top: 5px solid var(--adu);">
-        <h3 style="color:var(--adu); margin-bottom:1rem;">👑 Traspaso de Poderes</h3>
-        <p style="font-size:0.9rem; color:#475569; margin-bottom:1rem;">Eres el Dueño/Administrador principal de este grupo. No puedes abandonarlo dejando a los residentes huérfanos.</p>
-        <div style="background:#fffbeb; border:1px solid #fde047; padding:10px; border-radius:8px; margin-bottom:1.5rem; font-size:0.85rem; color:#854d0e;">
-            Selecciona a tu sucesor. Esa persona heredará el control total de los ajustes y reglas del hospital.
-        </div>
-        
-        <label style="font-size:0.85rem; font-weight:bold; color:var(--dark);">Elige al nuevo Dueño:</label>
-        <select id="sucesor-select" style="margin-top:8px; margin-bottom:1.5rem;">
-            <option value="">-- Selecciona un compañero --</option>`;
-            
-            if (delegados.length > 0) {
-                html += `<optgroup label="⭐ Delegados Actuales (Recomendado)">`;
-                delegados.forEach(d => html += `<option value="${d.id}">${d.nombre_mostrar}</option>`);
-                html += `</optgroup>`;
-            }
-            if (residentes.length > 0) {
-                html += `<optgroup label="👤 Residentes">`;
-                residentes.forEach(r => html += `<option value="${r.id}">${r.nombre_mostrar}</option>`);
-                html += `</optgroup>`;
-            }
-
-    html += `
-        </select>
-        
-        <div style="display:flex; justify-content:space-between; gap:10px;">
-            <button class="danger" style="background:white;" onclick="document.getElementById('sucesion-modal').remove()">Cancelar Salida</button>
-            <button class="primary" style="background:var(--adu);" onclick="ejecutarSucesionYSalir('${destinoId}', '${promoIdActual}')">Coronar y Salir</button>
-        </div>
-    </div>`;
-    
-    modal.innerHTML = html; 
-    document.body.appendChild(modal);
-}
-
-// LA EJECUCIÓN DEL TRASPASO
-async function ejecutarSucesionYSalir(destinoId, promoIdActual) {
-    const sucesorId = document.getElementById('sucesor-select').value;
-    if (!sucesorId) return alert("Debes seleccionar un sucesor obligatoriamente.");
+    alert(`👑 Traspaso Automático: Como eras el administrador principal, al abandonar el grupo la corona ha sido transferida automáticamente a ${sucesor.nombre_mostrar}.`);
     
     setStatus('Transfiriendo poderes...');
     
-    // 1. Coronar al sucesor como Dueño en la tabla de promociones
-    const { error: errPromo } = await supabaseClient.from('promociones').update({ creador_id: sucesorId }).eq('id', promoIdActual);
+    // Coronar al sucesor como Dueño en la tabla de promociones
+    const { error: errPromo } = await supabaseClient.from('promociones').update({ creador_id: sucesor.id }).eq('id', promo.id);
     if (errPromo) return alert("Error al transferir la propiedad: " + errPromo.message);
     
-    // 2. Asegurarnos de que el sucesor tiene rol 'admin'
-    await supabaseClient.from('perfiles').update({ rol: 'admin' }).eq('id', sucesorId);
+    // Asegurarnos de que el sucesor tiene rol 'admin'
+    await supabaseClient.from('perfiles').update({ rol: 'admin' }).eq('id', sucesor.id);
 
-    // 3. Destruir el modal y ejecutar nuestra salida normal
-    document.getElementById('sucesion-modal').remove();
-    ejecutarSalidaFinal(destinoId !== 'null' ? destinoId : null);
+    return ejecutarSalidaFinal(destinoId);
 }
 
 // ==========================================
