@@ -681,7 +681,7 @@ function hasAvailableLegalSlots(user, y, m, svc, rule) {
         if (!rule.etiquetas.includes(tag)) continue; 
         
         // 2. ¿El día está habilitado si el candado está activo?
-        if (svc.requiereHabilitacion && !state.pedWhitelist[dk]) continue; 
+        if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk)) continue; 
         
         const dayShifts = state.shifts[dk] || {};
         
@@ -712,7 +712,7 @@ function hasAvailableLegalSlotsForService(user, y, m, svc) {
     for (let d = 1; d <= getDaysInMonth(y, m); d++) {
         const dk = formatDateKey(y, m, d);
         
-        if (svc.requiereHabilitacion && !state.pedWhitelist[dk]) continue;
+        if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk)) continue;
         
         const dayShifts = state.shifts[dk] || {};
         if (dayShifts[user] === svc.nombre) continue;
@@ -1582,7 +1582,7 @@ function renderMercadoCalendar() {
     const dk = formatDateKey(y, m, d);
     const dayShifts = computed[dk] || {};
     const cell = document.createElement('div');
-    cell.className = `cal-cell ${state.festivos[dk]?'is-festivo':''} ${state.pedWhitelist[dk]?'is-ped-ok':''}`;
+    cell.className = `cal-cell ${state.festivos[dk]?'is-festivo':''}`;
     const bgStyle = getCellBackgroundStyle(dk, y, m, d, userLevelName);
     if (bgStyle) cell.setAttribute('style', bgStyle);
     let html = `<div class="day-number">${d}</div>`;
@@ -3065,7 +3065,7 @@ async function ejecutarAsignacionForzosa(y, m, targetSvcNombre) {
         const tag = getDayTag(y, m, d);
         if ((svc.subastaTrigger || []).includes(tag)) {
             const dk = formatDateKey(y, m, d);
-            if (svc.requiereHabilitacion && !state.pedWhitelist[dk]) continue;
+            if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk)) continue;
             
             let assignedCount = 0;
             if (state.shifts[dk]) {
@@ -3220,7 +3220,7 @@ function getAnalisisFestivos(y, m) {
             const tag = getDayTag(y, m, d);
             
             if (svc.subastaTrigger.includes(tag)) {
-                if (svc.requiereHabilitacion && !state.pedWhitelist[dk]) continue;
+                if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk)) continue;
                 
                 const needed = (svc.plazasPorDia > 0 ? svc.plazasPorDia : 0);
                 huecosObligatoriosSvc += needed;
