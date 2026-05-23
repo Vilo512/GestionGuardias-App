@@ -1786,6 +1786,10 @@ function renderAdminAjustes() {
                    oninput="document.getElementById('cfg-card-${pIdx}-${i}').style.borderLeftColor = this.value" 
                    style="width:100%; height:38px; padding:0; cursor:pointer; border:1px solid #cbd5e1; border-radius:6px; box-sizing:border-box;">
              </div>
+             <div style="flex:1; min-width:120px;">
+                <label style="font-size:0.8rem; color:#64748b; display:block; margin-bottom:4px; font-weight:bold;">Prioridad / Orden Subasta</label>
+                <input type="number" id="cfg-prio-${pIdx}-${i}" value="${svc.ordenSubasta !== undefined ? svc.ordenSubasta : (i + 1)}" min="1" style="margin:0; border: 1px solid #3b82f6;">
+             </div>
           </div>
           
            <div style="margin-bottom:15px; padding:10px; background:#f8fafc; border-radius:6px; border:1px dashed #cbd5e1;">
@@ -1981,6 +1985,9 @@ function syncConfigFromUI() {
       
       const secSvc = document.getElementById(`cfg-sec-${pIdx}-${i}`);
       if (secSvc) svc.dadasPorSecretaria = secSvc.checked;
+
+      const prioSvc = document.getElementById(`cfg-prio-${pIdx}-${i}`);
+      if (prioSvc) svc.ordenSubasta = parseInt(prioSvc.value) || (i + 1);
 
       // NUEVO: Sincronizar Reglas de Subasta Bespoke
       svc.subastaTrigger = [];
