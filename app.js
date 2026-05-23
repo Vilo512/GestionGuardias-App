@@ -2065,6 +2065,73 @@ function syncConfigFromUI() {
   });
 }
 
+function exportarReglasTexto() {
+    if (!promoConfig || !promoConfig.planes || promoConfig.planes.length === 0) {
+        alert("No hay planes configurados para exportar.");
+        return;
+    }
+    
+    syncConfigFromUI();
+    
+    let texto = "=========================================\n";
+    texto += "   REGLAS Y PRIORIDADES DE SUBASTA\n";
+    texto += "=========================================\n\n";
+    
+    const translateCriterio = (crit, svcName) => {
+        if (!crit) return "No definido";
+        switch(crit) {
+            case 'historico_festivos': return "A quien tenga menos Festivos (Globales)";
+            case 'historico_laborables': return "A quien tenga menos Laborables (Globales)";
+            case 'historico_intersemanales': return "A quien tenga menos Fest. Intersemanales (Globales)";
+            case 'historico_total': return "A quien tenga menos Guardias Totales (Globales)";
+            case 'historico_servicio': return "A quien haya hecho menos guardias de éste servicio";
+            case 'historico_servicio_dinamico': return `A quien haya hecho menos guardias en el servicio: ${svcName || 'No definido'}`;
+            case 'aleatorio': return "Aleatorio (Sorteo ciego)";
+            default: return crit;
+        }
+    };
+    
+    promoConfig.planes.forEach(plan => {
+        texto += `--- PLAN: ${plan.nombre || 'Sin nombre'} ---\n`;
+        texto += `Mínimo de Festivos Globales exigido al mes: ${plan.minGlobalFestivos}\n\n`;
+        
+        if (!plan.servicios || plan.servicios.length === 0) {
+            texto += "  No hay servicios configurados.\n\n";
+            return;
+        }
+        
+        const serviciosOrdenados = [...plan.servicios].sort((a, b) => (a.ordenSubasta || 0) - (b.ordenSubasta || 0));
+        
+        serviciosOrdenados.forEach((svc, index) => {
+            texto += `  Prioridad ${index + 1} (Orden numérico: ${svc.ordenSubasta || (index+1)}) -> SERVICIO: ${svc.nombre}\n`;
+            
+            let triggers = (svc.subastaTrigger || []).join(", ");
+            if (triggers === "") triggers = "Ninguno (No lanza subasta)";
+            texto += `    - Días en los que se lanza subasta: ${triggers}\n`;
+            
+            if (svc.subastaTrigger && svc.subastaTrigger.length > 0) {
+                texto += `    - CRITERIO PRINCIPAL: ${translateCriterio(svc.subastaCriterio, svc.subastaCriterioServicio)}\n`;
+                if (svc.subastaDesempate && svc.subastaDesempate !== 'aleatorio') {
+                    texto += `    - CRITERIO DESEMPATE: ${translateCriterio(svc.subastaDesempate, svc.subastaDesempateServicio)}\n`;
+                }
+            }
+            texto += "\n";
+        });
+        
+        texto += "-----------------------------------------\n\n";
+    });
+    
+    const blob = new Blob([texto], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Reglas_Subastas_AsignaGuardias.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
 async function adminSaveConfig() {
   syncConfigFromUI();
   setStatus('Guardando ajustes...');
