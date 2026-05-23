@@ -1814,16 +1814,39 @@ function renderAdminAjustes() {
                      <label style="font-size:0.75rem;"><input type="checkbox" id="cfg-sub-fes-${pIdx}-${i}" ${(svc.subastaTrigger||[]).includes('festivo_intersemanal') ? 'checked' : ''}> Festivo Inter.</label>
                  </div>
              </div>
-             <div>
+             <div style="margin-bottom:8px;">
                  <label style="font-size:0.8rem; color:#9a3412; display:block; margin-bottom:4px;">Criterio de reparto automático (quién recibe la guardia):</label>
-                 <select id="cfg-sub-crit-${pIdx}-${i}" style="font-size:0.8rem; width:100%; border:1px solid #fdba74; border-radius:4px; padding:4px;">
+                 <select id="cfg-sub-crit-${pIdx}-${i}" style="font-size:0.8rem; width:100%; border:1px solid #fdba74; border-radius:4px; padding:4px;" onchange="document.getElementById('cfg-sub-crit-svc-container-${pIdx}-${i}').style.display = (this.value === 'historico_servicio_dinamico') ? 'block' : 'none';">
                      <option value="historico_festivos" ${svc.subastaCriterio === 'historico_festivos' ? 'selected' : ''}>A quien tenga menos Festivos (Globales)</option>
                      <option value="historico_laborables" ${svc.subastaCriterio === 'historico_laborables' ? 'selected' : ''}>A quien tenga menos Laborables (Globales)</option>
                      <option value="historico_intersemanales" ${svc.subastaCriterio === 'historico_intersemanales' ? 'selected' : ''}>A quien tenga menos Fest. Intersemanales (Globales)</option>
                      <option value="historico_total" ${svc.subastaCriterio === 'historico_total' ? 'selected' : ''}>A quien tenga menos Guardias Totales (Globales)</option>
                      <option value="historico_servicio" ${svc.subastaCriterio === 'historico_servicio' ? 'selected' : ''}>A quien haya hecho menos guardias de éste servicio</option>
+                     <option value="historico_servicio_dinamico" ${svc.subastaCriterio === 'historico_servicio_dinamico' ? 'selected' : ''}>A quien haya hecho menos guardias en (Servicio Específico)...</option>
                      <option value="aleatorio" ${svc.subastaCriterio === 'aleatorio' ? 'selected' : ''}>Aleatorio (Sorteo ciego)</option>
                  </select>
+                 <div id="cfg-sub-crit-svc-container-${pIdx}-${i}" style="margin-top:4px; display:${svc.subastaCriterio === 'historico_servicio_dinamico' ? 'block' : 'none'};">
+                     <select id="cfg-sub-crit-svc-${pIdx}-${i}" style="font-size:0.8rem; width:100%; border:1px dashed #fdba74; border-radius:4px; padding:4px;">
+                         ${plan.servicios.map(s => `<option value="${s.nombre}" ${(svc.subastaCriterioServicio === s.nombre) ? 'selected' : ''}>${s.nombre}</option>`).join('')}
+                     </select>
+                 </div>
+             </div>
+             <div>
+                 <label style="font-size:0.8rem; color:#9a3412; display:block; margin-bottom:4px;">Criterio secundario de Desempate (opcional):</label>
+                 <select id="cfg-sub-desempate-${pIdx}-${i}" style="font-size:0.8rem; width:100%; border:1px solid #fdba74; border-radius:4px; padding:4px;" onchange="document.getElementById('cfg-sub-desempate-svc-container-${pIdx}-${i}').style.display = (this.value === 'historico_servicio_dinamico') ? 'block' : 'none';">
+                     <option value="aleatorio" ${(!svc.subastaDesempate || svc.subastaDesempate === 'aleatorio') ? 'selected' : ''}>Aleatorio (Sorteo ciego)</option>
+                     <option value="historico_total" ${svc.subastaDesempate === 'historico_total' ? 'selected' : ''}>A quien tenga menos Guardias Totales (Globales)</option>
+                     <option value="historico_festivos" ${svc.subastaDesempate === 'historico_festivos' ? 'selected' : ''}>A quien tenga menos Festivos (Globales)</option>
+                     <option value="historico_laborables" ${svc.subastaDesempate === 'historico_laborables' ? 'selected' : ''}>A quien tenga menos Laborables (Globales)</option>
+                     <option value="historico_intersemanales" ${svc.subastaDesempate === 'historico_intersemanales' ? 'selected' : ''}>A quien tenga menos Fest. Intersemanales (Globales)</option>
+                     <option value="historico_servicio" ${svc.subastaDesempate === 'historico_servicio' ? 'selected' : ''}>A quien haya hecho menos guardias de éste servicio</option>
+                     <option value="historico_servicio_dinamico" ${svc.subastaDesempate === 'historico_servicio_dinamico' ? 'selected' : ''}>A quien haya hecho menos guardias en (Servicio Específico)...</option>
+                 </select>
+                 <div id="cfg-sub-desempate-svc-container-${pIdx}-${i}" style="margin-top:4px; display:${svc.subastaDesempate === 'historico_servicio_dinamico' ? 'block' : 'none'};">
+                     <select id="cfg-sub-desempate-svc-${pIdx}-${i}" style="font-size:0.8rem; width:100%; border:1px dashed #fdba74; border-radius:4px; padding:4px;">
+                         ${plan.servicios.map(s => `<option value="${s.nombre}" ${(svc.subastaDesempateServicio === s.nombre) ? 'selected' : ''}>${s.nombre}</option>`).join('')}
+                     </select>
+                 </div>
              </div>
            </div>
 
@@ -1998,6 +2021,13 @@ function syncConfigFromUI() {
       
       const subCrit = document.getElementById(`cfg-sub-crit-${pIdx}-${i}`);
       if (subCrit) svc.subastaCriterio = subCrit.value;
+      const subCritSvc = document.getElementById(`cfg-sub-crit-svc-${pIdx}-${i}`);
+      if (subCritSvc) svc.subastaCriterioServicio = subCritSvc.value;
+      
+      const subDes = document.getElementById(`cfg-sub-desempate-${pIdx}-${i}`);
+      if (subDes) svc.subastaDesempate = subDes.value;
+      const subDesSvc = document.getElementById(`cfg-sub-desempate-svc-${pIdx}-${i}`);
+      if (subDesSvc) svc.subastaDesempateServicio = subDesSvc.value;
       const interSvc = document.getElementById(`cfg-intercambio-${pIdx}-${i}`);
       if (interSvc) svc.reglaIntercambio = interSvc.value;
 
@@ -3148,26 +3178,46 @@ function getAnalisisFestivos(y, m) {
         const excesoSvc = huecosObligatoriosSvc - huecosAsignadosSvc;
         
         if (excesoSvc > 0) {
-            let historico = {};
-            if (svc.subastaCriterio === 'historico_festivos') {
-                historico = getHistoricoFestivosResidentes(y, m, ['fin_de_semana', 'festivo_intersemanal']);
-            } else if (svc.subastaCriterio === 'historico_laborables') {
-                historico = getHistoricoFestivosResidentes(y, m, ['laborable']);
-            } else if (svc.subastaCriterio === 'historico_intersemanales') {
-                historico = getHistoricoFestivosResidentes(y, m, ['festivo_intersemanal']);
-            } else if (svc.subastaCriterio === 'historico_total') {
-                historico = getHistoricoFestivosResidentes(y, m, ['laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal']);
-            } else if (svc.subastaCriterio === 'historico_servicio') {
-                historico = getHistoricoFestivosResidentes(y, m, ['laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal'], svc.nombre);
+            const _getHist = (crit, targetSvc) => {
+                if (crit === 'historico_festivos') return getHistoricoFestivosResidentes(y, m, ['fin_de_semana', 'festivo_intersemanal']);
+                if (crit === 'historico_laborables') return getHistoricoFestivosResidentes(y, m, ['laborable']);
+                if (crit === 'historico_intersemanales') return getHistoricoFestivosResidentes(y, m, ['festivo_intersemanal']);
+                if (crit === 'historico_total') return getHistoricoFestivosResidentes(y, m, ['laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal']);
+                if (crit === 'historico_servicio') return getHistoricoFestivosResidentes(y, m, ['laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal'], svc.nombre);
+                if (crit === 'historico_servicio_dinamico') {
+                    const exists = miPlan.servicios.some(s => s.nombre === targetSvc);
+                    if (!exists) return null; // fallback signal
+                    return getHistoricoFestivosResidentes(y, m, ['laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal'], targetSvc);
+                }
+                return null;
+            };
+
+            let historico = _getHist(svc.subastaCriterio, svc.subastaCriterioServicio);
+            let fallbackPri = false;
+            if (!historico && svc.subastaCriterio !== 'aleatorio') fallbackPri = true;
+
+            let historicoDesempate = null;
+            let fallbackDes = false;
+            if (svc.subastaDesempate && svc.subastaDesempate !== 'aleatorio') {
+                historicoDesempate = _getHist(svc.subastaDesempate, svc.subastaDesempateServicio);
+                if (!historicoDesempate) fallbackDes = true;
             }
             
             let nominados = [];
             let residentesAleatorios = [...residentes].sort(() => Math.random() - 0.5);
             
-            if (svc.subastaCriterio === 'aleatorio') {
+            if (svc.subastaCriterio === 'aleatorio' || fallbackPri) {
                 nominados = residentesAleatorios.slice(0, excesoSvc);
             } else {
-                const residentesOrdenados = residentesAleatorios.sort((a, b) => (historico[a] || 0) - (historico[b] || 0));
+                const residentesOrdenados = residentesAleatorios.sort((a, b) => {
+                    const diff = (historico[a] || 0) - (historico[b] || 0);
+                    if (diff !== 0) return diff;
+                    
+                    if (historicoDesempate && !fallbackDes) {
+                        return (historicoDesempate[a] || 0) - (historicoDesempate[b] || 0);
+                    }
+                    return 0;
+                });
                 nominados = residentesOrdenados.slice(0, excesoSvc);
             }
             
