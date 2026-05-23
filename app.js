@@ -415,9 +415,8 @@ async function solicitarUnirse() {
 function abrirCrearPromocion() {
   const hospital = prompt("Nombre del Hospital (ej: Hospital Universitari Arnau de Vilanova, procura poner el nombre completo del hospital con mayúsculas apropiadas):"); if (!hospital) return;
   const servicio = prompt("Especialidad (ej: Medicina Familiar y Comunitaria, Traumatología, procura poner el nombre completo de la especialidad según el BOE):"); if (!servicio) return;
-  const alias = prompt("Alias o nombre descriptivo (ej: Toda la Residencia, Contenedor Único):", "Especialidad Completa"); if (!alias) return;
   
-  crearNuevaPromocionMaster(hospital, servicio, alias);
+  crearNuevaPromocionMaster(hospital, servicio, "Especialidad Completa");
 }
 async function crearNuevaPromocionMaster(h, s, n) {
   const fechaInicio = document.getElementById('onb-fecha-inicio').value;
@@ -1185,22 +1184,19 @@ function navAdmin(sub) {
 }
 
 async function renderAdminSeguridad() {
-    const { data: promo, error } = await supabaseClient.from('promociones').select('servicio, nombre').eq('id', currentUserProfile.promocion_id).single();
+    const { data: promo, error } = await supabaseClient.from('promociones').select('servicio').eq('id', currentUserProfile.promocion_id).single();
     if (!error && promo) {
         document.getElementById('edit-promo-servicio').value = promo.servicio || '';
-        document.getElementById('edit-promo-nombre').value = promo.nombre || '';
     }
 }
 
 async function adminUpdatePromoDetails() {
     const newServicio = document.getElementById('edit-promo-servicio').value.trim();
-    const newNombre = document.getElementById('edit-promo-nombre').value.trim();
-    if (!newServicio || !newNombre) return alert("Los campos no pueden estar vacíos.");
+    if (!newServicio) return alert("El campo de la especialidad no puede estar vacío.");
     
     setStatus('Guardando...');
     const { error } = await supabaseClient.from('promociones').update({
-        servicio: newServicio,
-        nombre: newNombre
+        servicio: newServicio
     }).eq('id', currentUserProfile.promocion_id);
     
     if (error) {
