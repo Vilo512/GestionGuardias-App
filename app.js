@@ -3608,7 +3608,28 @@ async function guardarFechaContratoPerfil() {
     }
 }
 
-// B) SOLICITAR UNA NUEVA BAJA PROLONGADA
+// B) GUARDAR LA FECHA DE INICIO DE RESIDENCIA
+async function guardarFechaInicioPerfil() {
+    const nuevaFecha = document.getElementById('perfil-fecha-inicio').value;
+    if (!nuevaFecha) return alert("Selecciona una fecha válida.");
+
+    const uProfile = currentUserProfile;
+    const pIdx = globalProfiles.findIndex(p => p.nombre_mostrar === uProfile.nombre_mostrar);
+    if (pIdx !== -1) {
+        globalProfiles[pIdx].fecha_inicio_residencia = nuevaFecha;
+        try {
+            const { error } = await supabaseClient
+                .from('perfiles')
+                .update({ fecha_inicio_residencia: nuevaFecha })
+                .eq('id', uProfile.id);
+            if (error) throw error;
+            alert("¡Fecha de inicio de residencia actualizada con éxito!");
+            renderPerfilUsuario();
+        } catch (err) { alert("Error al guardar en Supabase."); }
+    }
+}
+
+// C) SOLICITAR UNA NUEVA BAJA PROLONGADA
 async function solicitarBajaPerfil() {
     const fInicio = document.getElementById('baja-fecha-inicio').value;
     const fFin = document.getElementById('baja-fecha-fin').value;
