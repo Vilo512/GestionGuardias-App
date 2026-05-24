@@ -3788,6 +3788,10 @@ function getCurrentTurn(y, m) {
             // Si el usuario se ha pausado manualmente el mes en la interfaz, lo respetamos
             if (state.configMes[mk].pausados && state.configMes[mk].pausados[residente]) continue;
             
+            // Si el usuario ha saltado su turno este mes (o el admin lo saltó), lo ignoramos
+            const saltadosMes = state.skippedTurns?.[mk] || [];
+            if (saltadosMes.includes(residente)) continue;
+            
             // Calculamos qué lleva asignado en este momento
             const prog = getUserProgress(residente, y, m);
             
