@@ -644,9 +644,12 @@ function getIllegalShiftsForUser(user, shiftsObj) {
 // NÚCLEO 5: EVALUADOR DE REGLAS (EL CEREBRO)
 // ==========================================
 function getRotationKey(y, m) { return `${y}_${String(m).padStart(2,'0')}`; }
-function getRotation(y, m) {
+function getRotationForPlan(planName, y, m) {
+    return getRotation(y, m, planName);
+}
+function getRotation(y, m, forcedPlanName) {
     const dkStep = formatDateKey(y, m, 1);
-    const planName = getCurrentRotPlan(dkStep);
+    const planName = forcedPlanName || getCurrentRotPlan(dkStep);
     
     // Migración Inicial si venimos de la versión antigua sin partición por Plan
     if (!state.planRotations) {
@@ -3679,32 +3682,37 @@ let _computingTurn = false;
 window.debugTurn = function() {
     const y = curDate.getFullYear(), m = curDate.getMonth();
     const mk = getRotationKey(y, m);
-    const dk = formatDateKey(y, m, 1);
     console.group('🔍 debugTurn() – ' + mk + '  (y=' + y + ' m=' + m + ')');
     console.log('promoConfig.planes:', promoConfig.planes?.map(p => p.nombre));
     console.log('state.planRotations keys:', Object.keys(state.planRotations || {}));
     const cm = state.configMes?.[mk];
     console.log('state.configMes[mk].ordenSeleccion:', cm?.ordenSeleccion);
-    console.log('state.configMes[mk].pausados:', cm?.pausados);
+    console.log('state.skippedTurns[mk]:', state.skippedTurns?.[mk]);
+
+    // Mostrar orden de rotación real (el que usa la UI) por cada plan
+    for (const plan of (promoConfig.planes || [])) {
+        if (!state.planRotations?.[plan.nombre]) continue;
+        const rot = getRotationForPlan(plan.nombre, y, m);
+        console.log(`getRotationForPlan(${plan.nombre}):`, rot);
+    }
+
     const activos = getResidentesActivosEnMes(y, m);
+    const saltados = state.skippedTurns?.[mk] || [];
     console.log('activosMes:', activos);
-    const maxG = Math.max(...(promoConfig.planes || []).map(p => p.maxGuardiasMes || 5), 5);
-    console.log('maxGuardias:', maxG);
 
     if (cm?.ordenSeleccion) {
-        console.group('📋 Traza del bucle:');
-        outer: for (let ronda = 1; ronda <= maxG; ronda++) {
-            for (let i = 0; i < cm.ordenSeleccion.length; i++) {
-                const r = cm.ordenSeleccion[i];
-                const enActivos = activos.includes(r);
-                const pausado = cm.pausados?.[r] || false;
-                const prog = getUserProgress(r, y, m);
-                console.log(`ronda=${ronda} i=${i} "${r}" | enActivos=${enActivos} pausado=${pausado} prog.total=${prog.total} (< ${ronda}? ${prog.total < ronda})`);
-                if (!enActivos || pausado) continue;
-                if (prog.total < ronda) {
-                    console.log(`  → ¡LE TOCA A ${r}!`);
-                    break outer;
-                }
+        console.group('📋 Traza del bucle (secuencial):');
+        for (let i = 0; i < cm.ordenSeleccion.length; i++) {
+            const r = cm.ordenSeleccion[i];
+            const enActivos = activos.includes(r);
+            const pausado = cm.pausados?.[r] || false;
+            const saltado = saltados.includes(r);
+            const prog = getUserProgress(r, y, m);
+            console.log(`i=${i} "${r}" | enActivos=${enActivos} pausado=${pausado} saltado=${saltado} isFinished=${prog.isFinished}`);
+            if (!enActivos || pausado || saltado) continue;
+            if (!prog.isFinished) {
+                console.log(`  → ¡LE TOCA A ${r}!`);
+                break;
             }
         }
         console.groupEnd();
@@ -3713,6 +3721,21 @@ window.debugTurn = function() {
     const turn = getCurrentTurn(y, m);
     console.log('getCurrentTurn() result:', turn);
     console.groupEnd();
+};
+
+// 🔧 RESET del ordenSeleccion del mes actual (útil si quedó guardado con orden incorrecto)
+// Ejecutar en consola: resetConfigMes()
+window.resetConfigMes = async function() {
+    const y = curDate.getFullYear(), m = curDate.getMonth();
+    const mk = getRotationKey(y, m);
+    if (state.configMes && state.configMes[mk]) {
+        delete state.configMes[mk];
+        await saveState();
+        console.log('✅ configMes[' + mk + '] borrado. Regenerando...');
+        renderAll();
+    } else {
+        console.log('ℹ️ No había configMes[' + mk + '] guardado.');
+    }
 };
 
 function getCurrentTurn(y, m) {
@@ -3726,21 +3749,17 @@ function getCurrentTurn(y, m) {
         let flatOrden = [];
         
         // Recorremos TODOS los planes en orden (R1, R2, R3, R4...)
-        // para construir el orden global de turno sin depender del perfil del admin
+        // Llamamos a getRotationForPlan para obtener el orden YA ROTADO de cada plan,
+        // igual que lo que se muestra en la UI de rotación.
         for (const plan of (promoConfig.planes || [])) {
-            const pr = state.planRotations?.[plan.nombre];
-            if (!pr) continue;
+            if (!state.planRotations?.[plan.nombre]) continue;
             
-            // Usar customRotation del mes si existe, si no la baseGroups del plan
-            let planBase;
-            if (pr.customRotations?.[targetKey]) {
-                planBase = pr.customRotations[targetKey].flat();
-            } else {
-                planBase = (pr.baseGroups || []).flat();
-            }
+            // getRotationForPlan devuelve los grupos correctamente rotados para este mes
+            const rotGroups = getRotationForPlan(plan.nombre, y, m);
+            const planFlat = (rotGroups || []).flat();
             
             // Solo incluir a quienes realmente pertenecen a este plan este mes y están aprobados
-            const enEstePlan = planBase.filter(n => {
+            const enEstePlan = planFlat.filter(n => {
                 const p = globalProfiles.find(pr2 => pr2.nombre_mostrar === n);
                 if (!p || p.estado !== 'aprobado') return false;
                 const planActual = getPlanForUserOnDate(p, dk);
