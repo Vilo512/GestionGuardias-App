@@ -68,14 +68,17 @@ function monthString(y, m) {
 }
 
 async function limpiarFuturos(y, m) {
-    if (!state.customRotations) return;
+    const planName = getCurrentRotPlan(formatDateKey(y, m, 1));
+    const pr = state.planRotations?.[planName];
+    if (!pr || !pr.customRotations) return;
     const baseVal = parseInt(y, 10) * 12 + parseInt(m, 10);
     let changed = false;
-    for (const key of Object.keys(state.customRotations)) {
-        const parts = key.split('-');
+    for (const key of Object.keys(pr.customRotations)) {
+        const parts = key.split('_');
+        if (parts.length < 2) continue;
         const targetVal = parseInt(parts[0], 10) * 12 + parseInt(parts[1], 10);
         if (targetVal > baseVal) {
-            delete state.customRotations[key];
+            delete pr.customRotations[key];
             changed = true;
         }
     }
@@ -83,6 +86,12 @@ async function limpiarFuturos(y, m) {
 }
 
 let curDate = new Date(2026, 0, 1);
+let selectedRotPlan = null;
+function getCurrentRotPlan(dk) {
+    if (isAdmin && selectedRotPlan && selectedRotPlan !== "AUTO") return selectedRotPlan;
+    const p = getPlanForUserOnDate(currentUserProfile, dk);
+    return p ? p.nombre : (promoConfig.planes?.[0]?.nombre || "Plan Base");
+}
 let isAdmin = false;
 let loggedInUser = null; 
 let currentAdminView = 'pediatria';
@@ -252,7 +261,7 @@ async function loadState() {
   setStatus('Cargando calendario...');
   try {
     // Descargamos los perfiles aprobados para nutrir al simulador temporal
-    const { data: profs } = await supabaseClient.from('perfiles').select('*').eq('promocion_id', currentUserProfile.promocion_id).eq('estado', 'aprobado');
+    const { data: profs } = await supabaseClient.from('perfiles').select('*').eq('promocion_id', currentUserProfile.promocion_id).in('estado', ['aprobado', 'historico']);
     globalProfiles = profs || [];
 
     const { data, error } = await supabaseClient.from('estados_promocion').select('datos').eq('promocion_id', currentUserProfile.promocion_id).single();
@@ -1066,7 +1075,7 @@ async function iniciarProcesoSalida(destinoId) {
         .from('perfiles')
         .select('id, nombre_mostrar, rol')
         .eq('promocion_id', currentUserProfile.promocion_id)
-        .eq('estado', 'aprobado');
+        .in('estado', ['aprobado', 'historico']);
 
     if (error) return alert("Error al leer el grupo: " + error.message);
 
@@ -1115,7 +1124,7 @@ async function ejecutarSalidaFinal(destinoId) {
     // 1. ESCÁNER DE HIBERNACIÓN (Solo si entramos a un nuevo grupo)
     if (destinoId) {
         const { data: poblacion } = await supabaseClient.from('perfiles')
-            .select('id').eq('promocion_id', destinoId).eq('estado', 'aprobado');
+            .select('id').eq('promocion_id', destinoId).in('estado', ['aprobado', 'historico']);
 
         if (!poblacion || poblacion.length === 0) {
             if (!confirm("ℹ️ El contenedor está vacío (hibernando). Al entrar, serás coronado automáticamente como Dueño/Administrador. ¿Aceptas el cargo?")) {
@@ -2642,8 +2651,7 @@ async function renderAccountsList() {
             <strong>${u.nombre_mostrar}</strong> <span style="font-size:0.8rem; color:#64748b; margin-left:10px;">${rolBadge}</span>
             <div style="font-size:0.8rem; color:#475569; margin-top:4px;">
                Inicio: <strong>${u.fecha_inicio_residencia || 'No definido'}</strong> | Cambio contrato: <strong>${u.fecha_cambio_contrato || 'No definido'}</strong>
-               <br><span style="color:var(--fest);">Entrada a rotación:</span> <strong>${ev.entrada || 'Siempre'}</strong> | <span style="color:var(--fest);">Salida:</span> <strong>${ev.salida || 'Nunca'}</strong>
-               ${isDueño ? `<button class="secondary" style="font-size:0.7rem; padding:2px 6px; margin-left:8px;" onclick="window.adminEditarFechas('${u.id}', '${escapedName}', '${u.fecha_inicio_residencia || ''}', '${u.fecha_cambio_contrato || ''}', '${ev.entrada || ''}', '${ev.salida || ''}')">✏️ Editar</button>` : ''}
+               <br>${isDueño ? `<button class="secondary" style="font-size:0.7rem; padding:2px 6px; margin-left:8px;" onclick="window.adminEditarFechas('${u.id}', '${escapedName}', '${u.fecha_inicio_residencia || ''}', '${u.fecha_cambio_contrato || ''}')">✏️ Editar</button>` : ''}
             </div>
          </div>
          <div style="display:flex; align-items:center;">${acciones}</div>
@@ -2731,7 +2739,7 @@ window.adminEditarFechas = async function adminEditarFechas(userId, userName, fI
             await saveState();
 
             // Refrescar perfiles globales y lista
-            const { data: profs } = await supabaseClient.from('perfiles').select('*').eq('promocion_id', currentUserProfile.promocion_id).eq('estado', 'aprobado');
+            const { data: profs } = await supabaseClient.from('perfiles').select('*').eq('promocion_id', currentUserProfile.promocion_id).in('estado', ['aprobado', 'historico']);
             globalProfiles = profs || [];
             await renderAccountsList();
         }
@@ -2795,14 +2803,43 @@ async function adminRechazarUsuario(userId) {
 
 function renderRotationView() { 
     const y = curDate.getFullYear(), m = curDate.getMonth(); 
+    const dk = formatDateKey(y, m, 1);
+    
+    // Inject Plan Selector
+    const containerTop = document.getElementById('rot-content'); 
+    let planSelectorHtml = '';
+    if (isAdmin && promoConfig.planes) {
+        planSelectorHtml = `<div style="margin-bottom:15px; padding:10px; background:#f8fafc; border-radius:8px; display:flex; align-items:center; gap:10px;">
+            <label style="font-weight:bold; font-size:0.9rem;">Viendo Rotacin de:</label>
+            <select id="rot-plan-select" style="padding:5px; border-radius:5px; border:1px solid #cbd5e1;" onchange="selectedRotPlan = this.value; renderRotationView();">
+                <option value="AUTO" ${!selectedRotPlan || selectedRotPlan === 'AUTO' ? 'selected' : ''}>Mi Plan Actual (Automtico)</option>
+                ${promoConfig.planes.map(p => `<option value="${p.nombre}" ${selectedRotPlan === p.nombre ? 'selected' : ''}>${p.nombre}</option>`).join('')}
+            </select>
+        </div>`;
+    } else {
+        const myPlan = getPlanForUserOnDate(currentUserProfile, dk);
+        planSelectorHtml = `<div style="margin-bottom:15px; font-size:0.9rem; color:#64748b;">Mostrando Fila India para: <strong>${myPlan ? myPlan.nombre : 'Plan Base'}</strong></div>`;
+    }
+    
     const groups = getRotation(y, m); 
+    containerTop.innerHTML = planSelectorHtml;
+    
+    const listDiv = document.createElement('div');
+
     const container = document.getElementById('rot-content'); 
-    container.innerHTML = ''; 
+    /* container.innerHTML = ''; */ 
     let order = 1; 
-    groups.forEach((g, i) => { 
+    groups.forEach((g, i) => {
         const div = document.createElement('div'); div.className = 'rot-group'; 
         div.innerHTML = `<h4 style="margin-bottom:0.5rem; color:var(--dark);">Grupo ${i+1}</h4>` + g.map(res => `<div style="padding:4px 0; border-bottom:1px dashed #e2e8f0; font-size:0.9rem;"><strong>${order++}.</strong> ${res}</div>`).join(''); 
-        container.appendChild(div); 
+        listDiv.appendChild(div); 
+    }); 
+    containerTop.appendChild(listDiv);
+    // Ignore old loop: 
+    [].forEach((g, i) => { 
+        const div = document.createElement('div'); div.className = 'rot-group'; 
+        div.innerHTML = `<h4 style="margin-bottom:0.5rem; color:var(--dark);">Grupo ${i+1}</h4>` + g.map(res => `<div style="padding:4px 0; border-bottom:1px dashed #e2e8f0; font-size:0.9rem;"><strong>${order++}.</strong> ${res}</div>`).join(''); 
+        listDiv.appendChild(div); 
     }); 
     if (isAdmin) { 
         document.getElementById('admin-rot-tools').style.display = 'block'; 
@@ -3173,13 +3210,13 @@ function renderAlertaCargaMensual() {
     const m = curDate.getMonth();
     const mk = getRotationKey(y, m);
     if (!state.configMes || !state.configMes[mk]) {
-        container.innerHTML = ''; return;
+        /* container.innerHTML = ''; */ return;
     }
     
     const analisis = getAnalisisFestivos(y, m);
     
     if (analisis.estado === 'libre') {
-        container.innerHTML = ''; return;
+        /* container.innerHTML = ''; */ return;
     }
 
     let criterioTexto = "suerte aleatoria";
@@ -3847,7 +3884,8 @@ async function eliminarBajaPerfil(idBaja) {
 // ==========================================
 // MOTOR DE BALANCEO DINÁMICO (Regla 3-4)
 // ==========================================
-function reempaquetarGrupos(lista) {
+function reempaquetarGrupos(lista) { return reempaquetarGruposPlan(lista, state.planRotations?.[getCurrentRotPlan(formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1))] || {}); }
+function old_reempaquetarGrupos(lista) {
     if (!lista || lista.length === 0) return [[]];
     if (!state.residentesFijos) state.residentesFijos = [];
     
