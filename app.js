@@ -3663,6 +3663,25 @@ function getAnalisisFestivos(y, m) {
 // Guard para evitar recursión: getCurrentTurn → getUserProgress → getAnalisisFestivos → getCurrentTurn
 let _computingTurn = false;
 
+// 🔧 DEBUG TEMPORAL – ejecutar en consola: debugTurn()
+window.debugTurn = function() {
+    const y = curDate.getFullYear(), m = curDate.getMonth();
+    const mk = getRotationKey(y, m);
+    const dk = formatDateKey(y, m, 1);
+    console.group('🔍 debugTurn() – ' + mk);
+    console.log('promoConfig.planes:', promoConfig.planes?.map(p => p.nombre));
+    console.log('state.planRotations keys:', Object.keys(state.planRotations || {}));
+    console.log('state.configMes[mk]:', state.configMes?.[mk]);
+    console.log('globalProfiles count:', globalProfiles.length);
+    console.log('globalProfiles aprobados:', globalProfiles.filter(p => p.estado === 'aprobado').map(p => ({ n: p.nombre_mostrar, plan: getPlanForUserOnDate(p, dk)?.nombre })));
+    console.log('getAllResidents():', getAllResidents());
+    console.log('getResidentesActivosEnMes():', getResidentesActivosEnMes(y, m));
+    console.log('_computingTurn:', _computingTurn);
+    const turn = getCurrentTurn(y, m);
+    console.log('getCurrentTurn() result:', turn);
+    console.groupEnd();
+};
+
 function getCurrentTurn(y, m) {
     if (_computingTurn) return null; // Corta la recursión
     const mk = getRotationKey(y, m);
