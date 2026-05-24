@@ -3649,7 +3649,11 @@ function getAnalisisFestivos(y, m) {
     return { estado: 'libre', exceso: 0, nominados: [], svcNombre: null };
 }
 
+// Guard para evitar recursión: getCurrentTurn → getUserProgress → getAnalisisFestivos → getCurrentTurn
+let _computingTurn = false;
+
 function getCurrentTurn(y, m) {
+    if (_computingTurn) return null; // Corta la recursión
     const mk = getRotationKey(y, m);
     
     // Si no hay configMes para este mes, lo generamos automáticamente desde la Fila India de rotación
@@ -3665,8 +3669,11 @@ function getCurrentTurn(y, m) {
         state.configMes[mk] = { ordenSeleccion: flatOrden, pausados: {} };
     }
     
+    _computingTurn = true;
+    try {
+
     const orden = state.configMes[mk].ordenSeleccion || [];
-    if (orden.length === 0) return null;
+    if (orden.length === 0) { _computingTurn = false; return null; }
     
     // 💡 FILTRO DE BAJAS: Solo consideramos residentes activos para la ronda de turnos de este mes
     const activosMes = getResidentesActivosEnMes(y, m);
@@ -3710,8 +3717,10 @@ function getCurrentTurn(y, m) {
             }
         }
     }
+    }
     
     return null; // Todo el mundo ha completado sus rondas o el mes está cerrado
+    } finally { _computingTurn = false; }
 }
 // ==========================================
 // FILTRO DE RESIDENTES ACTIVOS POR MES (BAJAS)
