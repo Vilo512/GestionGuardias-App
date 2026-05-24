@@ -2806,7 +2806,7 @@ function renderEditor() {
         <select id="sel-add-res" style="flex:1; padding:8px; border-radius:6px; border:1px solid #cbd5e1;">
             <option value="">-- Añadir Residente a la Rotación --</option>
             <option value="VIRTUAL">+ Nuevo Virtual (Ej: Aura)</option>
-            ${globalProfiles.filter(p => !editingGroups.flat().includes(p.nombre_mostrar) && p.promocion_id === promoConfig.id).map(p => `<option value="${p.nombre_mostrar}">${p.nombre_mostrar} (Registrado)</option>`).join('')}
+            ${globalProfiles.filter(p => !editingGroups.flat().includes(p.nombre_mostrar) && p.promocion_id === currentUserProfile.promocion_id).map(p => `<option value="${p.nombre_mostrar}">${p.nombre_mostrar} (Registrado)</option>`).join('')}
         </select>
         <button class="primary" style="background:var(--dark);" onclick="editorAddSelectedRes()">Añadir</button>
     </div>
