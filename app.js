@@ -3511,9 +3511,12 @@ async function guardarNombrePerfil() {
 // ==========================================
 function getAnalisisFestivos(y, m) {
     const mk = getRotationKey(y, m);
-    let rondaTerminada = false;
-    
-    if (state.configMes && state.configMes[mk] && getCurrentTurn(y, m) === null) {
+    // Salvaguarda: solo consideramos la ronda terminada si al menos alguien ha asignado una guardia este mes.
+    // Evita que la subasta salte en un mes completamente vacío antes de que nadie haya elegido.
+    const monthPrefix = `${y}_${String(m + 1).padStart(2, '0')}_`;
+    const monthHasAnyShifts = Object.keys(state.shifts || {}).some(dk => dk.startsWith(monthPrefix));
+
+    if (monthHasAnyShifts && state.configMes && state.configMes[mk] && getCurrentTurn(y, m) === null) {
         rondaTerminada = true;
     }
     
@@ -3659,10 +3662,17 @@ function getCurrentTurn(y, m) {
     // Si no hay configMes para este mes, lo generamos automáticamente desde la Fila India de rotación
     if (!state.configMes || !state.configMes[mk]) {
         const groups = getRotation(y, m);
-        const flatOrden = groups.flat().filter(n => {
+        let flatOrden = groups.flat().filter(n => {
             const p = globalProfiles.find(pr => pr.nombre_mostrar === n);
-            return p && p.estado !== 'historico';
+            return p && p.estado === 'aprobado';
         });
+        // Fallback: si getRotation devuelve vacío (planRotations aún sin configurar),
+        // usamos todos los perfiles aprobados para que el turno siempre tenga alguien
+        if (flatOrden.length === 0) {
+            flatOrden = globalProfiles
+                .filter(p => p.estado === 'aprobado')
+                .map(p => p.nombre_mostrar);
+        }
         if (flatOrden.length === 0) return null;
         // Guardamos silenciosamente para que pausados y skips funcionen
         if (!state.configMes) state.configMes = {};
