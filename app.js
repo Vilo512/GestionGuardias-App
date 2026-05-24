@@ -3667,30 +3667,47 @@ function getCurrentTurn(y, m) {
     if (_computingTurn) return null; // Corta la recursión
     const mk = getRotationKey(y, m);
     
-    // Si no hay configMes para este mes, lo generamos automáticamente desde la Fila India de rotación
+    // Si no hay configMes para este mes, lo generamos automáticamente
     if (!state.configMes || !state.configMes[mk]) {
-        // Intentamos primero desde getRotation (usa el plan activo del usuario)
-        const groups = getRotation(y, m);
-        let flatOrden = groups.flat().filter(n => {
-            const p = globalProfiles.find(pr => pr.nombre_mostrar === n);
-            return p && p.estado === 'aprobado';
-        });
-        // Fallback robusto: si getRotation devuelve vacío (admin sin plan propio configurado,
-        // o planRotations sin base), recogemos TODOS los perfiles aprobados activos en ese mes
+        const dk = formatDateKey(y, m, 1);
+        const targetKey = getRotationKey(y, m);
+        let flatOrden = [];
+        
+        // Recorremos TODOS los planes en orden (R1, R2, R3, R4...)
+        // para construir el orden global de turno sin depender del perfil del admin
+        for (const plan of (promoConfig.planes || [])) {
+            const pr = state.planRotations?.[plan.nombre];
+            if (!pr) continue;
+            
+            // Usar customRotation del mes si existe, si no la baseGroups del plan
+            let planBase;
+            if (pr.customRotations?.[targetKey]) {
+                planBase = pr.customRotations[targetKey].flat();
+            } else {
+                planBase = (pr.baseGroups || []).flat();
+            }
+            
+            // Solo incluir a quienes realmente pertenecen a este plan este mes y están aprobados
+            const enEstePlan = planBase.filter(n => {
+                const p = globalProfiles.find(pr2 => pr2.nombre_mostrar === n);
+                if (!p || p.estado !== 'aprobado') return false;
+                const planActual = getPlanForUserOnDate(p, dk);
+                return planActual && planActual.nombre === plan.nombre;
+            });
+            
+            for (const r of enEstePlan) {
+                if (!flatOrden.includes(r)) flatOrden.push(r);
+            }
+        }
+        
+        // Último recurso: cualquier aprobado con plan válido este mes
         if (flatOrden.length === 0) {
-            const dk = formatDateKey(y, m, 1);
             flatOrden = globalProfiles
                 .filter(p => p.estado === 'aprobado' && getPlanForUserOnDate(p, dk) !== null)
                 .map(p => p.nombre_mostrar);
         }
-        // Último fallback: cualquier aprobado
-        if (flatOrden.length === 0) {
-            flatOrden = globalProfiles
-                .filter(p => p.estado === 'aprobado')
-                .map(p => p.nombre_mostrar);
-        }
+        
         if (flatOrden.length === 0) return null;
-        // Guardamos silenciosamente para que pausados y skips funcionen
         if (!state.configMes) state.configMes = {};
         state.configMes[mk] = { ordenSeleccion: flatOrden, pausados: {} };
     }
@@ -3703,10 +3720,11 @@ function getCurrentTurn(y, m) {
         // 💡 FILTRO DE BAJAS: Solo consideramos residentes activos para la ronda de turnos de este mes
         const activosMes = getResidentesActivosEnMes(y, m);
         
-        // Obtenemos los límites del plan del mes
-        const uProfile = currentUserProfile;
-        const miPlan = promoConfig.planes?.find(p => p.nombre === uProfile?.plan_asociado) || promoConfig.planes?.[0];
-        const maxGuardias = miPlan ? (miPlan.maxGuardiasMes || 5) : 5;
+        // maxGuardias: máximo entre todos los planes (distintos residentes pueden tener planes distintos)
+        const maxGuardias = Math.max(
+            ...(promoConfig.planes || []).map(p => p.maxGuardiasMes || 5),
+            5
+        );
 
         // Recorremos los "grupos de prioridad" (Turno 1, Turno 2...)
         for (let ronda = 1; ronda <= maxGuardias; ronda++) {
