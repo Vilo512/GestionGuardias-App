@@ -67,6 +67,21 @@ function monthString(y, m) {
     return `${y}-${String(m + 1).padStart(2, '0')}`;
 }
 
+async function limpiarFuturos(y, m) {
+    if (!state.customRotations) return;
+    const baseVal = parseInt(y, 10) * 12 + parseInt(m, 10);
+    let changed = false;
+    for (const key of Object.keys(state.customRotations)) {
+        const parts = key.split('-');
+        const targetVal = parseInt(parts[0], 10) * 12 + parseInt(parts[1], 10);
+        if (targetVal > baseVal) {
+            delete state.customRotations[key];
+            changed = true;
+        }
+    }
+    if (changed) await saveState();
+}
+
 let curDate = new Date(2026, 0, 1);
 let isAdmin = false;
 let loggedInUser = null; 
@@ -2621,12 +2636,14 @@ async function renderAccountsList() {
       }
 
       let escapedName = u.nombre_mostrar.replace(/'/g, "\\'");
+      let ev = state.historialEventos && state.historialEventos[u.nombre_mostrar] ? state.historialEventos[u.nombre_mostrar] : {};
       html += `<div class="account-row" style="border:1px solid #e2e8f0; border-radius:8px; margin-bottom:8px; padding:10px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
          <div>
             <strong>${u.nombre_mostrar}</strong> <span style="font-size:0.8rem; color:#64748b; margin-left:10px;">${rolBadge}</span>
             <div style="font-size:0.8rem; color:#475569; margin-top:4px;">
                Inicio: <strong>${u.fecha_inicio_residencia || 'No definido'}</strong> | Cambio contrato: <strong>${u.fecha_cambio_contrato || 'No definido'}</strong>
-               ${isDueño ? `<button class="secondary" style="font-size:0.7rem; padding:2px 6px; margin-left:8px;" onclick="window.adminEditarFechas('${u.id}', '${escapedName}', '${u.fecha_inicio_residencia || ''}', '${u.fecha_cambio_contrato || ''}')">✏️ Editar</button>` : ''}
+               <br><span style="color:var(--fest);">Entrada a rotación:</span> <strong>${ev.entrada || 'Siempre'}</strong> | <span style="color:var(--fest);">Salida:</span> <strong>${ev.salida || 'Nunca'}</strong>
+               ${isDueño ? `<button class="secondary" style="font-size:0.7rem; padding:2px 6px; margin-left:8px;" onclick="window.adminEditarFechas('${u.id}', '${escapedName}', '${u.fecha_inicio_residencia || ''}', '${u.fecha_cambio_contrato || ''}', '${ev.entrada || ''}', '${ev.salida || ''}')">✏️ Editar</button>` : ''}
             </div>
          </div>
          <div style="display:flex; align-items:center;">${acciones}</div>
@@ -2662,7 +2679,7 @@ async function adminTraspasarCorona(userId, userName) {
     window.location.reload();
 }
 
-window.adminEditarFechas = async function adminEditarFechas(userId, userName, fInicio, fCambio) {
+window.adminEditarFechas = async function adminEditarFechas(userId, userName, fInicio, fCambio, fEntrada, fSalida) {
     try {
         const { value: formValues } = await Swal.fire({
         title: `Editar Fechas de ${userName}`,
@@ -2670,7 +2687,12 @@ window.adminEditarFechas = async function adminEditarFechas(userId, userName, fI
             `<div style="text-align:left; font-size:0.9rem; margin-bottom:5px;">Fecha Inicio Residencia (R1):</div>` +
             `<input id="swal-input1" type="date" class="swal2-input" value="${fInicio}">` +
             `<div style="text-align:left; font-size:0.9rem; margin-bottom:5px; margin-top:10px;">Fecha Cambio Contrato:</div>` +
-            `<input id="swal-input2" type="date" class="swal2-input" value="${fCambio}">`,
+            `<input id="swal-input2" type="date" class="swal2-input" value="${fCambio}">` +
+            `<hr style="margin: 20px 0;">` +
+            `<div style="text-align:left; font-size:0.9rem; margin-bottom:5px; color:var(--fest);">Mes de Entrada a Rotación (YYYY-MM):</div>` +
+            `<input id="swal-input3" type="month" class="swal2-input" value="${fEntrada}">` +
+            `<div style="text-align:left; font-size:0.9rem; margin-bottom:5px; margin-top:10px; color:var(--fest);">Mes de Salida de Rotación (YYYY-MM):</div>` +
+            `<input id="swal-input4" type="month" class="swal2-input" value="${fSalida}">`,
         focusConfirm: false,
         showCancelButton: true,
         confirmButtonText: 'Guardar',
@@ -2678,7 +2700,9 @@ window.adminEditarFechas = async function adminEditarFechas(userId, userName, fI
         preConfirm: () => {
             return [
                 document.getElementById('swal-input1').value,
-                document.getElementById('swal-input2').value
+                document.getElementById('swal-input2').value,
+                document.getElementById('swal-input3').value,
+                document.getElementById('swal-input4').value
             ]
         }
     });
@@ -2693,6 +2717,19 @@ window.adminEditarFechas = async function adminEditarFechas(userId, userName, fI
         if (error) {
             alert("Error: " + error.message);
         } else {
+            // Actualizar historialEventos en la rotación (motor matemático)
+            if (!state.historialEventos) state.historialEventos = {};
+            if (!state.historialEventos[userName]) state.historialEventos[userName] = {};
+            
+            if (formValues[2]) state.historialEventos[userName].entrada = formValues[2];
+            else delete state.historialEventos[userName].entrada;
+            
+            if (formValues[3]) state.historialEventos[userName].salida = formValues[3];
+            else delete state.historialEventos[userName].salida;
+            
+            await limpiarFuturos(curDate.getFullYear(), curDate.getMonth());
+            await saveState();
+
             // Refrescar perfiles globales y lista
             const { data: profs } = await supabaseClient.from('perfiles').select('*').eq('promocion_id', currentUserProfile.promocion_id).eq('estado', 'aprobado');
             globalProfiles = profs || [];
