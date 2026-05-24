@@ -1453,7 +1453,62 @@ function renderMainCalendar() {
          else banner.innerHTML = `<div style="background:#f1f5f9; color:#64748b; padding:8px 12px; border-radius:8px; margin-bottom:1rem; font-size:0.85rem;">⏳ Turno de elección: <b>${turnUser}</b>.<br>Debes esperar a que termine sus guardias o el Admin le salte.</div>`;
        }
     } else { 
-       banner.innerHTML = `<div style="background:#dcfce7; color:#166534; border:1px solid #bbf7d0; padding:8px 12px; border-radius:8px; margin-bottom:1rem; font-size:0.85rem;">✅ Todos los residentes han completado sus guardias.</div>`; 
+        // turnUser === null → todos eligieron. Ahora comprobamos si la Subasta también está resuelta
+        const analisisFinal = getAnalisisFestivos(y, m);
+
+        if (analisisFinal.estado === 'subasta_abierta') {
+            // Fase 2: turnos completos pero quedan guardias en subasta voluntaria
+            const horasRestantes = analisisFinal.horasRestantes || 0;
+            if (isAdmin) {
+                banner.innerHTML = `<div style="background:#fff7ed; border:2px dashed #f97316; color:#c2410c; padding:10px 14px; border-radius:10px; margin-bottom:1rem; font-size:0.85rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                    <span>📢 <b>Todos eligieron.</b> Quedan <b>${Math.ceil(analisisFinal.exceso)}</b> guardia(s) de <b>${analisisFinal.svcNombre}</b> en Subasta Voluntaria. Tiempo restante: <b>${horasRestantes}h</b>.</span>
+                    <div style="display:flex;gap:6px;">
+                        <button class="danger" style="padding:4px 8px; font-size:0.75rem; background:var(--fest); color:white;" onclick="adminResetMonth(${y}, ${m})">⚠️ Reset</button>
+                    </div>
+                </div>`;
+            } else {
+                banner.innerHTML = `<div style="background:#fff7ed; border:1px solid #fed7aa; color:#c2410c; padding:8px 12px; border-radius:8px; margin-bottom:1rem; font-size:0.85rem;">
+                    📢 <b>Has terminado de elegir.</b> Quedan <b>${Math.ceil(analisisFinal.exceso)}</b> guardia(s) de <b>${analisisFinal.svcNombre}</b> en Subasta Voluntaria. Tienes <b>${horasRestantes}h</b> para adjudicártela(s) voluntariamente.
+                </div>`;
+            }
+
+        } else if (analisisFinal.estado === 'subasta_cerrada' || analisisFinal.estado === 'critico') {
+            // Fase 3: subasta cerrada forzosa, pendiente de inyección
+            if (isAdmin) {
+                banner.innerHTML = `<div style="background:#fef2f2; border:2px dashed #ef4444; color:#b91c1c; padding:10px 14px; border-radius:10px; margin-bottom:1rem; font-size:0.85rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                    <span>⚖️ <b>Subasta Cerrada.</b> Quedan <b>${Math.ceil(analisisFinal.exceso)}</b> guardia(s) de <b>${analisisFinal.svcNombre}</b> pendientes de asignación forzosa.</span>
+                    <div style="display:flex;gap:6px;">
+                        <button class="primary" style="padding:4px 8px; font-size:0.75rem; background:var(--fest); color:white;" onclick="ejecutarAsignacionForzosa(${y}, ${m}, '${analisisFinal.svcNombre}')">⚡ Asignación Forzosa</button>
+                        <button class="danger" style="padding:4px 8px; font-size:0.75rem;" onclick="adminResetMonth(${y}, ${m})">⚠️ Reset</button>
+                    </div>
+                </div>`;
+            } else {
+                banner.innerHTML = `<div style="background:#fef2f2; border:1px solid #fecaca; color:#b91c1c; padding:8px 12px; border-radius:8px; margin-bottom:1rem; font-size:0.85rem;">
+                    ⚖️ <b>La subasta ha cerrado.</b> El administrador asignará forzosamente las guardias de <b>${analisisFinal.svcNombre}</b> que quedaron sin cubrir.
+                </div>`;
+            }
+
+        } else {
+            // ✅ Fase final: todos eligieron Y la subasta está resuelta → Mes completamente cerrado
+            const mesNombre = `${MONTHS[m]} ${y}`;
+            if (isAdmin) {
+                banner.innerHTML = `<div style="background: linear-gradient(135deg, #064e3b, #065f46); color:white; padding:14px 18px; border-radius:12px; margin-bottom:1rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                    <div>
+                        <div style="font-size:1rem; font-weight:bold; margin-bottom:4px;">🎉 Asignación de ${mesNombre} completada</div>
+                        <div style="font-size:0.8rem; opacity:0.85;">Todos los residentes han elegido y todas las guardias están cubiertas. ¡Listo para exportar a RRHH!</div>
+                    </div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <button onclick="navAdmin('export')" style="padding:6px 12px; font-size:0.8rem; background:white; color:#064e3b; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">📊 Exportar Excel</button>
+                        <button class="danger" style="padding:4px 8px; font-size:0.75rem;" onclick="adminResetMonth(${y}, ${m})">⚠️ Reset</button>
+                    </div>
+                </div>`;
+            } else {
+                banner.innerHTML = `<div style="background: linear-gradient(135deg, #064e3b, #065f46); color:white; padding:12px 16px; border-radius:12px; margin-bottom:1rem;">
+                    <div style="font-size:0.95rem; font-weight:bold; margin-bottom:3px;">🎉 Asignación de ${mesNombre} completada</div>
+                    <div style="font-size:0.8rem; opacity:0.85;">Todos los residentes han terminado de elegir. Si quieres hacer algún cambio, usa el <b>Mercadillo 🛒</b>.</div>
+                </div>`;
+            }
+        }
     }
   }
 
