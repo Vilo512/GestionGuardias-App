@@ -2666,19 +2666,26 @@ async function adminAprobarUsuario(userId, userName) {
 }
 
 async function adminExpulsarUsuario(userId, userName) {
-    if(!confirm(`¿Seguro que quieres expulsar a ${userName}?`)) return;
+    if(!confirm(`¿Seguro que quieres expulsar a ${userName}? El usuario no desaparecerá del pasado, pero dejará de estar en la rotación a partir de este mes.`)) return;
     setStatus('Expulsando...');
-    await supabaseClient.from('perfiles').update({ promocion_id: null, estado: 'pendiente' }).eq('id', userId);
     
-    // 1. Convertimos en fila india y extirpamos al que se va
-    let filaIndia = (state.baseGroups || []).flat();
-    filaIndia = filaIndia.filter(n => n !== userName);
+    // Lo marcamos como expulsado pero conservamos su promocion_id para mantener su registro
+    await supabaseClient.from('perfiles').update({ estado: 'expulsado' }).eq('id', userId);
     
-    // 2. Las matemáticas cierran el hueco y retraza las fronteras
-    state.baseGroups = reempaquetarGrupos(filaIndia);
+    if (!state.historialEventos) state.historialEventos = {};
+    if (!state.historialEventos[userName]) state.historialEventos[userName] = {};
+    
+    // Registramos la salida en el mes actual
+    const mStr = String(curDate.getMonth() + 1).padStart(2, '0');
+    state.historialEventos[userName].salida = `${curDate.getFullYear()}-${mStr}`;
+    
+    // También limpiamos sus customRotations futuros para que el motor lo recalcule
+    await limpiarFuturos(curDate.getFullYear(), curDate.getMonth());
     
     await saveState(); 
+    await loadGlobalProfiles(); // Refrescar perfiles para que se vea el cambio
     await renderAccountsList();
+    renderRotationView();
     setStatus('Conectado ✅');
 }
 
@@ -2891,6 +2898,12 @@ function editorAddSelectedRes() {
     let filaIndia = editingGroups.flat();
     if (!filaIndia.includes(nombre.trim())) {
         filaIndia.push(nombre.trim());
+        
+        // Registrar entrada
+        if (!state.historialEventos) state.historialEventos = {};
+        if (!state.historialEventos[nombre.trim()]) state.historialEventos[nombre.trim()] = {};
+        state.historialEventos[nombre.trim()].entrada = monthString(curDate.getFullYear(), curDate.getMonth());
+        
         editingGroups = reempaquetarGrupos(filaIndia);
         renderEditor();
     }
