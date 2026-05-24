@@ -276,7 +276,16 @@ async function loadState() {
       if (!state.trades) state.trades = [];
     } else {
       state.shifts = {}; state.customRotations = {}; state.pedWhitelist = {}; state.festivos = {}; state.trades = [];
-      state.baseGroups = [[currentUserProfile.nombre_mostrar]];
+      const _initPlanName = promoConfig.planes?.[0]?.nombre || "Plan Base";
+      state.planRotations = {};
+      state.planRotations[_initPlanName] = {
+          baseGroups: [[currentUserProfile.nombre_mostrar]],
+          baseYear: curDate.getFullYear(),
+          baseMonth: curDate.getMonth(),
+          customRotations: {},
+          residentesFijos: []
+      };
+      state.baseGroups = [[currentUserProfile.nombre_mostrar]]; // compat
     }
     setStatus('Sincronizado ✅');
     checkAutomaticGraduation();
@@ -643,11 +652,7 @@ function getRotation(y, m) {
             customRotations: state.customRotations || {},
             residentesFijos: state.residentesFijos || []
         };
-        delete state.baseGroups;
-        delete state.baseYear;
-        delete state.baseMonth;
-        delete state.customRotations;
-        delete state.residentesFijos;
+        // No borramos las propiedades antiguas para no romper otros lectores
     }
     
     if (!state.planRotations[planName]) {
@@ -1300,7 +1305,9 @@ function renderAll() {
   renderUserHeader();
   const y = curDate.getFullYear(), m = curDate.getMonth();
   const key = getRotationKey(y, m);
-  const isCustom = state.customRotations[key];
+  const _curPlanName = getCurrentRotPlan(formatDateKey(y, m, 1));
+  const _curPr = state.planRotations?.[_curPlanName];
+  const isCustom = _curPr?.customRotations?.[key] || state.customRotations?.[key];
   const title = `${MONTHS[m]} ${y} ${isCustom ? '⚙️' : ''}`;
   
   document.getElementById('main-cal-title').textContent = title;
@@ -2557,7 +2564,16 @@ async function adminVaciarGeneracion() {
     state.trades = [];
     
     // 3. Reseteamos la rotación para que solo quede el Admin actual
-    state.baseGroups = [[currentUserProfile.nombre_mostrar]];
+    const _vacPlanName = promoConfig.planes?.[0]?.nombre || "Plan Base";
+    state.planRotations = {};
+    state.planRotations[_vacPlanName] = {
+        baseGroups: [[currentUserProfile.nombre_mostrar]],
+        baseYear: curDate.getFullYear(),
+        baseMonth: curDate.getMonth(),
+        customRotations: {},
+        residentesFijos: []
+    };
+    state.baseGroups = [[currentUserProfile.nombre_mostrar]]; // compat
     state.baseMonth = curDate.getMonth();
     state.baseYear = curDate.getFullYear();
 
