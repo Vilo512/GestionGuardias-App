@@ -3669,13 +3669,21 @@ function getCurrentTurn(y, m) {
     
     // Si no hay configMes para este mes, lo generamos automáticamente desde la Fila India de rotación
     if (!state.configMes || !state.configMes[mk]) {
+        // Intentamos primero desde getRotation (usa el plan activo del usuario)
         const groups = getRotation(y, m);
         let flatOrden = groups.flat().filter(n => {
             const p = globalProfiles.find(pr => pr.nombre_mostrar === n);
             return p && p.estado === 'aprobado';
         });
-        // Fallback: si getRotation devuelve vacío (planRotations aún sin configurar),
-        // usamos todos los perfiles aprobados para que el turno siempre tenga alguien
+        // Fallback robusto: si getRotation devuelve vacío (admin sin plan propio configurado,
+        // o planRotations sin base), recogemos TODOS los perfiles aprobados activos en ese mes
+        if (flatOrden.length === 0) {
+            const dk = formatDateKey(y, m, 1);
+            flatOrden = globalProfiles
+                .filter(p => p.estado === 'aprobado' && getPlanForUserOnDate(p, dk) !== null)
+                .map(p => p.nombre_mostrar);
+        }
+        // Último fallback: cualquier aprobado
         if (flatOrden.length === 0) {
             flatOrden = globalProfiles
                 .filter(p => p.estado === 'aprobado')
