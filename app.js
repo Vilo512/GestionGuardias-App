@@ -2661,7 +2661,7 @@ async function adminTraspasarCorona(userId, userName) {
     window.location.reload();
 }
 
-async function adminEditarFechas(userId, userName, fInicio, fCambio) {
+window.adminEditarFechas = async function adminEditarFechas(userId, userName, fInicio, fCambio) {
     const { value: formValues } = await Swal.fire({
         title: `Editar Fechas de ${userName}`,
         html:
