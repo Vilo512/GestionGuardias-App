@@ -601,62 +601,65 @@ function getIllegalShiftsForUser(user, shiftsObj) {
 // ==========================================
 function getRotationKey(y, m) { return `${y}_${String(m).padStart(2,'0')}`; }
 function getRotation(y, m) {
-  const key = getRotationKey(y, m);
-  if (state.customRotations[key]) return state.customRotations[key];
-  
-  const totalDiff = (y - state.baseYear) * 12 + (m - state.baseMonth);
-  if (totalDiff <= 0) return state.baseGroups;
-
-  if (!state.residentesFijos) state.residentesFijos = [];
-
-  // 1. Extraemos los fijos y los móviles de la estructura BASE original
-  let fijosBase = (state.baseGroups || []).flat().filter(n => state.residentesFijos.includes(n));
-  
-  // Para los móviles, cogemos la estructura de grupos de la BASE eliminando si hubiera fijos
-  let gruposMovilesBase = (state.baseGroups || []).map(g => g.filter(n => !state.residentesFijos.includes(n))).filter(g => g.length > 0);
-  
-  // Si por casualidad el primer grupo de la base eran solo fijos, lo quitamos de la ecuación móvil
-  if (gruposMovilesBase.length > 4 && fijosBase.length > 0) {
-      gruposMovilesBase.shift();
-  }
-
-  // 2. RUEDA A: Rotación interna de los fijos (Grupo Especial arriba)
-  let fijosRotados = [...fijosBase];
-  for (let i = 0; i < totalDiff; i++) {
-      if (fijosRotados.length > 1) {
-          const ultimoFijo = fijosRotados.pop();
-          fijosRotados.unshift(ultimoFijo);
-      }
-  }
-
-  // 3. RUEDA B: Mecánica de bloques tradicional (ABC, DEF -> BCA, FDE)
-  let gruposMovilesRotados = gruposMovilesBase.map(g => [...g]);
-
-  for (let i = 0; i < totalDiff; i++) {
-      // Paso A: Rotación interna de cada bloque (el último pasa a ser el primero)
-      gruposMovilesRotados = gruposMovilesRotados.map(g => {
-          if (g.length > 1) {
-              const ultimoDelGrupo = g.pop();
-              g.unshift(ultimoDelGrupo);
-          }
-          return g;
-      });
-
-      // Paso B: Rotación de los bloques enteros (el último bloque pasa a ser el primero)
-      if (gruposMovilesRotados.length > 1) {
-          const ultimoBloque = gruposMovilesRotados.pop();
-          gruposMovilesRotados.unshift(ultimoBloque);
-      }
-  }
-
-  // 4. ENSAMBLAJE FINAL
-  let resultadoFinal = [];
-  if (fijosRotados.length > 0) {
-      resultadoFinal.push(fijosRotados); // Grupo Especial arriba del todo
-  }
-  resultadoFinal.push(...gruposMovilesRotados); // Los 4 bloques tradicionales perfectamente rotados
-
-  return resultadoFinal;
+    const targetKey = getRotationKey(y, m);
+    // Si hay una excepción guardada específicamente para este mes, la devolvemos inmediatamente
+    if (state.customRotations[targetKey]) return state.customRotations[targetKey];
+    
+    const targetVal = y * 12 + m;
+    const baseVal = state.baseYear * 12 + state.baseMonth;
+    
+    // Si intentamos ver un mes antes de la base absoluta, devolvemos la base tal cual
+    // (ya que no podemos "des-rotar" destructivamente hacia atrás de forma fiable)
+    if (targetVal <= baseVal) return state.baseGroups || [];
+    
+    if (!state.residentesFijos) state.residentesFijos = [];
+    if (!state.historialEventos) state.historialEventos = {};
+    
+    // IMPORTANTE: Partimos SIEMPRE de la Base Absoluta. 
+    // Ignoramos por completo cualquier 'customRotation' intermedia que pudiera existir.
+    let currentFlat = (state.baseGroups || []).flat();
+    
+    // Avanzar mes a mes matemáticamente
+    for (let v = baseVal + 1; v <= targetVal; v++) {
+        const curY = Math.floor(v / 12);
+        const curM = v % 12;
+        const cStr = monthString(curY, curM);
+        
+        // 1. Extraer a los que se van este mes
+        currentFlat = currentFlat.filter(n => {
+            const ev = state.historialEventos[n];
+            return !(ev && ev.salida === cStr);
+        });
+        
+        // 2. Añadir a los que entran este mes
+        for (const [n, ev] of Object.entries(state.historialEventos)) {
+            if (ev.entrada === cStr && !currentFlat.includes(n)) {
+                currentFlat.push(n);
+            }
+        }
+        
+        let fijos = currentFlat.filter(x => state.residentesFijos.includes(x));
+        let moviles = currentFlat.filter(x => !state.residentesFijos.includes(x));
+        
+        // 3. Rotar 1 paso hacia adelante
+        if (fijos.length > 1) {
+            fijos.unshift(fijos.pop());
+        }
+        
+        let tempGrupos = _reempaquetarGrupos(moviles);
+        tempGrupos = tempGrupos.map(g => {
+            if (g.length > 1) g.unshift(g.pop());
+            return g;
+        });
+        if (tempGrupos.length > 1) {
+            tempGrupos.unshift(tempGrupos.pop());
+        }
+        
+        moviles = tempGrupos.flat();
+        currentFlat = [...fijos, ...moviles];
+    }
+    
+    return reempaquetarGrupos(currentFlat);
 }
 	
 
@@ -2951,11 +2954,12 @@ function editorAddGroup() { editingGroups.push([]); renderEditor(); }
 function editorRemoveGroup(gi) { editingGroups.splice(gi, 1); renderEditor(); }
 
 async function saveCustomMonth() { 
+    // Guarda el orden SOLO para este mes (como una excepción aislada)
     state.customRotations[getRotationKey(curDate.getFullYear(), curDate.getMonth())] = editingGroups; 
     await saveState(); 
     checkAutomaticGraduation();
     renderAll(); 
-    alert("Orden guardado."); 
+    alert("Excepción guardada SOLO para este mes. Los meses siguientes seguirán su curso matemático normal ignorando este cambio."); 
 }
 async function saveAsNewBase() { 
     state.baseGroups = editingGroups; 
