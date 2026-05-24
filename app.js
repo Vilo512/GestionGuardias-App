@@ -684,7 +684,7 @@ function getRotation(y, m) {
     if (targetVal <= baseVal) return pr.baseGroups || [];
     
     if (!state.historialEventos) state.historialEventos = {};
-    let currentFlat = (pr.baseGroups || []).flat();
+    let currentGroups = JSON.parse(JSON.stringify(pr.baseGroups || []));
     
     for (let v = baseVal + 1; v <= targetVal; v++) {
         const curY = Math.floor(v / 12);
@@ -705,41 +705,53 @@ function getRotation(y, m) {
             return userPlan && userPlan.nombre === planName;
         }).map(p => p.nombre_mostrar);
         
-        // 2. Extraer a los que ya no pertenecen
-        let validFlat = currentFlat.filter(n => eligible.includes(n));
+        // 2. Extraer a los que ya no pertenecen manteniendo los grupos
+        currentGroups = currentGroups.map(g => g.filter(n => eligible.includes(n))).filter(g => g.length > 0);
         
-        // 3. Añadir a los rezagados o nuevos al final de la cola
-        for (const n of eligible) {
-            if (!validFlat.includes(n)) {
-                validFlat.push(n);
+        // 3. Añadir a los rezagados o nuevos al último grupo
+        const existingMembers = currentGroups.flat();
+        const newMembers = eligible.filter(n => !existingMembers.includes(n));
+        
+        if (newMembers.length > 0) {
+            if (currentGroups.length > 0) {
+                currentGroups[currentGroups.length - 1].push(...newMembers);
+            } else {
+                currentGroups.push(newMembers);
             }
         }
-        currentFlat = validFlat;
         
-        // Separar fijos de móviles
-        let fijos = currentFlat.filter(x => (pr.residentesFijos || []).includes(x));
-        let moviles = currentFlat.filter(x => !(pr.residentesFijos || []).includes(x));
+        // 4. Separar fijos de móviles
+        let fijos = [];
+        let movilesGroups = [];
         
-        // 3. Rotar 1 paso hacia adelante
+        for (let g of currentGroups) {
+            let gFijos = g.filter(x => (pr.residentesFijos || []).includes(x));
+            let gMoviles = g.filter(x => !(pr.residentesFijos || []).includes(x));
+            fijos.push(...gFijos);
+            if (gMoviles.length > 0) movilesGroups.push(gMoviles);
+        }
+        
+        // 5. Rotar 1 paso hacia adelante (internamente en los grupos y los grupos entre sí)
         if (fijos.length > 1) {
             fijos.unshift(fijos.pop());
         }
         
-        let tempGrupos = _reempaquetarGrupos(moviles);
-        tempGrupos = tempGrupos.map(g => {
+        movilesGroups = movilesGroups.map(g => {
             if (g.length > 1) g.unshift(g.pop());
             return g;
         });
-        if (tempGrupos.length > 1) {
-            tempGrupos.unshift(tempGrupos.pop());
+        
+        if (movilesGroups.length > 1) {
+            movilesGroups.unshift(movilesGroups.pop());
         }
         
-        moviles = tempGrupos.flat();
-        currentFlat = [...fijos, ...moviles];
+        // 6. Reconstruir los grupos para este mes
+        currentGroups = [];
+        if (fijos.length > 0) currentGroups.push(fijos);
+        currentGroups.push(...movilesGroups);
     }
     
-    // Al final, reempaquetar con el estado pr
-    return reempaquetarGruposPlan(currentFlat, pr);
+    return currentGroups;
 }
 
 function reempaquetarGruposPlan(lista, pr) {
