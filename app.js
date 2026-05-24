@@ -3671,56 +3671,49 @@ function getCurrentTurn(y, m) {
     
     _computingTurn = true;
     try {
+        const orden = state.configMes[mk].ordenSeleccion || [];
+        if (orden.length === 0) return null;
+        
+        // 💡 FILTRO DE BAJAS: Solo consideramos residentes activos para la ronda de turnos de este mes
+        const activosMes = getResidentesActivosEnMes(y, m);
+        
+        // Obtenemos los límites del plan del mes
+        const uProfile = currentUserProfile;
+        const miPlan = promoConfig.planes?.find(p => p.nombre === uProfile?.plan_asociado) || promoConfig.planes?.[0];
+        const maxGuardias = miPlan ? (miPlan.maxGuardiasMes || 5) : 5;
 
-    const orden = state.configMes[mk].ordenSeleccion || [];
-    if (orden.length === 0) { _computingTurn = false; return null; }
-    
-    // 💡 FILTRO DE BAJAS: Solo consideramos residentes activos para la ronda de turnos de este mes
-    const activosMes = getResidentesActivosEnMes(y, m);
-    
-    // Obtenemos los límites del plan del mes
-    const uProfile = currentUserProfile;
-    const miPlan = promoConfig.planes?.find(p => p.nombre === uProfile?.plan_asociado) || promoConfig.planes?.[0];
-    const maxGuardias = miPlan ? (miPlan.maxGuardiasMes || 5) : 5;
-
-    // Recorremos los "grupos de prioridad" (Turno 1, Turno 2...)
-    for (let ronda = 1; ronda <= maxGuardias; ronda++) {
-        for (let i = 0; i < orden.length; i++) {
-            const residente = orden[i];
-            
-            // 🛑 SI EL RESIDENTE ESTÁ DE BAJA ESTE MES, SE SALTA AUTOMÁTICAMENTE
-            if (!activosMes.includes(residente)) {
-                continue; 
-            }
-            
-            // Si el usuario se ha pausado manualmente el mes en la interfaz, lo respetamos
-            if (state.configMes[mk].pausados && state.configMes[mk].pausados[residente]) {
-                continue;
-            }
-            
-            // Calculamos qué lleva asignado en este momento
-            const prog = getUserProgress(residente, y, m);
-            
-            // Evaluamos si le toca rellenar en esta ronda
-            if (prog.total < ronda) {
-                // Validación extra: Si el mes está en modo bloqueo crítico/subasta cerrada, 
-                // forzamos a que el residente complete sus festivos obligatorios antes de seguir sumando normales
-                const analisis = getAnalisisFestivos(y, m);
-                if ((analisis.estado === 'critico' || analisis.estado === 'subasta_cerrada') && analisis.nominados.includes(residente)) {
-                    // 🛠️ CORREGIDO: Vinculamos minimoBase a analisis.minimoBase
-                    if (prog.festivos < (analisis.minimoBase + 1) && prog.total < maxGuardias) {
-                        return residente;
-                    }
-                }
+        // Recorremos los "grupos de prioridad" (Turno 1, Turno 2...)
+        for (let ronda = 1; ronda <= maxGuardias; ronda++) {
+            for (let i = 0; i < orden.length; i++) {
+                const residente = orden[i];
                 
-                return residente;
+                // 🛑 SI EL RESIDENTE ESTÁ DE BAJA ESTE MES, SE SALTA AUTOMÁTICAMENTE
+                if (!activosMes.includes(residente)) continue;
+                
+                // Si el usuario se ha pausado manualmente el mes en la interfaz, lo respetamos
+                if (state.configMes[mk].pausados && state.configMes[mk].pausados[residente]) continue;
+                
+                // Calculamos qué lleva asignado en este momento
+                const prog = getUserProgress(residente, y, m);
+                
+                // Evaluamos si le toca rellenar en esta ronda
+                if (prog.total < ronda) {
+                    // Validación extra: Si el mes está en modo bloqueo crítico/subasta cerrada, 
+                    // forzamos a que el residente complete sus festivos obligatorios antes de seguir sumando normales
+                    const analisis = getAnalisisFestivos(y, m);
+                    if ((analisis.estado === 'critico' || analisis.estado === 'subasta_cerrada') && analisis.nominados.includes(residente)) {
+                        if (prog.festivos < (analisis.minimoBase + 1) && prog.total < maxGuardias) {
+                            return residente;
+                        }
+                    }
+                    return residente;
+                }
             }
         }
+        return null; // Todo el mundo ha completado sus rondas o el mes está cerrado
+    } finally {
+        _computingTurn = false;
     }
-    }
-    
-    return null; // Todo el mundo ha completado sus rondas o el mes está cerrado
-    } finally { _computingTurn = false; }
 }
 // ==========================================
 // FILTRO DE RESIDENTES ACTIVOS POR MES (BAJAS)
