@@ -63,6 +63,10 @@ let state = {
 	habilitaciones: {}, // 💡 NUEVO: Control dinámico de todos los servicios manuales
 };
 
+function monthString(y, m) {
+    return `${y}-${String(m + 1).padStart(2, '0')}`;
+}
+
 let curDate = new Date(2026, 0, 1);
 let isAdmin = false;
 let loggedInUser = null; 
@@ -2706,15 +2710,6 @@ function renderRotationView() {
     const groups = getRotation(y, m); 
     const container = document.getElementById('rot-content'); 
     container.innerHTML = ''; 
-
-    // INYECCION DE DEBUG
-    const targetVal = parseInt(y, 10) * 12 + parseInt(m, 10);
-    const bY = parseInt(state.baseYear, 10);
-    const bM = parseInt(state.baseMonth, 10);
-    const baseVal = (isNaN(bY) || isNaN(bM)) ? targetVal : (bY * 12 + bM);
-    container.innerHTML = `<div style="background: red; color: white; padding: 10px; margin-bottom: 15px;">DEBUG: y=${y}, m=${m} | bY=${bY}, bM=${bM} | targetVal=${targetVal}, baseVal=${baseVal} | loops=${targetVal > baseVal ? (targetVal - baseVal) : 0}</div>`;
-
-
     let order = 1; 
     groups.forEach((g, i) => { 
         const div = document.createElement('div'); div.className = 'rot-group'; 
