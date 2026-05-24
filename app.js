@@ -3516,6 +3516,7 @@ function getAnalisisFestivos(y, m) {
     const monthPrefix = `${y}_${String(m + 1).padStart(2, '0')}_`;
     const monthHasAnyShifts = Object.keys(state.shifts || {}).some(dk => dk.startsWith(monthPrefix));
 
+    let rondaTerminada = false;
     if (monthHasAnyShifts && state.configMes && state.configMes[mk] && getCurrentTurn(y, m) === null) {
         rondaTerminada = true;
     }
