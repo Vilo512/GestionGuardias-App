@@ -48,7 +48,7 @@ const MONTHS = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto
 
 let state = {
   baseGroups: [], 
-  baseMonth: 0, baseYear: 2026,
+  baseMonth: 0, baseYear: 2025,
   customRotations: {}, 
   shifts: {},
   pedWhitelist: {}, // Conceptualmente ahora es: enabledDays
@@ -627,48 +627,85 @@ function getIllegalShiftsForUser(user, shiftsObj) {
 // ==========================================
 // NÚCLEO 5: EVALUADOR DE REGLAS (EL CEREBRO)
 // ==========================================
-function getRotationKey(y, m) { return `${y}_${String(m).padStart(2,'0')}`; }
 function getRotation(y, m) {
+    const dkStep = formatDateKey(y, m, 1);
+    const planName = getCurrentRotPlan(dkStep);
+    
+    // Migración Inicial si venimos de la versión antigua sin partición por Plan
+    if (!state.planRotations) {
+        state.planRotations = {};
+        const pName = promoConfig.planes?.[0]?.nombre || "Plan Base";
+        state.planRotations[pName] = {
+            baseGroups: state.baseGroups || [],
+            baseYear: state.baseYear || 2026,
+            baseMonth: state.baseMonth || 0,
+            customRotations: state.customRotations || {},
+            residentesFijos: state.residentesFijos || []
+        };
+        delete state.baseGroups;
+        delete state.baseYear;
+        delete state.baseMonth;
+        delete state.customRotations;
+        delete state.residentesFijos;
+    }
+    
+    if (!state.planRotations[planName]) {
+        state.planRotations[planName] = {
+            baseGroups: [],
+            baseYear: 2025,
+            baseMonth: 0,
+            customRotations: {},
+            residentesFijos: []
+        };
+    }
+    
+    const pr = state.planRotations[planName];
     const targetKey = getRotationKey(y, m);
-    // Si hay una excepción guardada específicamente para este mes, la devolvemos inmediatamente
-    if (state.customRotations && state.customRotations[targetKey]) return state.customRotations[targetKey];
+    if (pr.customRotations && pr.customRotations[targetKey]) return pr.customRotations[targetKey];
     
     const targetVal = parseInt(y, 10) * 12 + parseInt(m, 10);
-    const bY = parseInt(state.baseYear, 10);
-    const bM = parseInt(state.baseMonth, 10);
+    const bY = parseInt(pr.baseYear, 10);
+    const bM = parseInt(pr.baseMonth, 10);
     const baseVal = (isNaN(bY) || isNaN(bM)) ? targetVal : (bY * 12 + bM);
     
-    // Si intentamos ver un mes antes de la base absoluta, devolvemos la base tal cual
-    if (targetVal <= baseVal) return state.baseGroups || [];
+    if (targetVal <= baseVal) return pr.baseGroups || [];
     
-    if (!state.residentesFijos) state.residentesFijos = [];
     if (!state.historialEventos) state.historialEventos = {};
+    let currentFlat = (pr.baseGroups || []).flat();
     
-    // IMPORTANTE: Partimos SIEMPRE de la Base Absoluta. 
-    // Ignoramos por completo cualquier 'customRotation' intermedia que pudiera existir.
-    let currentFlat = (state.baseGroups || []).flat();
-    
-    // Avanzar mes a mes matemáticamente
     for (let v = baseVal + 1; v <= targetVal; v++) {
         const curY = Math.floor(v / 12);
         const curM = v % 12;
-        const cStr = monthString(curY, curM);
+        const iterDk = formatDateKey(curY, curM, 1);
         
-        // 1. Extraer a los que se van este mes
-        currentFlat = currentFlat.filter(n => {
-            const ev = state.historialEventos[n];
-            return !(ev && ev.salida === cStr);
-        });
+        // 1. Calcular quiénes pertenecen matemáticamente a este Plan en este mes
+        const eligible = globalProfiles.filter(p => {
+            if (p.estado === 'historico') {
+                const ev = state.historialEventos[p.nombre_mostrar];
+                if (ev && ev.salida) {
+                    const parts = ev.salida.split('-');
+                    const salVal = parseInt(parts[0], 10) * 12 + parseInt(parts[1], 10) - 1;
+                    if (v > salVal) return false;
+                }
+            }
+            const userPlan = getPlanForUserOnDate(p, iterDk);
+            return userPlan && userPlan.nombre === planName;
+        }).map(p => p.nombre_mostrar);
         
-        // 2. Añadir a los que entran este mes
-        for (const [n, ev] of Object.entries(state.historialEventos)) {
-            if (ev.entrada === cStr && !currentFlat.includes(n)) {
-                currentFlat.push(n);
+        // 2. Extraer a los que ya no pertenecen
+        let validFlat = currentFlat.filter(n => eligible.includes(n));
+        
+        // 3. Añadir a los rezagados o nuevos al final de la cola
+        for (const n of eligible) {
+            if (!validFlat.includes(n)) {
+                validFlat.push(n);
             }
         }
+        currentFlat = validFlat;
         
-        let fijos = currentFlat.filter(x => state.residentesFijos.includes(x));
-        let moviles = currentFlat.filter(x => !state.residentesFijos.includes(x));
+        // Separar fijos de móviles
+        let fijos = currentFlat.filter(x => (pr.residentesFijos || []).includes(x));
+        let moviles = currentFlat.filter(x => !(pr.residentesFijos || []).includes(x));
         
         // 3. Rotar 1 paso hacia adelante
         if (fijos.length > 1) {
@@ -688,9 +725,19 @@ function getRotation(y, m) {
         currentFlat = [...fijos, ...moviles];
     }
     
-    return reempaquetarGrupos(currentFlat);
+    // Al final, reempaquetar con el estado pr
+    return reempaquetarGruposPlan(currentFlat, pr);
 }
-	
+
+function reempaquetarGruposPlan(lista, pr) {
+    if (!lista || lista.length === 0) return [[]];
+    let fijos = lista.filter(n => (pr.residentesFijos || []).includes(n));
+    let moviles = lista.filter(n => !(pr.residentesFijos || []).includes(n));
+    
+    let gruposMoviles = _reempaquetarGrupos(moviles);
+    if (fijos.length > 0) return [fijos, ...gruposMoviles];
+    else return gruposMoviles;
+}
 
 function getAllResidents() {
     let list = [];
