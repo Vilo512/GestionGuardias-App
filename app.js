@@ -2620,12 +2620,13 @@ async function renderAccountsList() {
           }
       }
 
+      let escapedName = u.nombre_mostrar.replace(/'/g, "\\'");
       html += `<div class="account-row" style="border:1px solid #e2e8f0; border-radius:8px; margin-bottom:8px; padding:10px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
          <div>
             <strong>${u.nombre_mostrar}</strong> <span style="font-size:0.8rem; color:#64748b; margin-left:10px;">${rolBadge}</span>
             <div style="font-size:0.8rem; color:#475569; margin-top:4px;">
                Inicio: <strong>${u.fecha_inicio_residencia || 'No definido'}</strong> | Cambio contrato: <strong>${u.fecha_cambio_contrato || 'No definido'}</strong>
-               ${isDueño ? `<button class="secondary" style="font-size:0.7rem; padding:2px 6px; margin-left:8px;" onclick="adminEditarFechas('${u.id}', '${u.nombre_mostrar}', '${u.fecha_inicio_residencia || ''}', '${u.fecha_cambio_contrato || ''}')">✏️ Editar</button>` : ''}
+               ${isDueño ? `<button class="secondary" style="font-size:0.7rem; padding:2px 6px; margin-left:8px;" onclick="window.adminEditarFechas('${u.id}', '${escapedName}', '${u.fecha_inicio_residencia || ''}', '${u.fecha_cambio_contrato || ''}')">✏️ Editar</button>` : ''}
             </div>
          </div>
          <div style="display:flex; align-items:center;">${acciones}</div>
@@ -2662,7 +2663,8 @@ async function adminTraspasarCorona(userId, userName) {
 }
 
 window.adminEditarFechas = async function adminEditarFechas(userId, userName, fInicio, fCambio) {
-    const { value: formValues } = await Swal.fire({
+    try {
+        const { value: formValues } = await Swal.fire({
         title: `Editar Fechas de ${userName}`,
         html:
             `<div style="text-align:left; font-size:0.9rem; margin-bottom:5px;">Fecha Inicio Residencia (R1):</div>` +
@@ -2696,6 +2698,9 @@ window.adminEditarFechas = async function adminEditarFechas(userId, userName, fI
             await renderAccountsList();
         }
         setStatus('Conectado ✅');
+    }
+    } catch (err) {
+        alert("Error crítico en el botón editar: " + err.message);
     }
 }
 
