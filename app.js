@@ -3595,8 +3595,20 @@ function getAnalisisFestivos(y, m) {
 }
 
 function getCurrentTurn(y, m) {
-    const mk = getRotationKey(y, m); // 🛠️ CORREGIDO: Usamos el nombre nativo de tu app
-    if (!state.configMes || !state.configMes[mk]) return null;
+    const mk = getRotationKey(y, m);
+    
+    // Si no hay configMes para este mes, lo generamos automáticamente desde la Fila India de rotación
+    if (!state.configMes || !state.configMes[mk]) {
+        const groups = getRotation(y, m);
+        const flatOrden = groups.flat().filter(n => {
+            const p = globalProfiles.find(pr => pr.nombre_mostrar === n);
+            return p && p.estado !== 'historico';
+        });
+        if (flatOrden.length === 0) return null;
+        // Guardamos silenciosamente para que pausados y skips funcionen
+        if (!state.configMes) state.configMes = {};
+        state.configMes[mk] = { ordenSeleccion: flatOrden, pausados: {} };
+    }
     
     const orden = state.configMes[mk].ordenSeleccion || [];
     if (orden.length === 0) return null;
