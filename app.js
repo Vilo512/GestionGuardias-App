@@ -603,13 +603,14 @@ function getRotationKey(y, m) { return `${y}_${String(m).padStart(2,'0')}`; }
 function getRotation(y, m) {
     const targetKey = getRotationKey(y, m);
     // Si hay una excepción guardada específicamente para este mes, la devolvemos inmediatamente
-    if (state.customRotations[targetKey]) return state.customRotations[targetKey];
+    if (state.customRotations && state.customRotations[targetKey]) return state.customRotations[targetKey];
     
-    const targetVal = y * 12 + m;
-    const baseVal = state.baseYear * 12 + state.baseMonth;
+    const targetVal = parseInt(y, 10) * 12 + parseInt(m, 10);
+    const bY = parseInt(state.baseYear, 10);
+    const bM = parseInt(state.baseMonth, 10);
+    const baseVal = (isNaN(bY) || isNaN(bM)) ? targetVal : (bY * 12 + bM);
     
     // Si intentamos ver un mes antes de la base absoluta, devolvemos la base tal cual
-    // (ya que no podemos "des-rotar" destructivamente hacia atrás de forma fiable)
     if (targetVal <= baseVal) return state.baseGroups || [];
     
     if (!state.residentesFijos) state.residentesFijos = [];
