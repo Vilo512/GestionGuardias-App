@@ -627,6 +627,7 @@ function getIllegalShiftsForUser(user, shiftsObj) {
 // ==========================================
 // NÚCLEO 5: EVALUADOR DE REGLAS (EL CEREBRO)
 // ==========================================
+function getRotationKey(y, m) { return `${y}_${String(m).padStart(2,'0')}`; }
 function getRotation(y, m) {
     const dkStep = formatDateKey(y, m, 1);
     const planName = getCurrentRotPlan(dkStep);
