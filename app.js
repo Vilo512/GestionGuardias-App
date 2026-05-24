@@ -2802,14 +2802,15 @@ async function adminAprobarUsuario(userId, userName) {
     const { error } = await supabaseClient.from('perfiles').update({ estado: 'aprobado' }).eq('id', userId);
     if(error) return alert("Error: " + error.message);
     
-    // 1. Convertimos los grupos actuales en una fila india única
-    let filaIndia = (state.baseGroups || []).flat();
-    
-    // 2. Insertamos al nuevo residente al final de la fila (mantiene el orden de los veteranos)
+    // Añadir al final de la base del Plan que le corresponde ahora mismo
+    const dk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
+    const planName = getCurrentRotPlan(dk);
+    if (!state.planRotations) state.planRotations = {};
+    if (!state.planRotations[planName]) state.planRotations[planName] = { baseGroups: [], baseYear: curDate.getFullYear(), baseMonth: curDate.getMonth(), customRotations: {}, residentesFijos: [] };
+    const pr = state.planRotations[planName];
+    let filaIndia = (pr.baseGroups || []).flat();
     filaIndia.push(userName);
-    
-    // 3. Dejamos que las matemáticas tracen las nuevas fronteras 3-4
-    state.baseGroups = reempaquetarGrupos(filaIndia);
+    pr.baseGroups = reempaquetarGruposPlan(filaIndia, pr);
     
     await saveState(); 
     await renderAccountsList(); 
@@ -2817,24 +2818,19 @@ async function adminAprobarUsuario(userId, userName) {
 }
 
 async function adminExpulsarUsuario(userId, userName) {
-    if(!confirm(`¿Seguro que quieres expulsar a ${userName}? El usuario no desaparecerá del pasado, pero dejará de estar en la rotación a partir de este mes.`)) return;
+    if(!confirm(`¿Seguro que quieres dar de baja a ${userName}? Pasará al histórico y ya no estará en futuras listas de rotación.`)) return;
     setStatus('Expulsando...');
     
-    // Lo marcamos como expulsado pero conservamos su promocion_id para mantener su registro
-    await supabaseClient.from('perfiles').update({ estado: 'expulsado' }).eq('id', userId);
+    await supabaseClient.from('perfiles').update({ estado: 'historico' }).eq('id', userId);
     
     if (!state.historialEventos) state.historialEventos = {};
     if (!state.historialEventos[userName]) state.historialEventos[userName] = {};
-    
-    // Registramos la salida en el mes actual
     const mStr = String(curDate.getMonth() + 1).padStart(2, '0');
     state.historialEventos[userName].salida = `${curDate.getFullYear()}-${mStr}`;
     
-    // También limpiamos sus customRotations futuros para que el motor lo recalcule
-    await limpiarFuturos(curDate.getFullYear(), curDate.getMonth());
-    
     await saveState(); 
-    await loadGlobalProfiles(); // Refrescar perfiles para que se vea el cambio
+    const { data: profs } = await supabaseClient.from('perfiles').select('*').eq('promocion_id', currentUserProfile.promocion_id).in('estado', ['aprobado', 'historico']);
+    globalProfiles = profs || [];
     await renderAccountsList();
     renderRotationView();
     setStatus('Conectado ✅');
@@ -2896,31 +2892,33 @@ function renderRotationView() {
 }
 
 async function toggleResidenteFijo(nombre) {
-    if (!state.residentesFijos) state.residentesFijos = [];
+    const dk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
+    const planName = getCurrentRotPlan(dk);
+    if (!state.planRotations || !state.planRotations[planName]) return;
+    const pr = state.planRotations[planName];
+    if (!pr.residentesFijos) pr.residentesFijos = [];
     
     let linear = editingGroups.flat();
-    let fijos = linear.filter(n => state.residentesFijos.includes(n));
-    let moviles = linear.filter(n => !state.residentesFijos.includes(n));
+    let fijos = linear.filter(n => pr.residentesFijos.includes(n));
+    let moviles = linear.filter(n => !pr.residentesFijos.includes(n));
 
-    if (state.residentesFijos.includes(nombre)) {
-        // Descongelar: sale de fijos y entra al principio de los móviles
-        state.residentesFijos = state.residentesFijos.filter(n => n !== nombre);
+    if (pr.residentesFijos.includes(nombre)) {
+        pr.residentesFijos = pr.residentesFijos.filter(n => n !== nombre);
         fijos = fijos.filter(n => n !== nombre);
         moviles.unshift(nombre);
     } else {
-        // Congelar: sale de móviles y va al final de la lista de fijos
-        state.residentesFijos.push(nombre);
+        pr.residentesFijos.push(nombre);
         moviles = moviles.filter(n => n !== nombre);
         fijos.push(nombre);
     }
     
     let nuevoBlock = [];
     if (fijos.length > 0) nuevoBlock.push(fijos);
-    nuevoBlock.push(..._reempaquetarGrupos(moviles)); // Use _reempaquetarGrupos to avoid double-processing fijos
+    nuevoBlock.push(..._reempaquetarGrupos(moviles));
     
     editingGroups = nuevoBlock;
-    state.baseGroups = JSON.parse(JSON.stringify(editingGroups));
-    await saveState(); //
+    pr.baseGroups = JSON.parse(JSON.stringify(editingGroups));
+    await saveState();
     renderEditor();
 }
 
@@ -2946,11 +2944,14 @@ function renderEditor() {
     setupC.innerHTML = '';
     let flatIdxCounter = 0;
     
-    if (!state.residentesFijos) state.residentesFijos = [];
     if (!state.excluidosSubastas) state.excluidosSubastas = [];
+    const _edDk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
+    const _edPlanName = getCurrentRotPlan(_edDk);
+    const _edPr = state.planRotations?.[_edPlanName] || { residentesFijos: [] };
+    const _edFijos = _edPr.residentesFijos || [];
     
     // Determinamos si el primer grupo que viene son los fijos
-    let tieneGrupoFijos = editingGroups.length > 0 && editingGroups[0].some(n => state.residentesFijos.includes(n));
+    let tieneGrupoFijos = editingGroups.length > 0 && editingGroups[0].some(n => _edFijos.includes(n));
     let grupoMovilContador = 1;
 
     editingGroups.forEach((g, i) => {
@@ -2974,7 +2975,7 @@ function renderEditor() {
         </div>` +
         g.map((res) => {
             const currentFlat = flatIdxCounter++;
-            const esFijo = state.residentesFijos.includes(res);
+            const esFijo = _edFijos.includes(res);
             const esExcluido = state.excluidosSubastas.includes(res);
             
             return `
@@ -3017,11 +3018,14 @@ function moveResLinear(flatIdx, dir) {
     let linearCompleta = editingGroups.flat();
     const usuarioActual = linearCompleta[flatIdx];
     
-    if (!state.residentesFijos) state.residentesFijos = [];
+    const _dk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
+    const _planName = getCurrentRotPlan(_dk);
+    const _pr = state.planRotations?.[_planName] || { residentesFijos: [] };
+    const resFijos = _pr.residentesFijos || [];
 
     // Si es un fijo, solo permitimos que se mueva ARRIBA/ABAJO dentro de su propia zona de fijos
-    if (state.residentesFijos.includes(usuarioActual)) {
-        let fijos = linearCompleta.filter(n => state.residentesFijos.includes(n));
+    if (resFijos.includes(usuarioActual)) {
+        let fijos = linearCompleta.filter(n => resFijos.includes(n));
         let idxEnFijos = fijos.indexOf(usuarioActual);
         
         if (dir === 'up' && idxEnFijos > 0) {
@@ -3030,31 +3034,32 @@ function moveResLinear(flatIdx, dir) {
             [fijos[idxEnFijos+1], fijos[idxEnFijos]] = [fijos[idxEnFijos], fijos[idxEnFijos+1]];
         }
         
-        let moviles = linearCompleta.filter(n => !state.residentesFijos.includes(n));
+        let moviles = linearCompleta.filter(n => !resFijos.includes(n));
         editingGroups = reempaquetarGrupos([...fijos, ...moviles]);
         renderEditor();
         return;
     }
     
     // Si es un móvil, se mueve solo en la fila india de móviles
-    let fijos = linearCompleta.filter(n => state.residentesFijos.includes(n));
-    let moviles = linearCompleta.filter(n => !state.residentesFijos.includes(n));
-    let idxEnMoviles = moviles.indexOf(usuarioActual);
+    let fijos2 = linearCompleta.filter(n => resFijos.includes(n));
+    let moviles2 = linearCompleta.filter(n => !resFijos.includes(n));
+    let idxEnMoviles = moviles2.indexOf(usuarioActual);
 
     if (dir === 'up' && idxEnMoviles > 0) {
-        [moviles[idxEnMoviles-1], moviles[idxEnMoviles]] = [moviles[idxEnMoviles], moviles[idxEnMoviles-1]];
-    } else if (dir === 'down' && idxEnMoviles < moviles.length - 1) {
-        [moviles[idxEnMoviles+1], moviles[idxEnMoviles]] = [moviles[idxEnMoviles], moviles[idxEnMoviles+1]];
+        [moviles2[idxEnMoviles-1], moviles2[idxEnMoviles]] = [moviles2[idxEnMoviles], moviles2[idxEnMoviles-1]];
+    } else if (dir === 'down' && idxEnMoviles < moviles2.length - 1) {
+        [moviles2[idxEnMoviles+1], moviles2[idxEnMoviles]] = [moviles2[idxEnMoviles], moviles2[idxEnMoviles+1]];
     }
     
-    // El wrapper reempaquetarGrupos ahora junta automáticamente a los fijos al principio
-    editingGroups = reempaquetarGrupos([...fijos, ...moviles]);
+    editingGroups = reempaquetarGrupos([...fijos2, ...moviles2]);
     renderEditor();
 }
 
 function moveGroupEntirely(gIdx, dir) {
     if (dir === 'up' && gIdx > 0) {
-        let tieneGrupoFijos = editingGroups.length > 0 && editingGroups[0].some(n => (state.residentesFijos||[]).includes(n));
+        const _mgDk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
+        const _mgPr = state.planRotations?.[getCurrentRotPlan(_mgDk)] || { residentesFijos: [] };
+        let tieneGrupoFijos = editingGroups.length > 0 && editingGroups[0].some(n => (_mgPr.residentesFijos||[]).includes(n));
         if (tieneGrupoFijos && gIdx === 1) return; // No puede saltar por encima de los fijos
         
         [editingGroups[gIdx-1], editingGroups[gIdx]] = [editingGroups[gIdx], editingGroups[gIdx-1]];
@@ -3102,27 +3107,30 @@ function editorRemoveMemberLinear(flatIdx) {
 async function adminAutoShuffleGroups() {
     if (!confirm("⚠️ Se va a barajar a los residentes. Los marcados como 'Fijos' se mantendrán al inicio de la rueda. ¿Continuar?")) return;
     
-    let linear = getAllResidents(); 
-    if (!state.residentesFijos) state.residentesFijos = [];
+    const dk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
+    const planName = getCurrentRotPlan(dk);
+    if (!state.planRotations) state.planRotations = {};
+    if (!state.planRotations[planName]) state.planRotations[planName] = { baseGroups: [], baseYear: curDate.getFullYear(), baseMonth: curDate.getMonth(), customRotations: {}, residentesFijos: [] };
+    const pr = state.planRotations[planName];
+    if (!pr.residentesFijos) pr.residentesFijos = [];
     
-    // 🕵️‍♂️ Filtramos y extraemos a TODOS los que estén congelados
-    const fijosPresentes = linear.filter(n => state.residentesFijos.includes(n));
-    let restOfResidents = linear.filter(n => !state.residentesFijos.includes(n));
+    let linear = getAllResidents();
+    const fijosPresentes = linear.filter(n => pr.residentesFijos.includes(n));
+    let restOfResidents = linear.filter(n => !pr.residentesFijos.includes(n));
     
-    // Barajamos solo al resto (Fisher-Yates)
     for (let i = restOfResidents.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [restOfResidents[i], restOfResidents[j]] = [restOfResidents[j], restOfResidents[i]];
     }
     
-    // Volvemos a unificar la fila: Primero los fijos, luego el resto sorteado
     const filaFinal = [...fijosPresentes, ...restOfResidents];
     
-    state.baseGroups = reempaquetarGrupos(filaFinal);
-    state.baseMonth = curDate.getMonth(); 
-    state.baseYear = curDate.getFullYear();
+    pr.baseGroups = reempaquetarGruposPlan(filaFinal, pr);
+    pr.baseMonth = curDate.getMonth();
+    pr.baseYear = curDate.getFullYear();
+    pr.customRotations = {};
     
-    editingGroups = JSON.parse(JSON.stringify(state.baseGroups));
+    editingGroups = JSON.parse(JSON.stringify(pr.baseGroups));
     await saveState();
     renderRotationView();
 }
@@ -3131,38 +3139,34 @@ function editorAddGroup() { editingGroups.push([]); renderEditor(); }
 function editorRemoveGroup(gi) { editingGroups.splice(gi, 1); renderEditor(); }
 
 async function saveCustomMonth() { 
-    // Guarda el orden SOLO para este mes (como una excepción aislada)
-    state.customRotations[getRotationKey(curDate.getFullYear(), curDate.getMonth())] = editingGroups; 
+    const _dk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
+    const _planName = getCurrentRotPlan(_dk);
+    const _pr = state.planRotations?.[_planName];
+    if (_pr) _pr.customRotations[getRotationKey(curDate.getFullYear(), curDate.getMonth())] = JSON.parse(JSON.stringify(editingGroups));
     await saveState(); 
     checkAutomaticGraduation();
     renderAll(); 
     alert("Excepción guardada SOLO para este mes. Los meses siguientes seguirán su curso matemático normal ignorando este cambio."); 
 }
 async function saveAsNewBase() { 
-    // "Guardar Nueva Base" borra TODAS las demás excepciones y establece ESTE mes como la ÚNICA VERDAD ABSOLUTA
-    state.baseGroups = JSON.parse(JSON.stringify(editingGroups));
-    state.baseMonth = curDate.getMonth();
-    state.baseYear = curDate.getFullYear();
-    
-    // Borramos cualquier excepción mensual guardada
-    state.customRotations = {};
-    
+    const _dk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
+    const _planName = getCurrentRotPlan(_dk);
+    if (!state.planRotations) state.planRotations = {};
+    if (!state.planRotations[_planName]) state.planRotations[_planName] = { baseGroups: [], baseYear: curDate.getFullYear(), baseMonth: curDate.getMonth(), customRotations: {}, residentesFijos: [] };
+    const _pr = state.planRotations[_planName];
+    _pr.baseGroups = JSON.parse(JSON.stringify(editingGroups));
+    _pr.baseMonth = curDate.getMonth();
+    _pr.baseYear = curDate.getFullYear();
+    _pr.customRotations = {};
     await saveState();
     renderRotationView();
-    alert("¡Base Absoluta establecida! Todas las excepciones anteriores se han borrado. El sistema calculará el futuro matemáticamente a partir de este punto exacto.");
-}
-
-async function saveCustomMonth() { 
-    // Guarda el orden SOLO para este mes (como una excepción aislada)
-    state.customRotations[getRotationKey(curDate.getFullYear(), curDate.getMonth())] = JSON.parse(JSON.stringify(editingGroups)); 
-    await saveState(); 
-    checkAutomaticGraduation();
-    renderAll(); 
-    alert("Excepción guardada SOLO para este mes. Los meses siguientes seguirán su curso matemático normal ignorando este cambio."); 
+    alert(`¡Base Absoluta establecida para el Plan '${_planName}'! El sistema calculará el futuro matemáticamente a partir de este punto exacto.`);
 }
 
 async function clearCustomMonth() { 
-    delete state.customRotations[getRotationKey(curDate.getFullYear(), curDate.getMonth())]; 
+    const _dk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
+    const _pr = state.planRotations?.[getCurrentRotPlan(_dk)];
+    if (_pr) delete _pr.customRotations[getRotationKey(curDate.getFullYear(), curDate.getMonth())];
     await saveState(); 
     editingGroups = null; 
     checkAutomaticGraduation();
