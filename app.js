@@ -2621,7 +2621,13 @@ async function renderAccountsList() {
       }
 
       html += `<div class="account-row" style="border:1px solid #e2e8f0; border-radius:8px; margin-bottom:8px; padding:10px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-         <div><strong>${u.nombre_mostrar}</strong> <span style="font-size:0.8rem; color:#64748b; margin-left:10px;">${rolBadge}</span></div>
+         <div>
+            <strong>${u.nombre_mostrar}</strong> <span style="font-size:0.8rem; color:#64748b; margin-left:10px;">${rolBadge}</span>
+            <div style="font-size:0.8rem; color:#475569; margin-top:4px;">
+               Inicio: <strong>${u.fecha_inicio_residencia || 'No definido'}</strong> | Cambio contrato: <strong>${u.fecha_cambio_contrato || 'No definido'}</strong>
+               ${isDueño ? `<button class="secondary" style="font-size:0.7rem; padding:2px 6px; margin-left:8px;" onclick="adminEditarFechas('${u.id}', '${u.nombre_mostrar}', '${u.fecha_inicio_residencia || ''}', '${u.fecha_cambio_contrato || ''}')">✏️ Editar</button>` : ''}
+            </div>
+         </div>
          <div style="display:flex; align-items:center;">${acciones}</div>
       </div>`;
   });
@@ -2649,9 +2655,48 @@ async function adminTraspasarCorona(userId, userName) {
     if (!confirm(`¿Estás seguro de que quieres ceder la corona a ${userName}? Perderás el control absoluto y pasarás a ser un Delegado normal.`)) return;
     setStatus('Traspasando corona...');
     await supabaseClient.from('promociones').update({ creador_id: userId }).eq('id', currentUserProfile.promocion_id);
-    await supabaseClient.from('perfiles').update({ rol: 'admin' }).eq('id', userId); 
-    await renderAccountsList();
-    setStatus('Conectado ✅');
+    await supabaseClient.from('perfiles').update({ rol: 'admin' }).eq('id', userId);
+    await supabaseClient.from('perfiles').update({ rol: 'admin' }).eq('id', currentUserProfile.id);
+    alert(`La corona ha sido cedida a ${userName}. Ahora eres un Delegado.`);
+    window.location.reload();
+}
+
+async function adminEditarFechas(userId, userName, fInicio, fCambio) {
+    const { value: formValues } = await Swal.fire({
+        title: `Editar Fechas de ${userName}`,
+        html:
+            `<div style="text-align:left; font-size:0.9rem; margin-bottom:5px;">Fecha Inicio Residencia (R1):</div>` +
+            `<input id="swal-input1" type="date" class="swal2-input" value="${fInicio}">` +
+            `<div style="text-align:left; font-size:0.9rem; margin-bottom:5px; margin-top:10px;">Fecha Cambio Contrato:</div>` +
+            `<input id="swal-input2" type="date" class="swal2-input" value="${fCambio}">`,
+        focusConfirm: false,
+        showCancelButton: true,
+        confirmButtonText: 'Guardar',
+        cancelButtonText: 'Cancelar',
+        preConfirm: () => {
+            return [
+                document.getElementById('swal-input1').value,
+                document.getElementById('swal-input2').value
+            ]
+        }
+    });
+
+    if (formValues) {
+        setStatus('Actualizando fechas...');
+        const { error } = await supabaseClient.from('perfiles').update({
+            fecha_inicio_residencia: formValues[0] || null,
+            fecha_cambio_contrato: formValues[1] || null
+        }).eq('id', userId);
+        
+        if (error) {
+            alert("Error: " + error.message);
+        } else {
+            // Refrescar perfiles globales y lista
+            await loadGlobalProfiles();
+            await renderAccountsList();
+        }
+        setStatus('Conectado ✅');
+    }
 }
 
 async function adminAprobarUsuario(userId, userName) {
