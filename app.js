@@ -2714,7 +2714,7 @@ async function renderAccountsList() {
          <div>
             <strong>${u.nombre_mostrar}</strong> <span style="font-size:0.8rem; color:#64748b; margin-left:10px;">${rolBadge}</span>
             <div style="font-size:0.8rem; color:#475569; margin-top:4px;">
-               Inicio: <strong>${u.fecha_inicio_residencia || 'No definido'}</strong> | Cambio contrato: <strong>${u.fecha_cambio_contrato || 'No definido'}</strong>
+               Inicio: <strong>${u.fecha_inicio_residencia || 'No definido'}</strong> | Mes cambio contrato: <strong>${u.fecha_cambio_contrato ? u.fecha_cambio_contrato.substring(0,7) : 'No definido'}</strong>
                <br>${isDueño ? `<button class="secondary" style="font-size:0.7rem; padding:2px 6px; margin-left:8px;" onclick="window.adminEditarFechas('${u.id}', '${escapedName}', '${u.fecha_inicio_residencia || ''}', '${u.fecha_cambio_contrato || ''}')">✏️ Editar</button>` : ''}
             </div>
          </div>
@@ -2753,18 +2753,15 @@ async function adminTraspasarCorona(userId, userName) {
 
 window.adminEditarFechas = async function adminEditarFechas(userId, userName, fInicio, fCambio, fEntrada, fSalida) {
     try {
+        // Convertir fecha completa a solo YYYY-MM para el selector de mes
+        const fCambioMes = fCambio ? fCambio.substring(0, 7) : '';
         const { value: formValues } = await Swal.fire({
         title: `Editar Fechas de ${userName}`,
         html:
             `<div style="text-align:left; font-size:0.9rem; margin-bottom:5px;">Fecha Inicio Residencia (R1):</div>` +
             `<input id="swal-input1" type="date" class="swal2-input" value="${fInicio}">` +
-            `<div style="text-align:left; font-size:0.9rem; margin-bottom:5px; margin-top:10px;">Fecha Cambio Contrato:</div>` +
-            `<input id="swal-input2" type="date" class="swal2-input" value="${fCambio}">` +
-            `<hr style="margin: 20px 0;">` +
-            `<div style="text-align:left; font-size:0.9rem; margin-bottom:5px; color:var(--fest);">Mes de Entrada a Rotación (YYYY-MM):</div>` +
-            `<input id="swal-input3" type="month" class="swal2-input" value="${fEntrada}">` +
-            `<div style="text-align:left; font-size:0.9rem; margin-bottom:5px; margin-top:10px; color:var(--fest);">Mes de Salida de Rotación (YYYY-MM):</div>` +
-            `<input id="swal-input4" type="month" class="swal2-input" value="${fSalida}">`,
+            `<div style="text-align:left; font-size:0.9rem; margin-bottom:5px; margin-top:10px;">Mes de Cambio de Contrato:</div>` +
+            `<input id="swal-input2" type="month" class="swal2-input" value="${fCambioMes}">`,
         focusConfirm: false,
         showCancelButton: true,
         confirmButtonText: 'Guardar',
@@ -2772,18 +2769,18 @@ window.adminEditarFechas = async function adminEditarFechas(userId, userName, fI
         preConfirm: () => {
             return [
                 document.getElementById('swal-input1').value,
-                document.getElementById('swal-input2').value,
-                document.getElementById('swal-input3').value,
-                document.getElementById('swal-input4').value
+                document.getElementById('swal-input2').value  // YYYY-MM format
             ]
         }
     });
 
     if (formValues) {
         setStatus('Actualizando fechas...');
+        // Guardamos siempre con día 01 para estandarizar
+        const fechaCambioFinal = formValues[1] ? `${formValues[1]}-01` : null;
         const { error } = await supabaseClient.from('perfiles').update({
             fecha_inicio_residencia: formValues[0] || null,
-            fecha_cambio_contrato: formValues[1] || null
+            fecha_cambio_contrato: fechaCambioFinal
         }).eq('id', userId);
         
         if (error) {
@@ -3730,15 +3727,11 @@ function renderPerfilUsuario() {
     }
 
     // 4. Preparar las opciones de día y mes para el selector de contrato
-    let dDia = '01', dMes = '01';
+    let dMes = '01';
     if (uProfile.fecha_cambio_contrato) {
         const parts = uProfile.fecha_cambio_contrato.split('-');
-        if (parts.length === 3) { dMes = parts[1]; dDia = parts[2]; }
+        if (parts.length >= 2) { dMes = parts[1]; }
     }
-    const diaOptions = Array.from({length: 31}, (_, i) => { 
-        let v = String(i+1).padStart(2,'0'); 
-        return `<option value="${v}" ${v === dDia ? 'selected' : ''}>${i+1}</option>`; 
-    }).join('');
     
     const mesOptions = MONTHS.map((m, i) => { 
         let v = String(i+1).padStart(2,'0'); 
@@ -3787,17 +3780,12 @@ function renderPerfilUsuario() {
                 <div>
                     <h3 style="margin-bottom: 12px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">🪪 Datos de Contrato</h3>
                     <div style="margin-bottom: 12px;">
-                        <label style="font-size: 0.8rem; font-weight: bold; color: #64748b; display: block; margin-bottom: 4px;">Día y Mes de Cambio de Nivel (R):</label>
-                        <div style="display: flex; gap: 8px;">
-                            <select id="perfil-dia-contrato" style="margin:0; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 80px; background: white;">
-                                ${diaOptions}
-                            </select>
-                            <select id="perfil-mes-contrato" style="margin:0; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; flex: 1; background: white;">
-                                ${mesOptions}
-                            </select>
-                        </div>
+                        <label style="font-size: 0.8rem; font-weight: bold; color: #64748b; display: block; margin-bottom: 4px;">Mes de Cambio de Contrato:</label>
+                        <select id="perfil-mes-contrato" style="margin:0; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%; background: white;">
+                            ${mesOptions}
+                        </select>
                     </div>
-                    <p style="font-size: 0.8rem; color: #94a3b8; line-height: 1.4;">* Esta fecha determina de forma automatizada cuándo se resetea tu contador de Justicia Histórica al pasar de año (ej. de R1 a R2).</p>
+                    <p style="font-size: 0.8rem; color: #94a3b8; line-height: 1.4;">* El mes en que se renueva tu contrato y subes de nivel (R1→R2→R3). El día se fija automáticamente al 1 del mes.</p>
                 </div>
                 <button onclick="guardarFechaContratoPerfil()" style="width:100%; margin-top: 16px; background: var(--adu); color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer;">💾 Actualizar Contrato</button>
             </div>
@@ -3868,9 +3856,8 @@ function renderPerfilUsuario() {
 	}
 // A) GUARDAR LA FECHA DE CAMBIO DE CONTRATO DESDE EL PERFIL
 async function guardarFechaContratoPerfil() {
-    const dia = document.getElementById('perfil-dia-contrato').value;
     const mes = document.getElementById('perfil-mes-contrato').value;
-    const nuevaFecha = `2000-${mes}-${dia}`; // Reconstruimos el año bisiesto silenciosamente
+    const nuevaFecha = `2000-${mes}-01`; // Siempre día 1
 
     const uProfile = currentUserProfile;
     const pIdx = globalProfiles.findIndex(p => p.nombre_mostrar === uProfile.nombre_mostrar);
