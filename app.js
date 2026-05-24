@@ -3779,14 +3779,18 @@ function getCurrentTurn(y, m) {
                 
                 // Calculamos qué lleva asignado en este momento
                 const prog = getUserProgress(residente, y, m);
+                // getUserProgress devuelve {progress, isFinished, messages}
+                // Sumamos el total de guardias asignadas a este residente este mes
+                const totalGuardias = Object.values(prog.progress || {}).reduce((sum, s) => sum + (s.countTotal || 0), 0);
+                const totalFestivos = Object.values(prog.progress || {}).reduce((sum, s) => sum + (s.shiftsByTag ? (s.shiftsByTag.fin_de_semana || 0) + (s.shiftsByTag.festivo_intersemanal || 0) + (s.shiftsByTag.vispera || 0) : 0), 0);
                 
                 // Evaluamos si le toca rellenar en esta ronda
-                if (prog.total < ronda) {
+                if (totalGuardias < ronda) {
                     // Validación extra: Si el mes está en modo bloqueo crítico/subasta cerrada, 
                     // forzamos a que el residente complete sus festivos obligatorios antes de seguir sumando normales
                     const analisis = getAnalisisFestivos(y, m);
                     if ((analisis.estado === 'critico' || analisis.estado === 'subasta_cerrada') && analisis.nominados.includes(residente)) {
-                        if (prog.festivos < (analisis.minimoBase + 1) && prog.total < maxGuardias) {
+                        if (totalFestivos < (analisis.minimoBase + 1) && totalGuardias < maxGuardias) {
                             return residente;
                         }
                     }
