@@ -2962,17 +2962,36 @@ async function saveCustomMonth() {
     alert("Excepción guardada SOLO para este mes. Los meses siguientes seguirán su curso matemático normal ignorando este cambio."); 
 }
 async function saveAsNewBase() { 
-    state.baseGroups = editingGroups; 
-    state.baseMonth = curDate.getMonth(); 
-    state.baseYear = curDate.getFullYear(); 
-    delete state.customRotations[getRotationKey(curDate.getFullYear(), curDate.getMonth())]; 
+    // "Guardar Nueva Base" borra TODAS las demás excepciones y establece ESTE mes como la ÚNICA VERDAD ABSOLUTA
+    state.baseGroups = JSON.parse(JSON.stringify(editingGroups));
+    state.baseMonth = curDate.getMonth();
+    state.baseYear = curDate.getFullYear();
+    
+    // Borramos cualquier excepción mensual guardada
+    state.customRotations = {};
+    
+    await saveState();
+    renderRotationView();
+    alert("¡Base Absoluta establecida! Todas las excepciones anteriores se han borrado. El sistema calculará el futuro matemáticamente a partir de este punto exacto.");
+}
+
+async function saveCustomMonth() { 
+    // Guarda el orden SOLO para este mes (como una excepción aislada)
+    state.customRotations[getRotationKey(curDate.getFullYear(), curDate.getMonth())] = JSON.parse(JSON.stringify(editingGroups)); 
     await saveState(); 
     checkAutomaticGraduation();
     renderAll(); 
-    alert("Nueva base fijada."); 
+    alert("Excepción guardada SOLO para este mes. Los meses siguientes seguirán su curso matemático normal ignorando este cambio."); 
 }
-async function clearCustomMonth() { delete state.customRotations[getRotationKey(curDate.getFullYear(), curDate.getMonth())]; await saveState(); editingGroups = null; checkAutomaticGraduation();
-    renderAll(); alert("Restaurado."); }
+
+async function clearCustomMonth() { 
+    delete state.customRotations[getRotationKey(curDate.getFullYear(), curDate.getMonth())]; 
+    await saveState(); 
+    editingGroups = null; 
+    checkAutomaticGraduation();
+    renderAll(); 
+    alert("Excepción borrada. El mes vuelve a su cálculo matemático."); 
+}
 
 function calcularViabilidadFestivosMensual(ano, mes) {
     const totalDias = getDaysInMonth(ano, mes);
