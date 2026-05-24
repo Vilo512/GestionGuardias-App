@@ -3766,36 +3766,22 @@ function getCurrentTurn(y, m) {
             5
         );
 
-        // Recorremos los "grupos de prioridad" (Turno 1, Turno 2...)
-        for (let ronda = 1; ronda <= maxGuardias; ronda++) {
-            for (let i = 0; i < orden.length; i++) {
-                const residente = orden[i];
-                
-                // 🛑 SI EL RESIDENTE ESTÁ DE BAJA ESTE MES, SE SALTA AUTOMÁTICAMENTE
-                if (!activosMes.includes(residente)) continue;
-                
-                // Si el usuario se ha pausado manualmente el mes en la interfaz, lo respetamos
-                if (state.configMes[mk].pausados && state.configMes[mk].pausados[residente]) continue;
-                
-                // Calculamos qué lleva asignado en este momento
-                const prog = getUserProgress(residente, y, m);
-                // getUserProgress devuelve {progress, isFinished, messages}
-                // Sumamos el total de guardias asignadas a este residente este mes
-                const totalGuardias = Object.values(prog.progress || {}).reduce((sum, s) => sum + (s.countTotal || 0), 0);
-                const totalFestivos = Object.values(prog.progress || {}).reduce((sum, s) => sum + (s.shiftsByTag ? (s.shiftsByTag.fin_de_semana || 0) + (s.shiftsByTag.festivo_intersemanal || 0) + (s.shiftsByTag.vispera || 0) : 0), 0);
-                
-                // Evaluamos si le toca rellenar en esta ronda
-                if (totalGuardias < ronda) {
-                    // Validación extra: Si el mes está en modo bloqueo crítico/subasta cerrada, 
-                    // forzamos a que el residente complete sus festivos obligatorios antes de seguir sumando normales
-                    const analisis = getAnalisisFestivos(y, m);
-                    if ((analisis.estado === 'critico' || analisis.estado === 'subasta_cerrada') && analisis.nominados.includes(residente)) {
-                        if (totalFestivos < (analisis.minimoBase + 1) && totalGuardias < maxGuardias) {
-                            return residente;
-                        }
-                    }
-                    return residente;
-                }
+        // Recorremos la lista de residentes en orden
+        for (let i = 0; i < orden.length; i++) {
+            const residente = orden[i];
+            
+            // 🛑 SI EL RESIDENTE ESTÁ DE BAJA ESTE MES, SE SALTA AUTOMÁTICAMENTE
+            if (!activosMes.includes(residente)) continue;
+            
+            // Si el usuario se ha pausado manualmente el mes en la interfaz, lo respetamos
+            if (state.configMes[mk].pausados && state.configMes[mk].pausados[residente]) continue;
+            
+            // Calculamos qué lleva asignado en este momento
+            const prog = getUserProgress(residente, y, m);
+            
+            // Evaluamos si ya ha completado todas sus guardias de este mes (cupos y festivos)
+            if (!prog.isFinished) {
+                return residente; // Mantiene el turno hasta que termine TODAS sus guardias
             }
         }
         return null; // Todo el mundo ha completado sus rondas o el mes está cerrado
