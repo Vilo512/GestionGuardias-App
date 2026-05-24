@@ -3668,15 +3668,36 @@ window.debugTurn = function() {
     const y = curDate.getFullYear(), m = curDate.getMonth();
     const mk = getRotationKey(y, m);
     const dk = formatDateKey(y, m, 1);
-    console.group('🔍 debugTurn() – ' + mk);
+    console.group('🔍 debugTurn() – ' + mk + '  (y=' + y + ' m=' + m + ')');
     console.log('promoConfig.planes:', promoConfig.planes?.map(p => p.nombre));
     console.log('state.planRotations keys:', Object.keys(state.planRotations || {}));
-    console.log('state.configMes[mk]:', state.configMes?.[mk]);
-    console.log('globalProfiles count:', globalProfiles.length);
-    console.log('globalProfiles aprobados:', globalProfiles.filter(p => p.estado === 'aprobado').map(p => ({ n: p.nombre_mostrar, plan: getPlanForUserOnDate(p, dk)?.nombre })));
-    console.log('getAllResidents():', getAllResidents());
-    console.log('getResidentesActivosEnMes():', getResidentesActivosEnMes(y, m));
-    console.log('_computingTurn:', _computingTurn);
+    const cm = state.configMes?.[mk];
+    console.log('state.configMes[mk].ordenSeleccion:', cm?.ordenSeleccion);
+    console.log('state.configMes[mk].pausados:', cm?.pausados);
+    const activos = getResidentesActivosEnMes(y, m);
+    console.log('activosMes:', activos);
+    const maxG = Math.max(...(promoConfig.planes || []).map(p => p.maxGuardiasMes || 5), 5);
+    console.log('maxGuardias:', maxG);
+
+    if (cm?.ordenSeleccion) {
+        console.group('📋 Traza del bucle:');
+        outer: for (let ronda = 1; ronda <= maxG; ronda++) {
+            for (let i = 0; i < cm.ordenSeleccion.length; i++) {
+                const r = cm.ordenSeleccion[i];
+                const enActivos = activos.includes(r);
+                const pausado = cm.pausados?.[r] || false;
+                const prog = getUserProgress(r, y, m);
+                console.log(`ronda=${ronda} i=${i} "${r}" | enActivos=${enActivos} pausado=${pausado} prog.total=${prog.total} (< ${ronda}? ${prog.total < ronda})`);
+                if (!enActivos || pausado) continue;
+                if (prog.total < ronda) {
+                    console.log(`  → ¡LE TOCA A ${r}!`);
+                    break outer;
+                }
+            }
+        }
+        console.groupEnd();
+    }
+
     const turn = getCurrentTurn(y, m);
     console.log('getCurrentTurn() result:', turn);
     console.groupEnd();
