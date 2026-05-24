@@ -2729,7 +2729,7 @@ async function toggleResidenteFijo(nombre) {
     
     let nuevoBlock = [];
     if (fijos.length > 0) nuevoBlock.push(fijos);
-    nuevoBlock.push(...reempaquetarGrupos(moviles));
+    nuevoBlock.push(..._reempaquetarGrupos(moviles)); // Use _reempaquetarGrupos to avoid double-processing fijos
     
     editingGroups = nuevoBlock;
     state.baseGroups = JSON.parse(JSON.stringify(editingGroups));
@@ -2802,7 +2802,14 @@ function renderEditor() {
 
     const btnContainer = document.createElement('div');
     btnContainer.innerHTML = `
-    <button class="primary" style="margin-top:10px; margin-bottom:15px; width:100%; background:var(--dark);" onclick="editorAddVirtual()">+ Añadir Residente Virtual (Al final de la fila)</button>
+    <div style="display:flex; gap:10px; margin-top:10px; margin-bottom:15px; width:100%;">
+        <select id="sel-add-res" style="flex:1; padding:8px; border-radius:6px; border:1px solid #cbd5e1;">
+            <option value="">-- Añadir Residente a la Rotación --</option>
+            <option value="VIRTUAL">+ Nuevo Virtual (Ej: Aura)</option>
+            ${globalProfiles.filter(p => !editingGroups.flat().includes(p.nombre_mostrar) && p.promocion_id === promoConfig.id).map(p => `<option value="${p.nombre_mostrar}">${p.nombre_mostrar} (Registrado)</option>`).join('')}
+        </select>
+        <button class="primary" style="background:var(--dark);" onclick="editorAddSelectedRes()">Añadir</button>
+    </div>
     <div style="margin-top:20px; padding-top:15px; border-top:2px dashed #cbd5e1;">
         <span style="font-size:0.75rem; color:#94a3b8; display:block; margin-bottom:6px;">⚠️ ZONA DE CONFIGURACIÓN INICIAL (SOLO AL CREAR EL CONTENEDOR):</span>
         <button id="btn-shuffle" class="danger" style="width:100%; background:#94a3b8; border:none; color:white; font-size:0.8rem; padding:6px;" onclick="adminAutoShuffleGroups()">🎲 Sorteo Inicial: Barajar Fila Completa Respetando Fijos</button>
@@ -2830,7 +2837,7 @@ function moveResLinear(flatIdx, dir) {
         }
         
         let moviles = linearCompleta.filter(n => !state.residentesFijos.includes(n));
-        editingGroups = [fijos, ...reempaquetarGrupos(moviles)];
+        editingGroups = reempaquetarGrupos([...fijos, ...moviles]);
         renderEditor();
         return;
     }
@@ -2846,20 +2853,27 @@ function moveResLinear(flatIdx, dir) {
         [moviles[idxEnMoviles+1], moviles[idxEnMoviles]] = [moviles[idxEnMoviles], moviles[idxEnMoviles+1]];
     }
     
-    editingGroups = fijos.length > 0 ? [fijos, ...reempaquetarGrupos(moviles)] : reempaquetarGrupos(moviles);
+    // El wrapper reempaquetarGrupos ahora junta automáticamente a los fijos al principio
+    editingGroups = reempaquetarGrupos([...fijos, ...moviles]);
     renderEditor();
 }
 
-function editorAddVirtual() {
-    const nombreVirtual = prompt("Introduce el name del residente virtual (Ej: Aura):");
-    if (!nombreVirtual || nombreVirtual.trim() === "") return;
+function editorAddSelectedRes() {
+    const val = document.getElementById('sel-add-res').value;
+    if (!val) return;
     
-    // Lo mismo: fila india, lo mete al final, y retrasa fronteras
+    let nombre = val;
+    if (val === 'VIRTUAL') {
+        nombre = prompt("Introduce el nombre del residente virtual (Ej: Aura):");
+        if (!nombre || nombre.trim() === "") return;
+    }
+    
     let filaIndia = editingGroups.flat();
-    filaIndia.push(nombreVirtual.trim());
-    
-    editingGroups = reempaquetarGrupos(filaIndia);
-    renderEditor();
+    if (!filaIndia.includes(nombre.trim())) {
+        filaIndia.push(nombre.trim());
+        editingGroups = reempaquetarGrupos(filaIndia);
+        renderEditor();
+    }
 }
 
 function editorRemoveMemberLinear(flatIdx) {
@@ -3685,6 +3699,22 @@ async function eliminarBajaPerfil(idBaja) {
 // MOTOR DE BALANCEO DINÁMICO (Regla 3-4)
 // ==========================================
 function reempaquetarGrupos(lista) {
+    if (!lista || lista.length === 0) return [[]];
+    if (!state.residentesFijos) state.residentesFijos = [];
+    
+    let fijos = lista.filter(n => state.residentesFijos.includes(n));
+    let moviles = lista.filter(n => !state.residentesFijos.includes(n));
+    
+    let gruposMoviles = _reempaquetarGrupos(moviles);
+    
+    if (fijos.length > 0) {
+        return [fijos, ...gruposMoviles];
+    } else {
+        return gruposMoviles;
+    }
+}
+
+function _reempaquetarGrupos(lista) {
     if (!lista || lista.length === 0) return [[]];
     let n = lista.length;
     
