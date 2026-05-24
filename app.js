@@ -2694,7 +2694,8 @@ window.adminEditarFechas = async function adminEditarFechas(userId, userName, fI
             alert("Error: " + error.message);
         } else {
             // Refrescar perfiles globales y lista
-            await loadGlobalProfiles();
+            const { data: profs } = await supabaseClient.from('perfiles').select('*').eq('promocion_id', currentUserProfile.promocion_id).eq('estado', 'aprobado');
+            globalProfiles = profs || [];
             await renderAccountsList();
         }
         setStatus('Conectado ✅');
