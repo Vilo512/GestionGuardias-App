@@ -2777,7 +2777,14 @@ function renderEditor() {
         gdiv.style.border = esGrupoDeFijos ? '2px solid #f59e0b' : '1px solid #e2e8f0';
         gdiv.style.background = esGrupoDeFijos ? '#fffdf5' : 'var(--light)';
 
-        gdiv.innerHTML = `<div style="display:flex; justify-content:space-between; margin-bottom:8px; border-bottom:2px solid ${esGrupoDeFijos ? '#f59e0b' : '#cbd5e1'}; padding-bottom:4px;"><strong>${tituloGrupo}</strong></div>` +
+        gdiv.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; border-bottom:2px solid ${esGrupoDeFijos ? '#f59e0b' : '#cbd5e1'}; padding-bottom:4px;">
+            <strong>${tituloGrupo}</strong>
+            ${!esGrupoDeFijos ? `
+            <div style="display:flex; gap: 4px;">
+                <button class="icon-btn" style="padding:2px 8px; font-size: 0.8rem; height: 24px;" onclick="moveGroupEntirely(${i}, 'up')" title="Subir Grupo Entero">⬆️</button>
+                <button class="icon-btn" style="padding:2px 8px; font-size: 0.8rem; height: 24px;" onclick="moveGroupEntirely(${i}, 'down')" title="Bajar Grupo Entero">⬇️</button>
+            </div>` : ''}
+        </div>` +
         g.map((res) => {
             const currentFlat = flatIdxCounter++;
             const esFijo = state.residentesFijos.includes(res);
@@ -2857,6 +2864,19 @@ function moveResLinear(flatIdx, dir) {
     editingGroups = reempaquetarGrupos([...fijos, ...moviles]);
     renderEditor();
 }
+
+function moveGroupEntirely(gIdx, dir) {
+    if (dir === 'up' && gIdx > 0) {
+        let tieneGrupoFijos = editingGroups.length > 0 && editingGroups[0].some(n => (state.residentesFijos||[]).includes(n));
+        if (tieneGrupoFijos && gIdx === 1) return; // No puede saltar por encima de los fijos
+        
+        [editingGroups[gIdx-1], editingGroups[gIdx]] = [editingGroups[gIdx], editingGroups[gIdx-1]];
+    } else if (dir === 'down' && gIdx < editingGroups.length - 1) {
+        [editingGroups[gIdx+1], editingGroups[gIdx]] = [editingGroups[gIdx], editingGroups[gIdx+1]];
+    }
+    renderEditor();
+}
+
 
 function editorAddSelectedRes() {
     const val = document.getElementById('sel-add-res').value;
