@@ -274,6 +274,13 @@ async function loadState() {
       if (!state.exceptionLogs) state.exceptionLogs = [];
       if (!state.pendingExceptions) state.pendingExceptions = {};
       if (!state.trades) state.trades = [];
+      // Limpieza de seguridad: si planRotations no tiene grupos reales configurados,
+      // los "graduados" automáticos son falsos positivos → los descartamos para que aparezcan en el turno
+      const _hayRotReal = state.planRotations && Object.values(state.planRotations).some(pr => pr.baseGroups && pr.baseGroups.flat().filter(Boolean).length > 1);
+      if (!_hayRotReal && state.graduados && state.graduados.length > 0) {
+          console.warn('[Safety] Limpiando state.graduados falsos – planRotations sin grupos reales configurados.');
+          state.graduados = [];
+      }
     } else {
       state.shifts = {}; state.customRotations = {}; state.pedWhitelist = {}; state.festivos = {}; state.trades = [];
       const _initPlanName = promoConfig.planes?.[0]?.nombre || "Plan Base";
@@ -4123,6 +4130,12 @@ function checkAutomaticGraduation() {
     if (!state.graduados) state.graduados = [];
     let changed = false;
     const dk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
+    
+    // Salvaguarda: solo actuamos si hay al menos un plan de guardias configurado con residentes.
+    // Si promoConfig no tiene planes o planRotations está vacío, no graduamos a nadie.
+    const hayPlanesConfigurados = promoConfig.planes && promoConfig.planes.length > 0;
+    const hayRotacionConfigurada = state.planRotations && Object.values(state.planRotations).some(pr => pr.baseGroups && pr.baseGroups.flat().length > 0);
+    if (!hayPlanesConfigurados || !hayRotacionConfigurada) return;
     
     // Iteramos sobre todos los perfiles globales
     globalProfiles.forEach(p => {
