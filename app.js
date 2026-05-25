@@ -3742,6 +3742,27 @@ window.resetConfigMes = async function() {
     }
 };
 
+// 🔧 Corrección del mes base de un plan. Uso: fixPlanBaseMonth('Plan R2', 5)
+// newBaseMonth = 0-indexed (0=enero, 5=junio, 6=julio...)
+window.fixPlanBaseMonth = async function(planName, newBaseMonth, newBaseYear) {
+    const pr = state.planRotations?.[planName];
+    if (!pr) { console.error('❌ Plan no encontrado:', planName); return; }
+    const oldM = pr.baseMonth, oldY = pr.baseYear;
+    pr.baseMonth = newBaseMonth;
+    if (newBaseYear !== undefined) pr.baseYear = newBaseYear;
+    await saveState();
+    console.log('✅ ' + planName + ': baseMonth ' + oldM + '→' + newBaseMonth + '  baseYear ' + oldY + '→' + pr.baseYear);
+    console.log('   Ejecuta resetAllConfigMes() para limpiar el cache de orden del mes.');
+};
+
+// 🔧 Borra el configMes de TODOS los meses para que se regeneren con el orden correcto
+window.resetAllConfigMes = async function() {
+    state.configMes = {};
+    await saveState();
+    console.log('✅ Todos los configMes borrados. Regenerando...');
+    renderAll();
+};
+
 function getCurrentTurn(y, m) {
     if (_computingTurn) return null; // Corta la recursión
     const mk = getRotationKey(y, m);
