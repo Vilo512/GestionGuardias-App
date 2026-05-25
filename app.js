@@ -3691,9 +3691,13 @@ window.debugTurn = function() {
 
     // Mostrar orden de rotación real (el que usa la UI) por cada plan
     for (const plan of (promoConfig.planes || [])) {
-        if (!state.planRotations?.[plan.nombre]) continue;
+        const pr = state.planRotations?.[plan.nombre];
+        if (!pr) { console.log(`Plan ${plan.nombre}: sin planRotations`); continue; }
+        const targetVal = y * 12 + m;
+        const baseVal = (parseInt(pr.baseYear,10)||0) * 12 + (parseInt(pr.baseMonth,10)||0);
+        console.log(`📅 ${plan.nombre}: baseYear=${pr.baseYear} baseMonth=${pr.baseMonth} → baseVal=${baseVal}  targetVal=${targetVal}  diff=${targetVal-baseVal}`);
         const rot = getRotationForPlan(plan.nombre, y, m);
-        console.log(`getRotationForPlan(${plan.nombre}):`, rot);
+        console.log(`   getRotationForPlan result:`, rot?.map(g => g.length + ':' + JSON.stringify(g)));
     }
 
     const activos = getResidentesActivosEnMes(y, m);
@@ -3802,7 +3806,8 @@ function getCurrentTurn(y, m) {
             const residente = orden[i];
             
             // 🛑 SI EL RESIDENTE ESTÁ DE BAJA ESTE MES, SE SALTA AUTOMÁTICAMENTE
-            if (!activosMes.includes(residente)) continue;
+            // Comparación case-insensitive para evitar problemas de capitalización de nombre
+            if (!activosMes.some(a => a.toLowerCase() === residente.toLowerCase())) continue;
             
             // Si el usuario se ha pausado manualmente el mes en la interfaz, lo respetamos
             if (state.configMes[mk].pausados && state.configMes[mk].pausados[residente]) continue;
