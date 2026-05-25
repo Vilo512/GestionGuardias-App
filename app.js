@@ -61,6 +61,7 @@ let state = {
 	bajasLargas: [],
 	residentesFijos: [], // 💡 Almacenará los nombres de los residentes congelados al inicio
 	habilitaciones: {}, // 💡 NUEVO: Control dinámico de todos los servicios manuales
+  grantedTurn: {}, // 💡 Turno otorgado por admin: { [mk]: residentName }
 };
 
 function monthString(y, m) {
@@ -1440,15 +1441,33 @@ function renderMainCalendar() {
     }
     
     if (isAdmin) {
+       if (!state.grantedTurn) state.grantedTurn = {};
+       const granted = state.grantedTurn[monthKey];
        let html = `<div style="background:#f1f5f9; border:1px solid #cbd5e1; color:#475569; padding:10px 12px; border-radius:8px; margin-bottom:1rem; font-size:0.85rem; display:flex; flex-direction:column; gap:8px;">`;
-       html += `<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;"><span>👑 <b>Modo Admin</b>. Turno de: <b>${turnUser || 'Nadie'}</b> ${pendingReasonForTurn ? '<span style="color:var(--fest);">(🛑 PENDIENTE)</span>' : ''}</span><div style="display:flex; gap:8px;">`;
+       // Turno actual
+       const turnLabel = granted
+           ? `🎁 Turno <b>otorgado</b> a: <b style="color:#7c3aed">${turnUser || 'Nadie'}</b> <span style="font-size:0.7rem;color:#7c3aed">(turno especial)</span>`
+           : `👑 <b>Modo Admin</b>. Turno de: <b>${turnUser || 'Nadie'}</b> ${pendingReasonForTurn ? '<span style="color:var(--fest);">(🛑 PENDIENTE)</span>' : ''}`;
+       html += `<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;"><span>${turnLabel}</span><div style="display:flex; gap:8px;">`;
        if (turnUser) {
          html += `<button class="primary" style="padding:4px 8px; font-size:0.75rem; background:var(--adu);" onclick="impersonateUser('${turnUser}')">🕵️‍♂️ Impersonar</button>`;
          html += `<button class="danger" style="padding:4px 8px; font-size:0.75rem;" onclick="adminSkipTurn('${turnUser}', ${y}, ${m})">Saltar turno ⏭️</button>`;
+         if (granted) html += `<button class="primary" style="padding:4px 8px; font-size:0.75rem; background:#7c3aed;" onclick="adminClearGrantedTurn(${y}, ${m})">❌ Cancelar turno otorgado</button>`;
        }
        html += `<button class="danger" style="padding:4px 8px; font-size:0.75rem; background:var(--fest); color:white;" onclick="adminResetMonth(${y}, ${m})">⚠️ Reset Mes</button></div></div>`;
+       // Selector para otorgar turno
+       const activosParaOtorgar = getResidentesActivosEnMes(y, m);
+       const optsOtorgar = activosParaOtorgar.map(r => `<option value="${r}" ${r === granted ? 'selected' : ''}>${r}</option>`).join('');
+       html += `<div style="display:flex; align-items:center; gap:8px; border-top:1px solid #e2e8f0; padding-top:8px; flex-wrap:wrap;">
+           <span style="font-size:0.75rem; color:#7c3aed; font-weight:bold;">🎁 Otorgar turno a:</span>
+           <select id="sel-grant-turn" style="flex:1; min-width:160px; padding:4px; border-radius:5px; border:1px solid #cbd5e1; font-size:0.8rem;">
+               <option value="">— Seleccionar residente —</option>
+               ${optsOtorgar}
+           </select>
+           <button class="primary" style="padding:4px 10px; font-size:0.75rem; background:#7c3aed;" onclick="adminGrantTurn(${y}, ${m})">🎁 Otorgar</button>
+       </div>`;
        if (skipped.length > 0) { html += `<div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid #e2e8f0; padding-top:6px;"><span style="font-size:0.75rem; color:var(--fest);">Saltados: ${skipped.join(', ')}</span><button class="primary" style="padding:4px 8px; font-size:0.75rem; background:var(--ped);" onclick="adminResetSkips(${y}, ${m})">Restaurar saltados 🔄</button></div>`; }
-       html += `</div>`; 
+       html += `</div>`;
        banner.innerHTML = html;
     } else if (turnUser) {
        if (turnUser === loggedInUser) {
@@ -1725,6 +1744,33 @@ async function adminSkipTurn(turnUser, y, m) {
    let chosenShifts = []; for(let d=1; d<=getDaysInMonth(y, m); d++) { const dk = formatDateKey(y, m, d); if (state.shifts[dk] && state.shifts[dk][turnUser]) chosenShifts.push(`Día ${d} (${state.shifts[dk][turnUser]})`); }
    if (!state.exceptionLogs) state.exceptionLogs = []; state.exceptionLogs.push({ user: turnUser, monthStr: `${MONTHS[m]} ${y}`, reason: "Admin Override", shiftsSummary: chosenShifts.length > 0 ? chosenShifts.join(', ') : 'Ninguna', timestamp: new Date().toLocaleString('es-ES') });
    await saveState(); checkAutomaticGraduation();
+    renderAll();
+}
+
+// ==========================================
+// TURNO OTORGADO (ADMIN GRANT TURN)
+// ==========================================
+async function adminGrantTurn(y, m) {
+    const sel = document.getElementById('sel-grant-turn');
+    const residente = sel?.value;
+    if (!residente) { alert('Selecciona un residente al que otorgar el turno.'); return; }
+    const monthKey = getRotationKey(y, m);
+    if (!state.grantedTurn) state.grantedTurn = {};
+    state.grantedTurn[monthKey] = residente;
+    if (!state.exceptionLogs) state.exceptionLogs = [];
+    state.exceptionLogs.push({
+        user: residente, monthStr: `${MONTHS[m]} ${y}`,
+        reason: `Turno otorgado manualmente por admin`,
+        shiftsSummary: '', timestamp: new Date().toLocaleString('es-ES')
+    });
+    await saveState();
+    renderAll();
+}
+
+async function adminClearGrantedTurn(y, m) {
+    const monthKey = getRotationKey(y, m);
+    if (state.grantedTurn) delete state.grantedTurn[monthKey];
+    await saveState();
     renderAll();
 }
 
@@ -3076,30 +3122,39 @@ function renderEditor() {
         gdiv.style.border = esGrupoDeFijos ? '2px solid #f59e0b' : '1px solid #e2e8f0';
         gdiv.style.background = esGrupoDeFijos ? '#fffdf5' : 'var(--light)';
 
-        gdiv.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; border-bottom:2px solid ${esGrupoDeFijos ? '#f59e0b' : '#cbd5e1'}; padding-bottom:4px;">
+        // Cabecera del grupo con acciones de grupo
+        let groupHeaderHtml = `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; border-bottom:2px solid ${esGrupoDeFijos ? '#f59e0b' : '#cbd5e1'}; padding-bottom:4px;">
             <strong>${tituloGrupo}</strong>
             ${!esGrupoDeFijos ? `
-            <div style="display:flex; gap: 4px;">
-                <button class="icon-btn" style="padding:2px 8px; font-size: 0.8rem; height: 24px;" onclick="moveGroupEntirely(${i}, 'up')" title="Subir Grupo Entero">⬆️</button>
-                <button class="icon-btn" style="padding:2px 8px; font-size: 0.8rem; height: 24px;" onclick="moveGroupEntirely(${i}, 'down')" title="Bajar Grupo Entero">⬇️</button>
+            <div style="display:flex; gap: 4px; flex-wrap:wrap;">
+                <button class="icon-btn" style="padding:2px 6px; font-size:0.75rem; height:24px;" onclick="moveGroupEntirely(${i}, 'up')" title="Subir Grupo Entero">⬆️ Grupo</button>
+                <button class="icon-btn" style="padding:2px 6px; font-size:0.75rem; height:24px;" onclick="moveGroupEntirely(${i}, 'down')" title="Bajar Grupo Entero">⬇️ Grupo</button>
+                <button class="icon-btn" style="padding:2px 6px; font-size:0.75rem; height:24px; background:#e0f2fe;" onclick="mergeGroupWithNext(${i})" title="Fusionar con el siguiente grupo">🔗 Fusionar▼</button>
             </div>` : ''}
-        </div>` +
-        g.map((res) => {
-            const currentFlat = flatIdxCounter++;
+        </div>`;
+        gdiv.innerHTML = groupHeaderHtml +
+        g.map((res, rIdx) => {
+            flatIdxCounter++;
             const esFijo = _edFijos.includes(res);
             const esExcluido = state.excluidosSubastas.includes(res);
+            const canPrev = !esGrupoDeFijos && i > 0 && !(i === 1 && tieneGrupoFijos);
+            const canNext = !esGrupoDeFijos && i < editingGroups.length - 1;
+            const canSplit = !esGrupoDeFijos && rIdx > 0;
             
             return `
-            <div class="editor-row" style="background: white; padding:6px; border:1px solid ${esFijo ? '#fef08a' : '#e2e8f0'}; border-radius:6px; margin-bottom:4px; ${esExcluido ? 'opacity:0.7;' : ''}">
-                <span style="display:inline-block; width:150px; font-weight:500; font-size:0.95rem; color:var(--dark);">
-                    ${res} ${esFijo ? '📌' : ''} ${esExcluido ? '👻 (Excluido)' : ''}
+            <div class="editor-row" style="background:white; padding:5px 6px; border:1px solid ${esFijo ? '#fef08a' : '#e2e8f0'}; border-radius:6px; margin-bottom:3px; ${esExcluido ? 'opacity:0.7;' : ''}">
+                <span style="display:inline-block; min-width:120px; font-weight:500; font-size:0.9rem; color:var(--dark);">
+                    ${canSplit ? `<button class="icon-btn" style="padding:1px 4px; font-size:0.65rem; height:18px; background:#fef9c3; border-color:#ca8a04; margin-right:3px;" onclick="splitGroupAt(${i},${rIdx})" title="Dividir grupo aquí">✂️</button>` : '<span style="display:inline-block;width:26px"></span>'}
+                    ${res} ${esFijo ? '📌' : ''} ${esExcluido ? '👻' : ''}
                 </span>
-                <div style="display:flex; gap:4px;">
-                    <button class="icon-btn" style="background: ${esExcluido ? '#fecaca' : '#f1f5f9'}; border-color: ${esExcluido ? '#ef4444' : '#cbd5e1'};" onclick="toggleResidenteExcluido('${res}')" title="Excluir de Subastas Forzosas">👻</button>
-                    <button class="icon-btn" style="background: ${esFijo ? '#fef08a' : '#f1f5f9'}; border-color: ${esFijo ? '#ca8a04' : '#cbd5e1'};" onclick="toggleResidenteFijo('${res}')" title="Conmutar Estado Fijo/Móvil">📌</button>
-                    <button class="icon-btn" style="background:#f1f5f9;" onclick="moveResLinear(${currentFlat}, 'up')">⬆️</button>
-                    <button class="icon-btn" style="background:#f1f5f9;" onclick="moveResLinear(${currentFlat}, 'down')">⬇️</button>
-                    <button class="danger icon-btn" onclick="editorRemoveMemberLinear(${currentFlat})">X</button>
+                <div style="display:flex; gap:3px; flex-wrap:wrap;">
+                    <button class="icon-btn" style="background:${esExcluido?'#fecaca':'#f1f5f9'}; border-color:${esExcluido?'#ef4444':'#cbd5e1'};" onclick="toggleResidenteExcluido('${res}')" title="Excluir de Subastas">👻</button>
+                    <button class="icon-btn" style="background:${esFijo?'#fef08a':'#f1f5f9'}; border-color:${esFijo?'#ca8a04':'#cbd5e1'};" onclick="toggleResidenteFijo('${res}')" title="Fijo/Móvil">📌</button>
+                    <button class="icon-btn" style="background:#f1f5f9;" onclick="moveResInGroup(${i},${rIdx},'up')" title="Subir dentro del grupo">↑</button>
+                    <button class="icon-btn" style="background:#f1f5f9;" onclick="moveResInGroup(${i},${rIdx},'down')" title="Bajar dentro del grupo">↓</button>
+                    ${canPrev ? `<button class="icon-btn" style="background:#dbeafe; font-size:0.75rem;" onclick="moveResToPrevGroup(${i},${rIdx})" title="Mover al grupo anterior">◀ Grp</button>` : ''}
+                    ${canNext ? `<button class="icon-btn" style="background:#dcfce7; font-size:0.75rem;" onclick="moveResToNextGroup(${i},${rIdx})" title="Mover al grupo siguiente">Grp ▶</button>` : ''}
+                    <button class="danger icon-btn" onclick="editorRemoveMemberLinear(${i},${rIdx})">✕</button>
                 </div>
             </div>`;
         }).join('');
@@ -3125,44 +3180,53 @@ function renderEditor() {
 // ==========================================
 // CONTROLES DEL EDITOR LINEAL
 // ==========================================
-function moveResLinear(flatIdx, dir) {
-    let linearCompleta = editingGroups.flat();
-    const usuarioActual = linearCompleta[flatIdx];
-    
-    const _dk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
-    const _planName = getCurrentRotPlan(_dk);
-    const _pr = state.planRotations?.[_planName] || { residentesFijos: [] };
-    const resFijos = _pr.residentesFijos || [];
-
-    // Si es un fijo, solo permitimos que se mueva ARRIBA/ABAJO dentro de su propia zona de fijos
-    if (resFijos.includes(usuarioActual)) {
-        let fijos = linearCompleta.filter(n => resFijos.includes(n));
-        let idxEnFijos = fijos.indexOf(usuarioActual);
-        
-        if (dir === 'up' && idxEnFijos > 0) {
-            [fijos[idxEnFijos-1], fijos[idxEnFijos]] = [fijos[idxEnFijos], fijos[idxEnFijos-1]];
-        } else if (dir === 'down' && idxEnFijos < fijos.length - 1) {
-            [fijos[idxEnFijos+1], fijos[idxEnFijos]] = [fijos[idxEnFijos], fijos[idxEnFijos+1]];
-        }
-        
-        let moviles = linearCompleta.filter(n => !resFijos.includes(n));
-        editingGroups = reempaquetarGrupos([...fijos, ...moviles]);
-        renderEditor();
-        return;
+// Mueve un residente ARRIBA o ABAJO dentro de su propio grupo (sin reempaquetar)
+function moveResInGroup(gIdx, rIdx, dir) {
+    const g = editingGroups[gIdx];
+    if (!g) return;
+    if (dir === 'up' && rIdx > 0) {
+        [g[rIdx-1], g[rIdx]] = [g[rIdx], g[rIdx-1]];
+    } else if (dir === 'down' && rIdx < g.length - 1) {
+        [g[rIdx+1], g[rIdx]] = [g[rIdx], g[rIdx+1]];
     }
-    
-    // Si es un móvil, se mueve solo en la fila india de móviles
-    let fijos2 = linearCompleta.filter(n => resFijos.includes(n));
-    let moviles2 = linearCompleta.filter(n => !resFijos.includes(n));
-    let idxEnMoviles = moviles2.indexOf(usuarioActual);
+    renderEditor();
+}
 
-    if (dir === 'up' && idxEnMoviles > 0) {
-        [moviles2[idxEnMoviles-1], moviles2[idxEnMoviles]] = [moviles2[idxEnMoviles], moviles2[idxEnMoviles-1]];
-    } else if (dir === 'down' && idxEnMoviles < moviles2.length - 1) {
-        [moviles2[idxEnMoviles+1], moviles2[idxEnMoviles]] = [moviles2[idxEnMoviles], moviles2[idxEnMoviles+1]];
-    }
-    
-    editingGroups = reempaquetarGrupos([...fijos2, ...moviles2]);
+// Mueve un residente al grupo anterior (intercambia con el último de ese grupo)
+function moveResToPrevGroup(gIdx, rIdx) {
+    if (gIdx <= 0) return;
+    const _dk2 = formatDateKey(rotDate.getFullYear(), rotDate.getMonth(), 1);
+    const _pr2 = state.planRotations?.[getCurrentRotPlan(_dk2)] || { residentesFijos: [] };
+    const esFijoGroup = gIdx === 0 || (gIdx === 1 && editingGroups[0].some(n => (_pr2.residentesFijos||[]).includes(n)));
+    if (esFijoGroup) return; // No mover al grupo de fijos
+    const moved = editingGroups[gIdx].splice(rIdx, 1)[0];
+    editingGroups[gIdx-1].push(moved);
+    renderEditor();
+}
+
+// Mueve un residente al grupo siguiente (lo pone al principio de ese grupo)
+function moveResToNextGroup(gIdx, rIdx) {
+    if (gIdx >= editingGroups.length - 1) return;
+    const moved = editingGroups[gIdx].splice(rIdx, 1)[0];
+    editingGroups[gIdx+1].unshift(moved);
+    renderEditor();
+}
+
+// Divide un grupo en dos a partir de la posición rIdx
+function splitGroupAt(gIdx, rIdx) {
+    if (rIdx <= 0 || rIdx >= editingGroups[gIdx].length) return;
+    const g = editingGroups[gIdx];
+    const part1 = g.slice(0, rIdx);
+    const part2 = g.slice(rIdx);
+    editingGroups.splice(gIdx, 1, part1, part2);
+    renderEditor();
+}
+
+// Fusiona un grupo con el siguiente
+function mergeGroupWithNext(gIdx) {
+    if (gIdx >= editingGroups.length - 1) return;
+    const merged = [...editingGroups[gIdx], ...editingGroups[gIdx+1]];
+    editingGroups.splice(gIdx, 2, merged);
     renderEditor();
 }
 
@@ -3205,10 +3269,15 @@ function editorAddSelectedRes() {
     }
 }
 
-function editorRemoveMemberLinear(flatIdx) {
-    let linear = editingGroups.flat();
-    linear.splice(flatIdx, 1);
-    editingGroups = reempaquetarGrupos(linear);
+function editorRemoveMemberLinear(gIdx, rIdx) {
+    // Elimina el residente directamente del grupo (sin reempaquetar)
+    if (editingGroups[gIdx]) {
+        editingGroups[gIdx].splice(rIdx, 1);
+        // Si el grupo queda vacío, lo eliminamos
+        if (editingGroups[gIdx].length === 0) {
+            editingGroups.splice(gIdx, 1);
+        }
+    }
     renderEditor();
 }
 
@@ -3850,6 +3919,23 @@ function getCurrentTurn(y, m) {
         const orden = state.configMes[mk].ordenSeleccion || [];
         if (orden.length === 0) return null;
         
+        // 💡 TURNO OTORGADO: si el admin otorgó el turno a alguien, tiene prioridad absoluta
+        if (!state.grantedTurn) state.grantedTurn = {};
+        const grantee = state.grantedTurn[mk];
+        if (grantee) {
+            const activosMesG = getResidentesActivosEnMes(y, m);
+            const isActive = activosMesG.some(a => a.toLowerCase() === grantee.toLowerCase());
+            if (isActive) {
+                const progG = getUserProgress(grantee, y, m);
+                if (!progG.isFinished) return grantee; // Sigue siendo su turno
+                // Ya terminó → limpiamos el turno otorgado y seguimos con rotación normal
+                delete state.grantedTurn[mk];
+                saveState(); // guardamos en background, sin await para no bloquear
+            } else {
+                delete state.grantedTurn[mk];
+            }
+        }
+
         // 💡 FILTRO DE BAJAS: Solo consideramos residentes activos para la ronda de turnos de este mes
         const activosMes = getResidentesActivosEnMes(y, m);
         
