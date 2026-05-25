@@ -3269,9 +3269,26 @@ async function saveAsNewBase() {
     _pr.baseMonth = rotDate.getMonth();
     _pr.baseYear = rotDate.getFullYear();
     _pr.customRotations = {};
+
+    // Limpiar el caché de ordenSeleccion para todos los meses desde la nueva base en adelante
+    // para que se regeneren con el orden rotado correcto
+    const baseVal = rotDate.getFullYear() * 12 + rotDate.getMonth();
+    if (state.configMes) {
+        let cleared = 0;
+        Object.keys(state.configMes).forEach(mk => {
+            // mk tiene formato "YYYY_MM" (0-indexed)
+            const [mkY, mkM] = mk.split('_').map(Number);
+            if (mkY * 12 + mkM >= baseVal) {
+                delete state.configMes[mk];
+                cleared++;
+            }
+        });
+        if (cleared > 0) console.log(`🔄 configMes: ${cleared} mes(es) desde ${MONTHS[rotDate.getMonth()]} ${rotDate.getFullYear()} borrados y se regenerarán automáticamente.`);
+    }
+
     await saveState();
     renderRotationView();
-    alert(`¡Base Absoluta establecida para el Plan '${_planName}'! El sistema calculará el futuro matemáticamente a partir de este punto exacto.`);
+    alert(`¡Base Absoluta establecida para el Plan '${_planName}'!\nEl orden de turno de todos los meses desde ${MONTHS[rotDate.getMonth()]} ${rotDate.getFullYear()} en adelante se ha recalculado automáticamente.`);
 }
 
 async function clearCustomMonth() {
