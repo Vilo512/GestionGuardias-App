@@ -928,12 +928,13 @@ function getUserProgress(user, y, m) {
 
     // El cerebro ajusta la exigencia según la subasta
     const analisis = getAnalisisFestivos(y, m);
-    let minimoExigibleEsteMes = analisis.minimoBase;
+    const viabilidad = calcularViabilidadFestivosMensual(y, m);
+    let minimoExigibleEsteMes = viabilidad.minimoExigible || 0;
 
     // Si la subasta ha fracasado o el mes es inasumible, exigimos el +1 a los nominados
     if (analisis.estado === 'critico' || analisis.estado === 'subasta_cerrada') {
         if (analisis.nominados.includes(user)) {
-            minimoExigibleEsteMes = analisis.minimoBase + 1; 
+            minimoExigibleEsteMes = (viabilidad.minimoExigible || 0) + 1; 
         }
     }
 
@@ -2661,7 +2662,7 @@ async function adminAddExceptionReason() { const v = document.getElementById('ne
 async function adminRemoveExceptionReason(idx) { if (!confirm("¿Borrar?")) return; state.exceptionReasons.splice(idx, 1); await saveState(); renderAdminExceptions(); }
 async function adminResetSkips(y, m) { const monthKey = getRotationKey(y, m); if (state.skippedTurns[monthKey]) { delete state.skippedTurns[monthKey]; await saveState(); checkAutomaticGraduation();
     renderAll(); } }
-async function adminResetMonth(y, m) { if (!confirm(`¡PELIGRO! ¿Borrar todas las guardias de este mes?`)) return; const days = getDaysInMonth(y, m); for(let d = 1; d <= days; d++) { const dk = formatDateKey(y, m, d); delete state.shifts[dk]; } const monthKey = getRotationKey(y, m); delete state.skippedTurns[monthKey]; if (state.pendingExceptions && state.pendingExceptions[monthKey]) delete state.pendingExceptions[monthKey]; await saveState(); checkAutomaticGraduation();
+async function adminResetMonth(y, m) { if (!confirm(`¡PELIGRO! ¿Borrar todas las guardias de este mes?`)) return; const days = getDaysInMonth(y, m); for(let d = 1; d <= days; d++) { const dk = formatDateKey(y, m, d); delete state.shifts[dk]; } const monthKey = getRotationKey(y, m); delete state.skippedTurns[monthKey]; if (state.pendingExceptions && state.pendingExceptions[monthKey]) delete state.pendingExceptions[monthKey]; if (state.configMes && state.configMes[monthKey]) delete state.configMes[monthKey]; await saveState(); checkAutomaticGraduation();
     renderAll(); }
 async function adminVaciarGeneracion() {
     if (!confirm("⚠️ ATENCIÓN: Vas a expulsar a todos los residentes normales y borrar todas las guardias y calendarios. Las reglas se mantendrán. ¿Estás seguro?")) return;
@@ -2951,6 +2952,7 @@ async function adminAprobarUsuario(userId, userName) {
     filaIndia.push(userName);
     pr.baseGroups = reempaquetarGruposPlan(filaIndia, pr);
     
+    invalidateConfigMes();
     await saveState(); 
     await renderAccountsList(); 
     setStatus('Conectado ✅');
@@ -3075,6 +3077,7 @@ async function toggleResidenteFijo(nombre) {
     
     editingGroups = nuevoBlock;
     pr.baseGroups = JSON.parse(JSON.stringify(editingGroups));
+    invalidateConfigMes();
     await saveState();
     renderEditor();
 }
@@ -3869,13 +3872,24 @@ window.resetAllConfigMes = async function() {
     renderAll();
 };
 
+// Invalida el cache de ordenSeleccion para que se recalcule en el próximo renderizado
+function invalidateConfigMes(mk) {
+    if (mk) {
+        if (state.configMes && state.configMes[mk]) {
+            delete state.configMes[mk];
+        }
+    } else {
+        state.configMes = {};
+    }
+}
+
 function getCurrentTurn(y, m) {
     if (_computingTurn) return null; // Corta la recursión
     const mk = getRotationKey(y, m);
     
     // Si no hay configMes para este mes, lo generamos automáticamente
     if (!state.configMes || !state.configMes[mk]) {
-        const dk = formatDateKey(y, m, 1);
+        const dk = formatDateKey(y, m, 15);
         const targetKey = getRotationKey(y, m);
         let flatOrden = [];
         
@@ -4197,6 +4211,7 @@ async function guardarFechaContratoPerfil() {
                 .eq('id', uProfile.id);
             if (error) throw error;
             alert("¡Fecha de contrato actualizada con éxito!");
+            invalidateConfigMes();
             renderPerfilUsuario();
         } catch (err) { alert("Error al guardar en Supabase."); }
     }
@@ -4218,6 +4233,7 @@ async function guardarFechaInicioPerfil() {
                 .eq('id', uProfile.id);
             if (error) throw error;
             alert("¡Fecha de inicio de residencia actualizada con éxito!");
+            invalidateConfigMes();
             renderPerfilUsuario();
         } catch (err) { alert("Error al guardar en Supabase."); }
     }
