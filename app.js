@@ -711,8 +711,11 @@ function getRotation(y, m, forcedPlanName) {
             return userPlan && userPlan.nombre === planName;
         }).map(p => p.nombre_mostrar);
         
-        // 2. Extraer a los que ya no pertenecen manteniendo los grupos
-        currentGroups = currentGroups.map(g => g.filter(n => eligible.includes(n))).filter(g => g.length > 0);
+        // 2. Extraer a los que ya no pertenecen manteniendo los grupos. Los residentes virtuales (que no están en globalProfiles) se mantienen para que sigan rotando de forma indefinida en su plan original.
+        currentGroups = currentGroups.map(g => g.filter(n => {
+            const esReal = globalProfiles.some(p => p.nombre_mostrar === n);
+            return esReal ? eligible.includes(n) : true;
+        })).filter(g => g.length > 0);
         
         // 3. Añadir a los rezagados o nuevos al último grupo
         const existingMembers = currentGroups.flat();
@@ -770,10 +773,35 @@ function reempaquetarGruposPlan(lista, pr) {
     else return gruposMoviles;
 }
 
+// Obtiene la lista de nombres de residentes virtuales configurados en las rotaciones
+function getVirtualResidents() {
+    let list = [];
+    if (state.planRotations) {
+        for (const planName of Object.keys(state.planRotations)) {
+            const pr = state.planRotations[planName];
+            const flatGroups = (pr.baseGroups || []).flat();
+            for (const n of flatGroups) {
+                const exists = globalProfiles.some(p => p.nombre_mostrar === n);
+                if (!exists && !list.includes(n)) {
+                    list.push(n);
+                }
+            }
+        }
+    }
+    return list;
+}
+
 function getAllResidents() {
     let list = [];
     if (!globalProfiles || globalProfiles.length === 0) return list;
     list = globalProfiles.map(p => p.nombre_mostrar);
+    
+    // Añadir residentes virtuales para que participen de las rotaciones y cálculos
+    const virtuals = getVirtualResidents();
+    for (const v of virtuals) {
+        if (!list.includes(v)) list.push(v);
+    }
+    
     if (state.graduados) {
         list = list.filter(u => !state.graduados.includes(u));
     }
@@ -850,9 +878,28 @@ function getUserProgress(user, y, m) {
     let isFinished = true; 
     let messages = [];
 
-    const uProfile = globalProfiles.find(p => p.nombre_mostrar === user) || currentUserProfile;
-    const referenceDk = formatDateKey(y, m, 15);
-    const activePlan = getPlanForUserOnDate(uProfile, referenceDk);
+    let uProfile = globalProfiles.find(p => p.nombre_mostrar === user);
+    let activePlan = null;
+    if (uProfile) {
+        const referenceDk = formatDateKey(y, m, 15);
+        activePlan = getPlanForUserOnDate(uProfile, referenceDk);
+    } else {
+        // Es un residente virtual. Buscamos en qué plan de state.planRotations está su nombre en baseGroups
+        if (state.planRotations) {
+            for (const planName of Object.keys(state.planRotations)) {
+                const pr = state.planRotations[planName];
+                const flatBase = (pr.baseGroups || []).flat();
+                if (flatBase.includes(user)) {
+                    activePlan = (promoConfig.planes || []).find(pl => pl.nombre === planName);
+                    break;
+                }
+            }
+        }
+        if (!activePlan) {
+            const referenceDk = formatDateKey(y, m, 15);
+            activePlan = getPlanForUserOnDate(currentUserProfile, referenceDk);
+        }
+    }
     const serviciosActivos = activePlan ? activePlan.servicios : [];
 
     let totalFestivosHacidos = 0;
@@ -3904,9 +3951,11 @@ function getCurrentTurn(y, m) {
             const planFlat = (rotGroups || []).flat();
             
             // Solo incluir a quienes realmente pertenecen a este plan este mes y están aprobados
+            // Solo incluir a quienes realmente pertenecen a este plan este mes y están aprobados (y permitir residentes virtuales que ya forman parte del plan rotado)
             const enEstePlan = planFlat.filter(n => {
                 const p = globalProfiles.find(pr2 => pr2.nombre_mostrar === n);
-                if (!p || p.estado !== 'aprobado') return false;
+                if (!p) return true; // Si es virtual, se incluye por defecto en su plan asignado
+                if (p.estado !== 'aprobado') return false;
                 const planActual = getPlanForUserOnDate(p, dk);
                 return planActual && planActual.nombre === plan.nombre;
             });
