@@ -91,12 +91,14 @@ let curDate = new Date(2026, 0, 1);
 let rotDate = new Date(curDate.getFullYear(), curDate.getMonth(), 1);
 let selectedRotPlan = null;
 function getCurrentRotPlan(dk) {
-    if (isAdmin && selectedRotPlan && selectedRotPlan !== "AUTO") return selectedRotPlan;
+    if (isDelegado && selectedRotPlan && selectedRotPlan !== "AUTO") return selectedRotPlan;
     const p = getPlanForUserOnDate(currentUserProfile, dk);
     return p ? p.nombre : (promoConfig.planes?.[0]?.nombre || "Plan Base");
 }
 let isAdmin = false;
-let loggedInUser = null; 
+let isDelegado = false;
+let loggedInUser = null;
+let simulatedViewUser = null;
 let currentAdminView = 'pediatria';
 let editingGroups = null; 
 let showOnlyMine = false; 
@@ -404,9 +406,10 @@ async function evaluarEstadoUsuario() {
       } 
       else if (currentUserProfile.estado === 'aprobado') {
           document.querySelector('.tabs').style.display = 'flex';
-          isAdmin = (currentUserProfile.rol === 'admin'); 
+          isAdmin = (currentUserProfile.rol === 'admin');
+          isDelegado = (currentUserProfile.rol === 'admin' || currentUserProfile.rol === 'delegado');
           const tabAdmin = document.getElementById('tab-admin');
-          if (tabAdmin) tabAdmin.style.display = isAdmin ? 'inline-block' : 'none'; 
+          if (tabAdmin) tabAdmin.style.display = isDelegado ? 'inline-block' : 'none';
           await loadPromoConfig();
           await loadState(); 
           nav('cal');
@@ -484,8 +487,53 @@ async function crearNuevaPromocionMaster(h, s, n) {
 	
 async function loginWithGoogle() { const { error } = await supabaseClient.auth.signInWithOAuth({ provider: 'google', options: { queryParams: { prompt: 'select_account' } } }); if (error) alert("Error: " + error.message); }
 async function logoutUser() { setStatus('Cerrando sesión...'); await supabaseClient.auth.signOut(); window.location.reload(); }
-function impersonateUser(user) { if (!confirm(`Vas a pasar a la vista de usuario como ${user}. Dejarás de ser Admin temporalmente. ¿Continuar?`)) return; loggedInUser = user; isAdmin = false; nav('cal'); checkAutomaticGraduation();
-    renderAll(); }
+function impersonateUser(user) { activateSimulationMode(user); }
+
+function activateSimulationMode(nombre) {
+    simulatedViewUser = nombre;
+    document.getElementById('simulation-banner-name').textContent = nombre;
+    document.getElementById('simulation-banner').classList.add('active');
+    const h = document.querySelector('.header')?.offsetHeight || 62;
+    document.body.style.setProperty('--header-h', h + 'px');
+    nav('cal');
+    renderAll();
+}
+
+function exitSimulationMode() {
+    simulatedViewUser = null;
+    document.getElementById('simulation-banner').classList.remove('active');
+    renderAll();
+}
+
+function onAdminModeChange() {
+    const mode = document.getElementById('sel-admin-mode')?.value;
+    const residentRow = document.getElementById('admin-action-resident-row');
+    const confirmBtn = document.getElementById('admin-action-confirm-btn');
+    if (!residentRow || !confirmBtn) return;
+    if (mode) {
+        residentRow.classList.add('visible');
+        confirmBtn.className = 'admin-action-toolbar__confirm-btn' + (mode === 'grant' ? ' mode-grant' : '');
+        confirmBtn.textContent = mode === 'grant' ? 'Otorgar' : 'Visualizar';
+    } else {
+        residentRow.classList.remove('visible');
+    }
+}
+
+function onAdminActionConfirm(y, m) {
+    const mode = document.getElementById('sel-admin-mode')?.value;
+    const res = document.getElementById('sel-admin-resident')?.value;
+    if (!mode || !res) return alert('Selecciona una acción y un residente.');
+    if (mode === 'grant') {
+        if (simulatedViewUser !== null) { alert('⚠️ Estás en modo visualización. Sal de la simulación para realizar cambios.'); return; }
+        if (!state.grantedTurn) state.grantedTurn = {};
+        state.grantedTurn[getRotationKey(y, m)] = res;
+        if (!state.exceptionLogs) state.exceptionLogs = [];
+        state.exceptionLogs.push({ user: res, monthStr: `${MONTHS[m]} ${y}`, reason: 'Turno otorgado manualmente por admin', shiftsSummary: '', timestamp: new Date().toLocaleString('es-ES') });
+        saveState(); renderAll();
+    } else if (mode === 'simulate') {
+        activateSimulationMode(res);
+    }
+}
 function renderUserHeader() {
   const el = document.getElementById('user-display');
   if (authSession) el.innerHTML = `<div class="user-badge">👤 ${getInitials(loggedInUser)} <button onclick="logoutUser()" style="padding:2px 6px; font-size:0.7rem; margin-left:4px; border:none; background:rgba(0,0,0,0.1); color:var(--dark); border-radius:4px;">Salir</button></div>`;
@@ -1220,8 +1268,8 @@ async function iniciarProcesoSalida(destinoId) {
     }
 
     // CAMINO C: Sucesión Obligatoria Automática (Eres el Dueño y hay gente dentro)
-    const delegados = otrosUsuarios.filter(u => u.rol === 'admin');
-    const residentes = otrosUsuarios.filter(u => u.rol !== 'admin');
+    const delegados = otrosUsuarios.filter(u => u.rol === 'delegado');
+    const residentes = otrosUsuarios.filter(u => u.rol !== 'admin' && u.rol !== 'delegado');
     const sucesor = delegados.length > 0 ? delegados[0] : residentes[0];
     
     alert(`👑 Traspaso Automático: Como eras el administrador principal, al abandonar el grupo la corona ha sido transferida automáticamente a ${sucesor.nombre_mostrar}.`);
@@ -1273,6 +1321,7 @@ async function ejecutarSalidaFinal(destinoId) {
             currentUserProfile.estado = 'aprobado';
             currentUserProfile.rol = 'admin';
             isAdmin = true;
+            isDelegado = true;
 
             alert("¡Has despertado el contenedor! Ahora eres el Administrador principal.");
             return evaluarEstadoUsuario();
@@ -1293,8 +1342,9 @@ async function ejecutarSalidaFinal(destinoId) {
     // Actualizamos la memoria local
     currentUserProfile.promocion_id = destinoId || null;
     currentUserProfile.estado = 'pendiente';
-    isAdmin = false; 
-    
+    isAdmin = false;
+    isDelegado = false;
+
     alert(destinoId ? "Solicitud enviada al nuevo grupo." : "Has salido del grupo correctamente.");
     evaluarEstadoUsuario(); 
 }
@@ -1303,7 +1353,7 @@ async function ejecutarSalidaFinal(destinoId) {
 // RENDERIZADO VISUAL GLOBAL Y NAVEGACIÓN
 // ==========================================
 function nav(tab) {
-  if (tab === 'admin' && !isAdmin) return; 
+  if (tab === 'admin' && !isDelegado) return;
 
   // Añadimos 'perfil' a la lista para que oculte las demás
   ['cal','merc','rot','grupos','help','admin', 'perfil'].forEach(t => {
@@ -1313,9 +1363,9 @@ function nav(tab) {
     if (tb) tb.className = `tab ${t === tab ? 'active' : ''}`;
   });
   
-  if (tab === 'admin' && isAdmin) {
+  if (tab === 'admin' && isDelegado) {
       document.getElementById('admin-panel').style.display = 'block';
-      navAdmin(currentAdminView || 'pediatria');
+      navAdmin(currentAdminView || 'excepciones');
   }
   
   if (tab === 'grupos') renderGruposView();
@@ -1325,10 +1375,16 @@ function nav(tab) {
 }
 
 function navAdmin(sub) {
+  const adminOnlySubs = ['calendario', 'ajustes', 'seguridad'];
+  if (adminOnlySubs.includes(sub) && !isAdmin) sub = 'excepciones';
   currentAdminView = sub;
   ['calendario','excepciones','export','cuentas','seguridad','ajustes'].forEach(t => {
     const view = document.getElementById(`aview-${t}`); if (view) view.style.display = t === sub ? 'block' : 'none';
-    const tab = document.getElementById(`atab-${t}`); if (tab) tab.className = `tab ${t === sub ? 'active' : ''}`;
+    const tab = document.getElementById(`atab-${t}`);
+    if (tab) {
+      tab.className = `tab ${t === sub ? 'active' : ''}`;
+      if (adminOnlySubs.includes(t)) tab.style.display = isAdmin ? '' : 'none';
+    }
   });
   document.getElementById('admin-cal-views').style.display = (sub === 'calendario') ? 'block' : 'none';
   if (sub === 'cuentas') renderAccountsList();
@@ -1390,7 +1446,7 @@ function renderAll() {
   renderMercadoInboxAndLog();
   renderRotationView();
   
-  if (isAdmin) {
+  if (isDelegado) {
     if (currentAdminView === 'cuentas') renderAccountsList();
     else if (currentAdminView === 'calendario') renderAdminCalendar();
     else if (currentAdminView === 'excepciones') renderAdminExceptions();
@@ -1485,41 +1541,50 @@ function renderMainCalendar() {
       pendingReasonForTurn = state.pendingExceptions[monthKey][turnUser]; 
     }
     
-    if (isAdmin) {
+    if (isDelegado && simulatedViewUser === null) {
        if (!state.grantedTurn) state.grantedTurn = {};
        const granted = state.grantedTurn[monthKey];
        let html = `<div style="background:#f1f5f9; border:1px solid #cbd5e1; color:#475569; padding:10px 12px; border-radius:8px; margin-bottom:1rem; font-size:0.85rem; display:flex; flex-direction:column; gap:8px;">`;
-       // Turno actual
        const turnLabel = granted
            ? `🎁 Turno <b>otorgado</b> a: <b style="color:#7c3aed">${turnUser || 'Nadie'}</b> <span style="font-size:0.7rem;color:#7c3aed">(turno especial)</span>`
-           : `👑 <b>Modo Admin</b>. Turno de: <b>${turnUser || 'Nadie'}</b> ${pendingReasonForTurn ? '<span style="color:var(--fest);">(🛑 PENDIENTE)</span>' : ''}`;
+           : `${isAdmin ? '👑 <b>Modo Admin</b>' : '⭐ <b>Modo Delegado</b>'}. Turno de: <b>${turnUser || 'Nadie'}</b> ${pendingReasonForTurn ? '<span style="color:var(--fest);">(🛑 PENDIENTE)</span>' : ''}`;
        html += `<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;"><span>${turnLabel}</span><div style="display:flex; gap:8px;">`;
        if (turnUser) {
-         html += `<button class="primary" style="padding:4px 8px; font-size:0.75rem; background:var(--adu);" onclick="impersonateUser('${turnUser}')">🕵️‍♂️ Impersonar</button>`;
          html += `<button class="danger" style="padding:4px 8px; font-size:0.75rem;" onclick="adminSkipTurn('${turnUser}', ${y}, ${m})">Saltar turno ⏭️</button>`;
          if (granted) html += `<button class="primary" style="padding:4px 8px; font-size:0.75rem; background:#7c3aed;" onclick="adminClearGrantedTurn(${y}, ${m})">❌ Cancelar turno otorgado</button>`;
        }
        html += `<button class="danger" style="padding:4px 8px; font-size:0.75rem; background:var(--fest); color:white;" onclick="adminResetMonth(${y}, ${m})">⚠️ Reset Mes</button></div></div>`;
-       // Selector para otorgar turno
-       const activosParaOtorgar = getResidentesActivosEnMes(y, m);
-       const optsOtorgar = activosParaOtorgar.map(r => `<option value="${r}" ${r === granted ? 'selected' : ''}>${r}</option>`).join('');
-       html += `<div style="display:flex; align-items:center; gap:8px; border-top:1px solid #e2e8f0; padding-top:8px; flex-wrap:wrap;">
-           <span style="font-size:0.75rem; color:#7c3aed; font-weight:bold;">🎁 Otorgar turno a:</span>
-           <select id="sel-grant-turn" style="flex:1; min-width:160px; padding:4px; border-radius:5px; border:1px solid #cbd5e1; font-size:0.8rem;">
-               <option value="">— Seleccionar residente —</option>
-               ${optsOtorgar}
-           </select>
-           <button class="primary" style="padding:4px 10px; font-size:0.75rem; background:#7c3aed;" onclick="adminGrantTurn(${y}, ${m})">🎁 Otorgar</button>
-       </div>`;
-       if (skipped.length > 0) { html += `<div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid #e2e8f0; padding-top:6px;"><span style="font-size:0.75rem; color:var(--fest);">Saltados: ${skipped.join(', ')}</span><button class="primary" style="padding:4px 8px; font-size:0.75rem; background:var(--ped);" onclick="adminResetSkips(${y}, ${m})">Restaurar saltados 🔄</button></div>`; }
-       html += `</div>`;
+       // Toolbar unificado: Otorgar turno / Visualizar como
+       const activosToolbar = getResidentesActivosEnMes(y, m);
+       const optsToolbar = activosToolbar.map(r => `<option value="${r}">${r}</option>`).join('');
+       html += `<div class="admin-action-toolbar">
+           <div class="admin-action-toolbar__mode-row">
+               <span class="admin-action-toolbar__mode-label">Acción:</span>
+               <select id="sel-admin-mode" class="admin-action-toolbar__mode-select" onchange="onAdminModeChange()">
+                   <option value="">— Seleccionar acción —</option>
+                   <option value="grant">🎁 Otorgar turno a...</option>
+                   <option value="simulate">👁 Visualizar como...</option>
+               </select>
+           </div>
+           <div id="admin-action-resident-row" class="admin-action-toolbar__resident-row">
+               <select id="sel-admin-resident" class="admin-action-toolbar__resident-select">
+                   <option value="">— Residente —</option>
+                   ${optsToolbar}
+               </select>
+               <button id="admin-action-confirm-btn" class="admin-action-toolbar__confirm-btn" onclick="onAdminActionConfirm(${y}, ${m})">Confirmar</button>
+           </div>`;
+       if (skipped.length > 0) {
+           html += `<div class="admin-action-toolbar__skipped-row"><span class="admin-action-toolbar__skipped-label">Saltados: ${skipped.join(', ')}</span><button class="primary icon-btn" style="background:var(--ped);" onclick="adminResetSkips(${y}, ${m})">Restaurar saltados 🔄</button></div>`;
+       }
+       html += `</div></div>`;
        banner.innerHTML = html;
     } else if (turnUser) {
-       if (turnUser === loggedInUser) {
+       const effectiveUser = simulatedViewUser ?? loggedInUser;
+       if (turnUser === effectiveUser) {
          if (pendingReasonForTurn) {
            banner.innerHTML = `<div style="background:#fef3c7; color:#854d0e; border:1px solid #fde047; padding:10px 12px; border-radius:8px; margin-bottom:1rem; font-size:0.85rem;">⏳ <b>Validación pendiente:</b> Has solicitado saltar el turno por el motivo "<i>${pendingReasonForTurn}</i>".<br><br>⚠️ Tu turno está <b>pausado y bloqueado</b>. Debes avisar al Admin.</div>`;
          } else {
-           const pData = getUserProgress(loggedInUser, y, m);
+           const pData = getUserProgress(effectiveUser, y, m);
            
            let bannerHtml = `<div style="background:#fef9c3; color:#854d0e; border:1px solid #fde047; padding:8px 12px; border-radius:8px; margin-bottom:1rem; font-size:0.85rem;">✨ <b>¡Es tu turno de elección!</b><br>`;
            
@@ -1547,7 +1612,7 @@ function renderMainCalendar() {
         if (analisisFinal.estado === 'subasta_abierta') {
             // Fase 2: turnos completos pero quedan guardias en subasta voluntaria
             const horasRestantes = analisisFinal.horasRestantes || 0;
-            if (isAdmin) {
+            if (isDelegado && simulatedViewUser === null) {
                 banner.innerHTML = `<div style="background:#fff7ed; border:2px dashed #f97316; color:#c2410c; padding:10px 14px; border-radius:10px; margin-bottom:1rem; font-size:0.85rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
                     <span>📢 <b>Todos eligieron.</b> Quedan <b>${Math.ceil(analisisFinal.exceso)}</b> guardia(s) de <b>${analisisFinal.svcNombre}</b> en Subasta Voluntaria. Tiempo restante: <b>${horasRestantes}h</b>.</span>
                     <div style="display:flex;gap:6px;">
@@ -1562,7 +1627,7 @@ function renderMainCalendar() {
 
         } else if (analisisFinal.estado === 'subasta_cerrada' || analisisFinal.estado === 'critico') {
             // Fase 3: subasta cerrada forzosa, pendiente de inyección
-            if (isAdmin) {
+            if (isDelegado && simulatedViewUser === null) {
                 banner.innerHTML = `<div style="background:#fef2f2; border:2px dashed #ef4444; color:#b91c1c; padding:10px 14px; border-radius:10px; margin-bottom:1rem; font-size:0.85rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
                     <span>⚖️ <b>Subasta Cerrada.</b> Quedan <b>${Math.ceil(analisisFinal.exceso)}</b> guardia(s) de <b>${analisisFinal.svcNombre}</b> pendientes de asignación forzosa.</span>
                     <div style="display:flex;gap:6px;">
@@ -1579,7 +1644,7 @@ function renderMainCalendar() {
         } else {
             // ✅ Fase final: todos eligieron Y la subasta está resuelta → Mes completamente cerrado
             const mesNombre = `${MONTHS[m]} ${y}`;
-            if (isAdmin) {
+            if (isDelegado && simulatedViewUser === null) {
                 banner.innerHTML = `<div style="background: linear-gradient(135deg, #064e3b, #065f46); color:white; padding:14px 18px; border-radius:12px; margin-bottom:1rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
                     <div>
                         <div style="font-size:1rem; font-weight:bold; margin-bottom:4px;">🎉 Asignación de ${mesNombre} completada</div>
@@ -1633,7 +1698,7 @@ function renderMainCalendar() {
     // 🛡️ AQUÍ ESTABA EL ERROR: Recorremos los servicios definidos arriba
     todosLosServicios.forEach(svc => {
         let assigned = Object.keys(dayShifts || {}).filter(u => dayShifts[u] === svc.nombre);
-        if (showOnlyMine && loggedInUser) assigned = assigned.filter(u => u === loggedInUser);
+        if (showOnlyMine && (simulatedViewUser || loggedInUser)) assigned = assigned.filter(u => u === (simulatedViewUser ?? loggedInUser));
         assigned.forEach(u => {
             html += `<div class="shift-badge" style="background:${svc.color};">👤 ${getInitials(u)}</div>`;
         });
@@ -1652,22 +1717,25 @@ function renderMainCalendar() {
 // EL MODAL DINÁMICO (Capa 2 y Multi-Slot)
 // ==========================================
 function openShiftModal(y, m, d, dateKey) {
-  if (!isAdmin && !loggedInUser) { alert("⚠️ Inicia sesión para usar el calendario."); loginWithGoogle(); return; }
+  if (!isDelegado && !loggedInUser) { alert("⚠️ Inicia sesión para usar el calendario."); loginWithGoogle(); return; }
   const dayShifts = state.shifts[dateKey] || {};
   const monthKey = getRotationKey(y, m);
-  const turnUser = getCurrentTurn(y, m); 
-  const isMyTurn = turnUser === loggedInUser;
-  const isUserPending = !!(state.pendingExceptions && state.pendingExceptions[monthKey] && state.pendingExceptions[monthKey][loggedInUser]);
-  
+  const viewUser = simulatedViewUser ?? loggedInUser;
+  const turnUser = getCurrentTurn(y, m);
+  const isMyTurn = turnUser === viewUser;
+  const isUserPending = !!(state.pendingExceptions && state.pendingExceptions[monthKey] && state.pendingExceptions[monthKey][viewUser]);
+
   // DETERMINACIÓN DIARIA: ¿Qué plan tengo yo HOY en el calendario?
   const myPlanOnDate = getPlanForUserOnDate(currentUserProfile, dateKey);
   const serviciosDisponibles = myPlanOnDate ? myPlanOnDate.servicios : [];
-  const pDataFull = getUserProgress(loggedInUser, y, m).progress;
+  const pDataFull = getUserProgress(viewUser, y, m).progress;
   const theTag = getDayTag(y, m, d);
 
   const modal = document.createElement('div'); modal.className = 'modal-overlay'; modal.id = 'shift-modal';
   let html = `<div class="modal"><h3 style="margin-bottom:0.5rem;">${d} de ${MONTHS[m]} ${y}</h3>`;
-  if (isAdmin) html += `<p style="margin-bottom:1.5rem; color:var(--fest); font-weight:bold;">👑 MODO ADMIN (Control Total)</p>`;
+  if (simulatedViewUser !== null) html += `<p style="margin-bottom:1.5rem; color:#7c3aed; font-weight:bold;">👁 Viendo como: ${simulatedViewUser}</p>`;
+  else if (isAdmin) html += `<p style="margin-bottom:1.5rem; color:var(--fest); font-weight:bold;">👑 MODO ADMIN (Control Total)</p>`;
+  else if (isDelegado) html += `<p style="margin-bottom:1.5rem; color:var(--adu); font-weight:bold;">⭐ MODO DELEGADO</p>`;
   else html += `<p style="margin-bottom:1.5rem; color:#64748b; font-size:0.9rem;">Usuario actual: <b>${loggedInUser}</b> (Evaluando: ${myPlanOnDate ? myPlanOnDate.nombre : 'Sin Plan'})</p>`;
   
   // Cambiamos el bucle para que recorra SOLO tus servicios autorizados para esta fecha
@@ -1675,8 +1743,8 @@ serviciosDisponibles.forEach((svc, svcIdx) => {
     html += `<div class="shift-option" style="flex-direction:column; align-items:stretch;"><div class="shift-option-header"><strong style="color:${svc.color};">${svc.nombre}</strong></div>`;
     const holders = Object.keys(dayShifts || {}).filter(u => dayShifts[u] === svc.nombre);
     
-    if (isAdmin) {
-// A) INTERFAZ PARA EL ADMINISTRADOR
+    if (isDelegado && simulatedViewUser === null) {
+// A) INTERFAZ PARA ADMIN/DELEGADO
 holders.forEach(h => { 
     let currentMode = state.shiftModifiers?.[dateKey]?.[h]?.tipo || 'normal';
     html += `<div style="background:#f8fafc; border:1px solid #e2e8f0; padding:10px; border-radius:6px; margin-top:8px;">
@@ -1694,10 +1762,10 @@ holders.forEach(h => {
 	}); // ⚠️ ESTE CIERRE ES EL QUE HABÍAS BORRADO
         html += `<div style="display:flex; gap:4px; margin-top:12px; border-top:1px solid #e2e8f0; padding-top:8px;"><select id="force-sel-${svcIdx}" style="margin:0; padding:4px; font-size:0.8rem;"><option value="">Añadir Residente...</option>${getAllResidents().map(r => `<option value="${r}">${r}</option>`).join('')}</select><button class="primary" style="background:var(--dark); color:white;" onclick="adminForceAssign('${dateKey}', '${svc.nombre}', ${y}, ${m}, ${d}, 'force-sel-${svcIdx}')">Poner</button></div>`;
     } else {
-        const isMine = dayShifts[loggedInUser] === svc.nombre;
+        const isMine = dayShifts[viewUser] === svc.nombre;
         let isIllegal = false; let tempShifts = JSON.parse(JSON.stringify(state.shifts || {}));
-        if (!tempShifts[dateKey]) tempShifts[dateKey] = {}; tempShifts[dateKey][loggedInUser] = svc.nombre;
-        if (getIllegalShiftsForUser(loggedInUser, tempShifts).length > 0) isIllegal = true;
+        if (!tempShifts[dateKey]) tempShifts[dateKey] = {}; tempShifts[dateKey][viewUser] = svc.nombre;
+        if (getIllegalShiftsForUser(viewUser, tempShifts).length > 0) isIllegal = true;
         
         let disabled = false; let reason = "";
         let pData = pDataFull[svc.nombre];
@@ -1706,7 +1774,7 @@ holders.forEach(h => {
         if (isUserPending && !isMine) { disabled = true; reason = "Turno bloqueado (Pendiente Admin)."; }
         else if (isIllegal && !isMine) { disabled = true; reason = "Ilegal: Choca con Saliente"; }
         else if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dateKey, myPlanOnDate ? myPlanOnDate.nombre : null) && !isMine) { disabled = true; reason = "Día no habilitado."; }
-        else if (isUserBusyOnDay(loggedInUser, dateKey) && !isMine) { disabled = true; reason = "Ya tienes guardia hoy."; }
+        else if (isUserBusyOnDay(viewUser, dateKey) && !isMine) { disabled = true; reason = "Ya tienes guardia hoy."; }
         else if (!isMyTurn && !isMine) { disabled = true; reason = `Bloqueado (Toca a ${turnUser}).`; }
         else if (pd > 0 && holders.length >= pd && !isMine) { disabled = true; reason = `Completo (${holders.length}/${pd}).`; }
         else if (isMyTurn && !isMine && !isUserPending) {
@@ -1721,15 +1789,15 @@ holders.forEach(h => {
         
 // B) INTERFAZ PARA EL RESIDENTE LOGUEADO
 if (isMine) {
-    let currentMode = state.shiftModifiers?.[dateKey]?.[loggedInUser]?.tipo || 'normal';
+    let currentMode = state.shiftModifiers?.[dateKey]?.[viewUser]?.tipo || 'normal';
     html += `<div style="display:flex; flex-direction:column; gap:6px; margin-top:8px; background:#fffbeb; padding:10px; border-radius:6px; border:1px solid #fde047;">
         <div style="display:flex; justify-content:space-between; align-items:center;">
             <span style="font-size:0.85rem; color:#713f12;"><b>Tu Guardia Seleccionada</b></span>
-            <button class="danger" onclick="toggleShift('${dateKey}', '${svc.nombre}')">Quitar</button>
+            <button class="danger" ${simulatedViewUser !== null ? 'disabled style="opacity:0.4"' : ''} onclick="toggleShift('${dateKey}', '${svc.nombre}')">Quitar</button>
         </div>
         <div style="margin-top:4px;">
             <label style="font-size:0.75rem; color:#713f12; display:block; margin-bottom:2px; font-weight:bold;">Ajustar Modalidad:</label>
-            <select onchange="updateShiftMode('${dateKey}', '${loggedInUser}', this.value)" style="margin:0; padding:6px; font-size:0.8rem; width:100%; background:white; border:1px solid #ca8a04; border-radius:4px;">
+            <select ${simulatedViewUser !== null ? 'disabled' : `onchange="updateShiftMode('${dateKey}', '${viewUser}', this.value)"`} style="margin:0; padding:6px; font-size:0.8rem; width:100%; background:white; border:1px solid #ca8a04; border-radius:4px;">
                 <option value="normal" ${currentMode === 'normal' ? 'selected' : ''}>Guardia Normal</option>
                 <option value="partida_primera" ${currentMode === 'partida_primera' ? 'selected' : ''}>Partida Diurna (50% Horas / Sin Saliente)</option>
                 <option value="partida_segunda" ${currentMode === 'partida_segunda' ? 'selected' : ''}>Partida Nocturna (50% Horas / Con Saliente)</option>
@@ -1738,7 +1806,7 @@ if (isMine) {
     </div>`;
 } else {
             html += `<div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;"><span style="font-size:0.85rem; color:${isIllegal && !isMine ? 'var(--fest)' : '#64748b'}; font-weight:${isIllegal && !isMine ? 'bold' : 'normal'}">${reason || occStr}</span>`;
-            html += `<button class="primary" ${disabled ? 'disabled style="opacity:0.4"' : ''} onclick="toggleShift('${dateKey}', '${svc.nombre}')">Elegir</button></div>`;
+            html += `<button class="primary" ${(disabled || simulatedViewUser !== null) ? 'disabled style="opacity:0.4"' : ''} onclick="toggleShift('${dateKey}', '${svc.nombre}')">Elegir</button></div>`;
         }
     }
     html += `</div>`;
@@ -1748,6 +1816,7 @@ if (isMine) {
 }
 
 async function toggleShift(dateKey, svc) {
+  if (simulatedViewUser !== null) { alert('⚠️ Estás en modo visualización. Sal de la simulación para realizar cambios.'); return; }
   if (!state.shifts[dateKey]) state.shifts[dateKey] = {};
   if (state.shifts[dateKey][loggedInUser] === svc) delete state.shifts[dateKey][loggedInUser];
   else state.shifts[dateKey][loggedInUser] = svc;
@@ -1755,16 +1824,27 @@ async function toggleShift(dateKey, svc) {
   document.getElementById('shift-modal').remove(); renderMainCalendar(); await saveState();
 }
 async function adminForceAssign(dateKey, svc, y, m, d, selectId) {
+  if (simulatedViewUser !== null) { alert('⚠️ Estás en modo visualización. Sal de la simulación para realizar cambios.'); return; }
   const res = document.getElementById(selectId).value; if (!res) return;
+  let tempShifts = JSON.parse(JSON.stringify(state.shifts || {}));
+  if (!tempShifts[dateKey]) tempShifts[dateKey] = {};
+  tempShifts[dateKey][res] = svc;
+  const conflicts = getIllegalShiftsForUser(res, tempShifts);
+  if (conflicts.length > 0) {
+    const msg = conflicts.join('\n• ');
+    if (!confirm(`⚠️ Conflicto de salientes/entrantes para ${res}:\n• ${msg}\n\n¿Asignar de todas formas?`)) return;
+  }
   if (isUserBusyOnDay(res, dateKey)) { if (!confirm(`⚠️ ${res} ya tiene otra guardia este día. ¿Asignarle también ${svc}?`)) return; }
   if (!state.shifts[dateKey]) state.shifts[dateKey] = {}; state.shifts[dateKey][res] = svc;
   document.getElementById('shift-modal').remove(); renderMainCalendar(); await saveState(); openShiftModal(y, m, d, dateKey);
 }
 async function adminForceRemove(dateKey, resToRemove, y, m, d) {
+  if (simulatedViewUser !== null) { alert('⚠️ Estás en modo visualización. Sal de la simulación para realizar cambios.'); return; }
   if (state.shifts[dateKey]) { delete state.shifts[dateKey][resToRemove]; if (Object.keys(state.shifts[dateKey] || {}).length === 0) delete state.shifts[dateKey]; }
   document.getElementById('shift-modal').remove(); renderMainCalendar(); await saveState(); openShiftModal(y, m, d, dateKey);
 }
 async function userSkipTurn(y, m) {
+    if (simulatedViewUser !== null) { alert('⚠️ Estás en modo visualización. Sal de la simulación para realizar cambios.'); return; }
     const sel = document.getElementById('user-skip-reason'); const val = sel.value === 'Otros' ? document.getElementById('user-skip-reason-other').value.trim() : sel.value;
     if (!val) return alert("Selecciona o escribe un motivo.");
     if (sel.value === 'Otros') {
@@ -1782,6 +1862,7 @@ async function userSkipTurn(y, m) {
     renderAll();
 }
 async function adminSkipTurn(turnUser, y, m) {
+   if (simulatedViewUser !== null) { alert('⚠️ Estás en modo visualización. Sal de la simulación para realizar cambios.'); return; }
    if(!confirm(`¿Saltar forzosamente el turno de ${turnUser}?`)) return;
    const monthKey = getRotationKey(y, m);
    if (!state.skippedTurns[monthKey]) state.skippedTurns[monthKey] = [];
@@ -1796,6 +1877,7 @@ async function adminSkipTurn(turnUser, y, m) {
 // TURNO OTORGADO (ADMIN GRANT TURN)
 // ==========================================
 async function adminGrantTurn(y, m) {
+    if (simulatedViewUser !== null) { alert('⚠️ Estás en modo visualización. Sal de la simulación para realizar cambios.'); return; }
     const sel = document.getElementById('sel-grant-turn');
     const residente = sel?.value;
     if (!residente) { alert('Selecciona un residente al que otorgar el turno.'); return; }
@@ -1846,7 +1928,7 @@ function renderMercadoCalendar() {
     
     promoConfig.servicios.forEach(svc => {
         let assigned = Object.keys(dayShifts || {}).filter(u => dayShifts[u] === svc.nombre);
-        if (showOnlyMine && loggedInUser) assigned = assigned.filter(u => u === loggedInUser);
+        if (showOnlyMine && (simulatedViewUser || loggedInUser)) assigned = assigned.filter(u => u === (simulatedViewUser ?? loggedInUser));
         assigned.forEach(u => {
             let isVre = u.startsWith('VRE');
             html += `<div class="shift-badge ${isVre ? 'bg-vre' : ''}" style="background:${isVre ? '#94a3b8' : svc.color};">👤 ${isVre ? 'VRE' : getInitials(u)}</div>`;
@@ -2803,7 +2885,8 @@ async function renderAccountsList() {
   aprobados.forEach(u => {
       // Etiquetas visuales de Rango
       let rolBadge = '✅ Residente';
-      if (u.rol === 'admin') rolBadge = (promo.creador_id === u.id) ? '👑 Dueño' : '⭐ Delegado';
+      if (u.rol === 'admin') rolBadge = '👑 Dueño';
+      else if (u.rol === 'delegado') rolBadge = '⭐ Delegado';
       
       let acciones = '';
 
@@ -2820,15 +2903,15 @@ async function renderAccountsList() {
               // El Dueño puede expulsar a cualquiera
               acciones += `<button class="danger icon-btn" style="margin-right:4px;" onclick="adminExpulsarUsuario('${u.id}', '${u.nombre_mostrar}')">Expulsar</button>`;
               
-              if (u.rol !== 'admin') {
-                  acciones += `<button class="primary icon-btn" style="margin-right:4px; background:var(--dark);" onclick="adminCambiarRol('${u.id}', 'admin')">Hacer Delegado</button>`;
-              } else {
-                  acciones += `<button class="danger icon-btn" style="margin-right:4px;" onclick="adminCambiarRol('${u.id}', null)">Quitar Delegado</button>`;
+              if (u.rol === 'delegado') {
+                  acciones += `<button class="danger icon-btn" style="margin-right:4px;" onclick="adminCambiarRol('${u.id}', 'residente')">Quitar Delegado</button>`;
+              } else if (u.rol !== 'admin') {
+                  acciones += `<button class="primary icon-btn" style="margin-right:4px; background:var(--dark);" onclick="adminCambiarRol('${u.id}', 'delegado')">Hacer Delegado</button>`;
               }
               acciones += `<button class="primary icon-btn" style="background:var(--adu);" onclick="adminTraspasarCorona('${u.id}', '${u.nombre_mostrar}')">Coronar Dueño</button>`;
           } else {
-              // Eres un Delegado. Solo puedes interactuar con residentes normales.
-              if (u.rol !== 'admin') {
+              // Delegado: solo puede expulsar residentes, no a admins ni a otros delegados.
+              if (u.rol !== 'admin' && u.rol !== 'delegado') {
                   acciones += `<button class="danger icon-btn" style="margin-right:4px;" onclick="adminExpulsarUsuario('${u.id}', '${u.nombre_mostrar}')">Expulsar</button>`;
               }
           }
@@ -2872,7 +2955,7 @@ async function adminTraspasarCorona(userId, userName) {
     setStatus('Traspasando corona...');
     await supabaseClient.from('promociones').update({ creador_id: userId }).eq('id', currentUserProfile.promocion_id);
     await supabaseClient.from('perfiles').update({ rol: 'admin' }).eq('id', userId);
-    await supabaseClient.from('perfiles').update({ rol: 'admin' }).eq('id', currentUserProfile.id);
+    await supabaseClient.from('perfiles').update({ rol: 'delegado' }).eq('id', currentUserProfile.id);
     alert(`La corona ha sido cedida a ${userName}. Ahora eres un Delegado.`);
     window.location.reload();
 }
@@ -3004,7 +3087,7 @@ function renderRotationView() {
     // Inject Plan Selector
     const containerTop = document.getElementById('rot-content');
     let planSelectorHtml = '';
-    if (isAdmin && promoConfig.planes) {
+    if (isDelegado && promoConfig.planes) {
         planSelectorHtml = `<div style="margin-bottom:15px; padding:10px; background:#f8fafc; border-radius:8px; display:flex; align-items:center; gap:10px;">
             <label style="font-weight:bold; font-size:0.9rem;">Viendo Rotacin de:</label>
             <select id="rot-plan-select" style="padding:5px; border-radius:5px; border:1px solid #cbd5e1;" onchange="selectedRotPlan = this.value; renderRotationView();">
