@@ -1700,7 +1700,8 @@ function renderMainCalendar() {
     if (bgStyle) cell.setAttribute('style', bgStyle);
     
     let html = `<div class="day-number">${d}</div>`;
-    
+    const multihuecoItems = [];
+
     // 🛡️ AQUÍ ESTABA EL ERROR: Recorremos los servicios definidos arriba
     todosLosServicios.forEach(svc => {
         let assigned = Object.keys(dayShifts || {}).filter(u => dayShifts[u] === svc.nombre);
@@ -1711,11 +1712,22 @@ function renderMainCalendar() {
         const pd = getPlazasForDay(svc, dateKey);
         if (pd > 1) {
             const filled = Object.keys(dayShifts || {}).filter(u => dayShifts[u] === svc.nombre).length;
-            html += `<div style="font-size:0.6rem; background:${svc.color}; color:white; font-weight:bold; border-radius:3px; padding:1px 3px; display:inline-block; margin-top:1px;">${filled}/${pd}</div>`;
+            multihuecoItems.push({ color: svc.color, filled, pd });
         }
     });
-    
+
     cell.innerHTML = html;
+
+    if (multihuecoItems.length > 0) {
+        cell.style.position = 'relative';
+        const badgeDiv = document.createElement('div');
+        badgeDiv.setAttribute('style', 'font-size:0.6rem; background:rgba(255,255,255,0.7); border-radius:3px; padding:1px 4px; position:absolute; bottom:2px; right:2px; line-height:1.4;');
+        badgeDiv.innerHTML = multihuecoItems.map(item =>
+            `<span style="color:${item.color}; font-weight:bold;">${item.filled}/${item.pd}</span>`
+        ).join(' ');
+        cell.appendChild(badgeDiv);
+    }
+
     cell.onclick = () => openShiftModal(y, m, d, dateKey);
     grid.appendChild(cell);
   }
