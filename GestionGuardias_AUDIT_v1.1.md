@@ -1,8 +1,8 @@
 # GestionGuardias App — Auditoría de Implementación
-**Versión PRD auditada:** 0.7  
+**Versión PRD auditada:** 0.8  
 **Codebase auditado:** `app.js` (4 447 líneas, monolítico vanilla JS + Supabase)  
 **Fecha de última revisión:** Mayo 2026  
-**Estado general:** 4 divergencias activas, 4 funciones no implementadas. 10 ítems resueltos o alineados con PRD v0.8.
+**Estado general:** 3 divergencias activas, 4 funciones no implementadas. 11 ítems resueltos o alineados con PRD v0.8.
 
 ---
 
@@ -23,7 +23,7 @@ Este archivo es la **memoria de trabajo persistente** del Engineering Lead entre
 |---|---|---|---|---|
 | W1 | ⚠️ Diverge | §3.2 | Roles binarios en vez de ternarios | `resuelto` |
 | W2 | ⚠️ Diverge | §3.3 | Toggle modo residente impersona a otro usuario | `resuelto` |
-| W3 | ⚠️ Diverge | §8.3 | Duración ventana voluntaria hardcodeada a 48h | `pendiente` |
+| W3 | ⚠️ Diverge | §8.3 | Duración ventana voluntaria hardcodeada a 48h | `resuelto` |
 | W4 | ⚠️ Diverge | §9.2 | Nuevo residente entra al último grupo, no al más pequeño | `pendiente` |
 | W5 | ⚠️ Diverge | §14 / §13.1 | Recuento de horas sin selector de mes ni visibilidad admin | `pendiente` |
 | N1 | ❌ Falta | §12 | Sistema de notificaciones in-app completo | `pendiente` |
@@ -157,7 +157,7 @@ function impersonateUser(user) { loggedInUser = user; isAdmin = false; nav('cal'
 **Sección PRD:** §8.3  
 **Impacto:** Bajo — comportamiento correcto pero no configurable  
 **Archivos:** `app.js` líneas 3760, 3764  
-**Estado:** `pendiente`
+**Estado:** `resuelto`
 
 **Diagnóstico:**
 PRD: "Duración configurable por el admin (entre 24 y 48 horas)." Código: siempre 48h. El campo `ventana_voluntaria_horas` del modelo `Contenedor` no existe en la configuración actual.
@@ -179,10 +179,17 @@ const horasRestantes = Math.max(0, 48 - horasTranscurridas);
 **Dependencias posteriores:** Ninguna
 
 ### Resultado
-**Estado final:** `pendiente`  
-**Decisiones tomadas:** —  
-**Efectos secundarios detectados:** —  
-**Archivos modificados:** —
+**Estado final:** `resuelto`  
+**Decisiones tomadas:**
+- `ventana_voluntaria_horas` vive dentro del JSON `configuracion` de la tabla `promociones` — no requiere columna nueva en Supabase. Se persiste con el `update({ configuracion: promoConfig })` ya existente en `adminSaveConfig`.
+- `normalizeConfig` aplica el valor por defecto 48 si el campo está ausente, fuera de rango o es inválido. Compatible con todos los contenedores existentes.
+- Los dos literales `48` hardcodeados reemplazados por `ventanaHoras = promoConfig.ventana_voluntaria_horas || 48` (doble fallback por defensa en profundidad).
+- `syncConfigFromUI` lee el input con clamp `Math.min(48, Math.max(24, v))` antes de guardar; NaN se resuelve con `|| 48`.
+- UI: tarjeta "⚙️ Configuración General" con input numérico (24–48) añadida al inicio de `renderAdminAjustes`, que ya está gateada por `isAdmin` en `navAdmin()`.
+
+**Efectos secundarios detectados:** Ninguno. Testing Lead validó 7 puntos sin bugs ni riesgos.
+
+**Archivos modificados:** `app.js` (4 cambios: `normalizeConfig`, `syncConfigFromUI`, `getAnalisisFestivos` ×2, `renderAdminAjustes`).
 
 ---
 
@@ -425,3 +432,4 @@ Para referencia del agente: estas secciones son conformes al PRD v0.7. No requie
 | v1.0 | Mayo 2026 | Auditoría inicial contra PRD v0.6. 8 divergencias, 5 no implementados. |
 | v1.1 | Mayo 2026 | Revisión contra PRD v0.7. Resueltos W3/W6/W7/W8-A/N2 por alineación del PRD con el código. 5 divergencias activas, 4 no implementados. |
 | v1.2 | Mayo 2026 | W1 resuelto (roles ternarios, Supabase constraint, isDelegado). W2 resuelto (simulatedViewUser, banner sticky, toolbar unificada, write guards en 7 funciones, soft-lock en adminForceAssign). Restricciones de los 5 agentes actualizadas. PRD actualizado a v0.8. |
+| v1.3 | Mayo 2026 | W3 resuelto (ventana_voluntaria_horas en JSON configuracion, normalizeConfig con fallback 48, UI en panel Ajustes, clamp 24-48). |

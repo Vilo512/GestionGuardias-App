@@ -211,6 +211,7 @@ async function saveState() {
 }
 
 function normalizeConfig(config) {
+    if (!config.ventana_voluntaria_horas || config.ventana_voluntaria_horas < 24 || config.ventana_voluntaria_horas > 48) config.ventana_voluntaria_horas = 48;
     if (!config.planes) {
         config.planes = [{ id: 'plan-' + Date.now(), nombre: "Plan R1 (Año 1)", servicios: config.servicios || [] }];
         delete config.servicios;
@@ -2014,9 +2015,22 @@ function executeBuyRequest(dk, svc, targetUser) { if (targetUser !== 'Externo' &
 function renderAdminAjustes() {
   const container = document.getElementById('admin-config-container');
   let html = ``;
-  
+
   if (!promoConfig.planes) promoConfig.planes = [];
-  
+
+  // ── Configuración general del contenedor (solo admin) ──
+  html += `
+  <div class="cfg-card" style="border-left:4px solid #7c3aed; margin-bottom:20px;">
+    <h3 style="margin-bottom:0.75rem; color:#7c3aed;">⚙️ Configuración General</h3>
+    <div style="display:flex; align-items:flex-end; gap:16px; flex-wrap:wrap;">
+      <div>
+        <label style="font-size:0.8rem; color:#64748b; display:block; margin-bottom:4px;">Duración ventana voluntaria (horas)</label>
+        <input type="number" id="cfg-ventana-horas" value="${promoConfig.ventana_voluntaria_horas || 48}" min="24" max="48" style="margin:0; width:90px;">
+      </div>
+      <p style="font-size:0.78rem; color:#94a3b8; margin:0; flex:1; min-width:180px;">Tiempo disponible para reclamar voluntariamente una guardia desierta antes del forzamiento automático. Entre 24 y 48 horas.</p>
+    </div>
+  </div>`;
+
   promoConfig.planes.forEach((plan, pIdx) => {
     html += `
     <details style="background:#f1f5f9; border:2px solid #cbd5e1; border-radius:12px; padding:15px; margin-bottom:20px;"><summary style="font-weight:bold; cursor:pointer; font-size:1.1rem; color:var(--dark);">👉 Desplegar/Ocultar: ${plan.nombre}</summary><div style="margin-top: 15px;">
@@ -2240,6 +2254,13 @@ function adminToggleRuleTag(pIdx, svcIdx, ruleIdx, tag) {
 function syncConfigFromUI() {
   if (!promoConfig) promoConfig = {};
   if (!promoConfig.planes) promoConfig.planes = [];
+
+  // 0. Configuración general del contenedor
+  const ventanaInput = document.getElementById('cfg-ventana-horas');
+  if (ventanaInput) {
+    const v = parseInt(ventanaInput.value) || 48;
+    promoConfig.ventana_voluntaria_horas = Math.min(48, Math.max(24, v));
+  }
 
   // 1. Recorremos cada plan configurado en la interfaz
   promoConfig.planes.forEach((plan, pIdx) => {
@@ -3840,11 +3861,12 @@ function getAnalisisFestivos(y, m) {
             let estado = 'subasta_abierta';
             const isForzada = state.subastasCerradasForzosas && state.subastasCerradasForzosas[`${y}_${m}_${svc.nombre}`];
             
-            if (horasTranscurridas >= 48 || isForzada) {
+            const ventanaHoras = promoConfig.ventana_voluntaria_horas || 48;
+            if (horasTranscurridas >= ventanaHoras || isForzada) {
                 estado = 'subasta_cerrada';
             }
-            
-            const horasRestantes = Math.max(0, 48 - horasTranscurridas);
+
+            const horasRestantes = Math.max(0, ventanaHoras - horasTranscurridas);
             
             return { 
                 estado, 
