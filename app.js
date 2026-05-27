@@ -1708,6 +1708,12 @@ function renderMainCalendar() {
         assigned.forEach(u => {
             html += `<div class="shift-badge" style="background:${svc.color};">👤 ${getInitials(u)}</div>`;
         });
+        const pd = getPlazasForDay(svc, dateKey);
+        if (pd > 1) {
+            const filled = Object.keys(dayShifts || {}).filter(u => dayShifts[u] === svc.nombre).length;
+            const badgeColor = filled >= pd ? 'var(--fest)' : (filled > 0 ? '#16a34a' : '#64748b');
+            html += `<div style="font-size:0.6rem; color:${badgeColor}; font-weight:bold; line-height:1.2; margin-top:1px;">${filled}/${pd}</div>`;
+        }
     });
     
     cell.innerHTML = html;
