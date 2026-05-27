@@ -101,7 +101,9 @@ let loggedInUser = null;
 let simulatedViewUser = null;
 let currentAdminView = 'pediatria';
 let editingGroups = null; 
-let showOnlyMine = false; 
+let showOnlyMine = false;
+let perfilHorasFiltroY = new Date().getFullYear();
+let perfilHorasFiltroM = new Date().getMonth(); // 0-indexed
 let promoConfig = { servicios: [] };
 let globalProfiles = []; // Almacena las fechas de inicio/cambio de todos los residentes activos
 
@@ -1379,7 +1381,7 @@ function navAdmin(sub) {
   const adminOnlySubs = ['calendario', 'ajustes', 'seguridad'];
   if (adminOnlySubs.includes(sub) && !isAdmin) sub = 'excepciones';
   currentAdminView = sub;
-  ['calendario','excepciones','export','cuentas','seguridad','ajustes'].forEach(t => {
+  ['calendario','excepciones','export','cuentas','horas','seguridad','ajustes'].forEach(t => {
     const view = document.getElementById(`aview-${t}`); if (view) view.style.display = t === sub ? 'block' : 'none';
     const tab = document.getElementById(`atab-${t}`);
     if (tab) {
@@ -1387,12 +1389,14 @@ function navAdmin(sub) {
       if (adminOnlySubs.includes(t)) tab.style.display = isAdmin ? '' : 'none';
     }
   });
+  document.getElementById('admin-nav-header').style.display = (sub === 'calendario' || sub === 'horas') ? 'block' : 'none';
   document.getElementById('admin-cal-views').style.display = (sub === 'calendario') ? 'block' : 'none';
   if (sub === 'cuentas') renderAccountsList();
   if (sub === 'calendario') renderAdminCalendar();
   if (sub === 'excepciones') renderAdminExceptions();
   if (sub === 'ajustes') renderAdminAjustes();
   if (sub === 'seguridad') renderAdminSeguridad();
+  if (sub === 'horas') renderAdminHoras();
 }
 
 async function renderAdminSeguridad() {
@@ -1451,6 +1455,7 @@ function renderAll() {
     if (currentAdminView === 'cuentas') renderAccountsList();
     else if (currentAdminView === 'calendario') renderAdminCalendar();
     else if (currentAdminView === 'excepciones') renderAdminExceptions();
+    else if (currentAdminView === 'horas') renderAdminHoras();
   }
 }
 
@@ -2763,6 +2768,48 @@ async function adminRejectException(u, monthKey) { if(!confirm(`¿Rechazar?`)) r
     renderAll(); }
 async function adminAddExceptionReason() { const v = document.getElementById('new-reason-input').value.trim(); if (!v) return; if (!state.exceptionReasons) state.exceptionReasons = []; state.exceptionReasons.push(v); document.getElementById('new-reason-input').value = ''; await saveState(); renderAdminExceptions(); }
 async function adminRemoveExceptionReason(idx) { if (!confirm("¿Borrar?")) return; state.exceptionReasons.splice(idx, 1); await saveState(); renderAdminExceptions(); }
+
+function renderAdminHoras() {
+    const y = curDate.getFullYear(), m = curDate.getMonth();
+    const residentes = (globalProfiles || [])
+        .filter(p => p.estado === 'aprobado')
+        .map(p => {
+            const res = calcHorasResidente(p.nombre_mostrar, y, m);
+            return { nombre: p.nombre_mostrar, ...res };
+        })
+        .sort((a, b) => b.horasMes - a.horasMes);
+
+    let tablaHtml = '';
+    if (residentes.length > 0) {
+        const filas = residentes.map(r =>
+            `<tr style="border-bottom:1px solid #f1f5f9;">
+                <td style="padding:10px 12px; font-weight:bold; color:var(--dark);">${r.nombre}</td>
+                <td style="padding:10px 12px; text-align:right; font-weight:bold;">${r.horasMes.toFixed(1)} h</td>
+                <td style="padding:10px 12px; text-align:right; color:#475569;">${r.completasMes} / ${r.partidasMes}</td>
+                <td style="padding:10px 12px; text-align:right; color:#475569;">${r.horasAnio.toFixed(1)} h</td>
+                <td style="padding:10px 12px; text-align:right; color:#94a3b8;">${r.horasTotal.toFixed(1)} h</td>
+            </tr>`).join('');
+        tablaHtml = `<div style="overflow-x:auto;">
+            <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+                <thead>
+                    <tr style="background:#f1f5f9;">
+                        <th style="padding:10px 12px; font-size:0.78rem; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0; text-align:left;">RESIDENTE</th>
+                        <th style="padding:10px 12px; font-size:0.78rem; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0; text-align:right;">HORAS MES</th>
+                        <th style="padding:10px 12px; font-size:0.78rem; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0; text-align:right;">COMPLETAS / PARTIDAS</th>
+                        <th style="padding:10px 12px; font-size:0.78rem; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0; text-align:right;">TOTAL ${y}</th>
+                        <th style="padding:10px 12px; font-size:0.78rem; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0; text-align:right;">HISTÓRICO</th>
+                    </tr>
+                </thead>
+                <tbody>${filas}</tbody>
+            </table>
+        </div>`;
+    } else {
+        tablaHtml = '<p style="color:#94a3b8; font-style:italic;">No hay residentes aprobados.</p>';
+    }
+    document.getElementById('aview-horas').innerHTML =
+        `<h3 style="margin-bottom:16px; font-size:1.1rem; color:var(--dark);">⏱️ Horas por Residente — ${MONTHS[m]} ${y}</h3>${tablaHtml}`;
+}
+
 async function adminResetSkips(y, m) { const monthKey = getRotationKey(y, m); if (state.skippedTurns[monthKey]) { delete state.skippedTurns[monthKey]; await saveState(); checkAutomaticGraduation();
     renderAll(); } }
 async function adminResetMonth(y, m) { if (!confirm(`¡PELIGRO! ¿Borrar todas las guardias de este mes?`)) return; const days = getDaysInMonth(y, m); for(let d = 1; d <= days; d++) { const dk = formatDateKey(y, m, d); delete state.shifts[dk]; } const monthKey = getRotationKey(y, m); delete state.skippedTurns[monthKey]; if (state.pendingExceptions && state.pendingExceptions[monthKey]) delete state.pendingExceptions[monthKey]; if (state.configMes && state.configMes[monthKey]) delete state.configMes[monthKey]; await saveState(); checkAutomaticGraduation();
@@ -4126,6 +4173,36 @@ function getResidentesActivosEnMes(y, m) {
         return !tieneBaja; // Si tiene baja, queda fuera de los activos del mes
     });
 }
+
+function calcHorasResidente(nombre, filtroY, filtroM) {
+    const prefMes = `${filtroY}_${String(filtroM + 1).padStart(2, '0')}_`;
+    const prefAnio = `${filtroY}_`;
+    let horasMes = 0, horasAnio = 0, horasTotal = 0;
+    let completasMes = 0, partidasMes = 0;
+    for (let dk in state.shifts || {}) {
+        if (!state.shifts[dk][nombre]) continue;
+        const svcName = state.shifts[dk][nombre];
+        const hrs = getShiftHours(dk, svcName, nombre);
+        horasTotal += hrs;
+        if (dk.startsWith(prefAnio)) {
+            horasAnio += hrs;
+            if (dk.startsWith(prefMes)) {
+                horasMes += hrs;
+                const tipo = state.shiftModifiers?.[dk]?.[nombre]?.tipo || 'normal';
+                if (tipo === 'partida_primera' || tipo === 'partida_segunda') partidasMes++;
+                else completasMes++;
+            }
+        }
+    }
+    return { horasMes, horasAnio, horasTotal, completasMes, partidasMes };
+}
+
+function setPerfilHorasFiltro(y, m) {
+    perfilHorasFiltroY = +y;
+    perfilHorasFiltroM = +m;
+    renderPerfilUsuario();
+}
+
 function renderPerfilUsuario() {
     const uProfile = currentUserProfile;
     if (!uProfile) return;
@@ -4139,46 +4216,35 @@ function renderPerfilUsuario() {
     if (!state.bajasLargas) state.bajasLargas = [];
     const misBajas = state.bajasLargas.filter(b => b.user === uProfile.nombre_mostrar);
 
-// 3. 📊 CÓMPUTO DE HORAS TOTALES DEL USUARIO PARA LA AUDITORÍA DE HUELGA
-    let totalHorasAcumuladas = 0;
-    let guardiasCompletasCount = 0;
-    let guardiasPartidasCount = 0;
+// 3. 📊 CÓMPUTO DE HORAS POR MES / AÑO / HISTÓRICO
+    const { horasMes, horasAnio, horasTotal,
+            completasMes, partidasMes } = calcHorasResidente(
+                uProfile.nombre_mostrar, perfilHorasFiltroY, perfilHorasFiltroM);
 
-    for (let dk in state.shifts || {}) {
-        if (state.shifts[dk][uProfile.nombre_mostrar]) {
-            const svcName = state.shifts[dk][uProfile.nombre_mostrar];
-            const hrs = getShiftHours(dk, svcName, uProfile.nombre_mostrar);
-            totalHorasAcumuladas += hrs;
-
-            const tipo = state.shiftModifiers?.[dk]?.[uProfile.nombre_mostrar]?.tipo || 'normal';
-            if (tipo === 'partida_primera' || tipo === 'partida_segunda') {
-                guardiasPartidasCount++;
-            } else {
-                guardiasCompletasCount++;
-            }
-        }
-    }
-
-    // ⚖️ PARÁMETROS LEGALES DE HUELGA / FORMACIÓN
+    // ⚖️ PARÁMETROS LEGALES DE HUELGA / FORMACIÓN (referencia all-time)
     const targetHoras = 695;
     const tolerancia = 55;
     const minHoras = targetHoras - tolerancia; // 640h
     const maxHoras = targetHoras + tolerancia; // 750h
+    const topeVisual = 850;
+    const porcentajeCarga = Math.min(100, (horasTotal / topeVisual) * 100);
 
-    // Para que la barra no se llene al 100% justo en 750, le damos un tope visual de 850h
-    const topeVisual = 850; 
-    const porcentajeCarga = Math.min(100, (totalHorasAcumuladas / topeVisual) * 100);
-
-    let colorBarra = 'var(--pac)'; // Naranja (Déficit)
+    let colorBarra = 'var(--pac)';
     let estadoTexto = 'Déficit Formativo (Revisar)';
-    
-    if (totalHorasAcumuladas >= minHoras && totalHorasAcumuladas <= maxHoras) {
-        colorBarra = 'var(--ped)'; // Verde (Óptimo)
+    if (horasTotal >= minHoras && horasTotal <= maxHoras) {
+        colorBarra = 'var(--ped)';
         estadoTexto = 'Rango Legal y Formativo Óptimo';
-    } else if (totalHorasAcumuladas > maxHoras) {
-        colorBarra = 'var(--fest)'; // Rojo (Exceso)
+    } else if (horasTotal > maxHoras) {
+        colorBarra = 'var(--fest)';
         estadoTexto = 'Exceso (Alerta de Descanso)';
     }
+
+    // Opciones para los selectores del recuento de horas
+    const _anioActual = new Date().getFullYear();
+    const anioOpcionesHoras = [_anioActual - 2, _anioActual - 1, _anioActual].map(y =>
+        `<option value="${y}" ${y === perfilHorasFiltroY ? 'selected' : ''}>${y}</option>`).join('');
+    const mesOpcionesHoras = MONTHS.map((mn, i) =>
+        `<option value="${i}" ${i === perfilHorasFiltroM ? 'selected' : ''}>${mn}</option>`).join('');
 
     // 4. Preparar las opciones de día y mes para el selector de contrato
     let dMes = '01';
@@ -4272,32 +4338,41 @@ function renderPerfilUsuario() {
                 <button onclick="solicitarBajaPerfil()" style="width:100%; margin-top: 16px; background: var(--dark); color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer;">➕ Añadir Ausencia</button>
             </div>
             <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); grid-column: span 2;">
-                <h3 style="margin-bottom: 15px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">⏱️ Auditoría de Carga Laboral (Horas)</h3>
-                
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; flex-wrap:wrap; gap:10px;">
+                    <h3 style="margin:0; font-size: 1.1rem; color: var(--dark);">⏱️ Auditoría de Carga Laboral (Horas)</h3>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <select onchange="setPerfilHorasFiltro(this.value, perfilHorasFiltroM)" style="margin:0; padding:5px 8px; font-size:0.85rem; border:1px solid #cbd5e1; border-radius:6px;">${anioOpcionesHoras}</select>
+                        <select onchange="setPerfilHorasFiltro(perfilHorasFiltroY, this.value)" style="margin:0; padding:5px 8px; font-size:0.85rem; border:1px solid #cbd5e1; border-radius:6px;">${mesOpcionesHoras}</select>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 14px;">
                     <div style="background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
-                        <span style="font-size: 0.8rem; color: #64748b; font-weight: bold; display: block;">HORAS COMPUTADAS</span>
-                        <span style="font-size: 1.8rem; font-weight: bold; color: ${colorBarra};">${totalHorasAcumuladas.toFixed(1)} h</span>
+                        <span style="font-size: 0.8rem; color: #64748b; font-weight: bold; display: block;">HORAS ${MONTHS[perfilHorasFiltroM].toUpperCase()}</span>
+                        <span style="font-size: 1.8rem; font-weight: bold; color: var(--dark);">${horasMes.toFixed(1)} h</span>
                     </div>
                     <div style="background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
                         <span style="font-size: 0.8rem; color: #64748b; font-weight: bold; display: block;">GUARDIAS COMPLETAS</span>
-                        <span style="font-size: 1.8rem; font-weight: bold; color: var(--adu);">${guardiasCompletasCount}</span>
+                        <span style="font-size: 1.8rem; font-weight: bold; color: var(--adu);">${completasMes}</span>
                     </div>
                     <div style="background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
                         <span style="font-size: 0.8rem; color: #64748b; font-weight: bold; display: block;">MEDIAS GUARDIAS (PARTIDAS)</span>
-                        <span style="font-size: 1.8rem; font-weight: bold; color: var(--merc);">${guardiasPartidasCount}</span>
+                        <span style="font-size: 1.8rem; font-weight: bold; color: var(--merc);">${partidasMes}</span>
                     </div>
+                </div>
+                <div style="display:flex; gap:24px; font-size:0.85rem; color:#64748b; margin-bottom:18px; flex-wrap:wrap;">
+                    <span>Total ${perfilHorasFiltroY}: <b style="color:var(--dark);">${horasAnio.toFixed(1)} h</b></span>
+                    <span>Total histórico: <b style="color:var(--dark);">${horasTotal.toFixed(1)} h</b></span>
                 </div>
 
                 <div>
                     <div style="display: flex; justify-content: space-between; font-size: 0.85rem; font-weight: bold; margin-bottom: 6px; color: #475569;">
                         <span style="color: ${colorBarra};">${estadoTexto}</span>
-                        <span>${totalHorasAcumuladas.toFixed(0)} / ${targetHoras} h (±${tolerancia}h)</span>
+                        <span>${horasTotal.toFixed(0)} / ${targetHoras} h (±${tolerancia}h)</span>
                     </div>
                     <div style="background: #e2e8f0; width: 100%; height: 12px; border-radius: 6px; position: relative; overflow: hidden;">
                         <div style="position: absolute; left: ${(minHoras/topeVisual)*100}%; width: 2px; height: 100%; background: #94a3b8; z-index: 2;" title="Mínimo Formativo (${minHoras}h)"></div>
                         <div style="position: absolute; left: ${(maxHoras/topeVisual)*100}%; width: 2px; height: 100%; background: #ef4444; z-index: 2;" title="Tope Máximo (${maxHoras}h)"></div>
-                        
                         <div style="background: ${colorBarra}; width: ${porcentajeCarga}%; height: 100%; transition: width 0.3s ease;"></div>
                     </div>
                     <p style="font-size: 0.75rem; color: #94a3b8; margin-top: 8px; line-height: 1.4;">
