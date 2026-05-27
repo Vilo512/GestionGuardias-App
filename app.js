@@ -87,8 +87,6 @@ async function limpiarFuturos(y, m) {
 }
 
 let curDate = new Date(2026, 0, 1);
-// 📅 Mes independiente para la vista de Rotación (no comparte navegación con el calendario)
-let rotDate = new Date(curDate.getFullYear(), curDate.getMonth(), 1);
 let selectedRotPlan = null;
 function getCurrentRotPlan(dk) {
     if (isDelegado && selectedRotPlan && selectedRotPlan !== "AUTO") return selectedRotPlan;
@@ -3167,20 +3165,8 @@ async function adminRechazarUsuario(userId) {
     setStatus('Conectado ✅');
 }
 
-function changeRotMonth(delta) {
-    let y = rotDate.getFullYear(), m = rotDate.getMonth() + delta;
-    if (m > 11) { m = 0; y++; } else if (m < 0) { m = 11; y--; }
-    rotDate = new Date(y, m, 1);
-    editingGroups = null;
-    renderRotationView();
-}
-
 function renderRotationView() {
-    // Sincroniza rotDate con curDate solo si rotDate está en el pasado lejano (inicialización)
-    if (rotDate.getFullYear() === 2026 && rotDate.getMonth() === 0 && curDate.getMonth() !== 0) {
-        rotDate = new Date(curDate.getFullYear(), curDate.getMonth(), 1);
-    }
-    const y = rotDate.getFullYear(), m = rotDate.getMonth();
+    const y = curDate.getFullYear(), m = curDate.getMonth();
     const dk = formatDateKey(y, m, 1);
 
     // Inject Plan Selector
@@ -3200,13 +3186,7 @@ function renderRotationView() {
     }
     
     const groups = getRotation(y, m);
-    // Cabecera de mes con navegación propia
-    const monthNavHtml = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
-        <button onclick="changeRotMonth(-1)" style="padding:4px 10px;border-radius:6px;border:1px solid #cbd5e1;cursor:pointer;">&larr;</button>
-        <strong style="font-size:1rem;">${MONTHS[m]} ${y}</strong>
-        <button onclick="changeRotMonth(1)" style="padding:4px 10px;border-radius:6px;border:1px solid #cbd5e1;cursor:pointer;">&rarr;</button>
-    </div>`;
-    containerTop.innerHTML = monthNavHtml + planSelectorHtml;
+    containerTop.innerHTML = planSelectorHtml;
     
     const listDiv = document.createElement('div');
 
@@ -3227,7 +3207,7 @@ function renderRotationView() {
 }
 
 async function toggleResidenteFijo(nombre) {
-    const dk = formatDateKey(rotDate.getFullYear(), rotDate.getMonth(), 1);
+    const dk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
     const planName = getCurrentRotPlan(dk);
     if (!state.planRotations || !state.planRotations[planName]) return;
     const pr = state.planRotations[planName];
@@ -3374,7 +3354,7 @@ function moveResInGroup(gIdx, rIdx, dir) {
 // Mueve un residente al grupo anterior (intercambia con el último de ese grupo)
 function moveResToPrevGroup(gIdx, rIdx) {
     if (gIdx <= 0) return;
-    const _dk2 = formatDateKey(rotDate.getFullYear(), rotDate.getMonth(), 1);
+    const _dk2 = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
     const _pr2 = state.planRotations?.[getCurrentRotPlan(_dk2)] || { residentesFijos: [] };
     const esFijoGroup = gIdx === 0 || (gIdx === 1 && editingGroups[0].some(n => (_pr2.residentesFijos||[]).includes(n)));
     if (esFijoGroup) return; // No mover al grupo de fijos
@@ -3498,29 +3478,29 @@ function editorAddGroup() { editingGroups.push([]); renderEditor(); }
 function editorRemoveGroup(gi) { editingGroups.splice(gi, 1); renderEditor(); }
 
 async function saveCustomMonth() {
-    const _dk = formatDateKey(rotDate.getFullYear(), rotDate.getMonth(), 1);
+    const _dk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
     const _planName = getCurrentRotPlan(_dk);
     const _pr = state.planRotations?.[_planName];
-    if (_pr) _pr.customRotations[getRotationKey(rotDate.getFullYear(), rotDate.getMonth())] = JSON.parse(JSON.stringify(editingGroups));
+    if (_pr) _pr.customRotations[getRotationKey(curDate.getFullYear(), curDate.getMonth())] = JSON.parse(JSON.stringify(editingGroups));
     await saveState(); 
     checkAutomaticGraduation();
     renderAll(); 
     alert("Excepción guardada SOLO para este mes. Los meses siguientes seguirán su curso matemático normal ignorando este cambio."); 
 }
 async function saveAsNewBase() {
-    const _dk = formatDateKey(rotDate.getFullYear(), rotDate.getMonth(), 1);
+    const _dk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
     const _planName = getCurrentRotPlan(_dk);
     if (!state.planRotations) state.planRotations = {};
-    if (!state.planRotations[_planName]) state.planRotations[_planName] = { baseGroups: [], baseYear: rotDate.getFullYear(), baseMonth: rotDate.getMonth(), customRotations: {}, residentesFijos: [] };
+    if (!state.planRotations[_planName]) state.planRotations[_planName] = { baseGroups: [], baseYear: curDate.getFullYear(), baseMonth: curDate.getMonth(), customRotations: {}, residentesFijos: [] };
     const _pr = state.planRotations[_planName];
     _pr.baseGroups = JSON.parse(JSON.stringify(editingGroups));
-    _pr.baseMonth = rotDate.getMonth();
-    _pr.baseYear = rotDate.getFullYear();
+    _pr.baseMonth = curDate.getMonth();
+    _pr.baseYear = curDate.getFullYear();
     _pr.customRotations = {};
 
     // Limpiar el caché de ordenSeleccion para todos los meses desde la nueva base en adelante
     // para que se regeneren con el orden rotado correcto
-    const baseVal = rotDate.getFullYear() * 12 + rotDate.getMonth();
+    const baseVal = curDate.getFullYear() * 12 + curDate.getMonth();
     if (state.configMes) {
         let cleared = 0;
         Object.keys(state.configMes).forEach(mk => {
@@ -3531,18 +3511,18 @@ async function saveAsNewBase() {
                 cleared++;
             }
         });
-        if (cleared > 0) console.log(`🔄 configMes: ${cleared} mes(es) desde ${MONTHS[rotDate.getMonth()]} ${rotDate.getFullYear()} borrados y se regenerarán automáticamente.`);
+        if (cleared > 0) console.log(`🔄 configMes: ${cleared} mes(es) desde ${MONTHS[curDate.getMonth()]} ${curDate.getFullYear()} borrados y se regenerarán automáticamente.`);
     }
 
     await saveState();
     renderRotationView();
-    alert(`¡Base Absoluta establecida para el Plan '${_planName}'!\nEl orden de turno de todos los meses desde ${MONTHS[rotDate.getMonth()]} ${rotDate.getFullYear()} en adelante se ha recalculado automáticamente.`);
+    alert(`¡Base Absoluta establecida para el Plan '${_planName}'!\nEl orden de turno de todos los meses desde ${MONTHS[curDate.getMonth()]} ${curDate.getFullYear()} en adelante se ha recalculado automáticamente.`);
 }
 
 async function clearCustomMonth() {
-    const _dk = formatDateKey(rotDate.getFullYear(), rotDate.getMonth(), 1);
+    const _dk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
     const _pr = state.planRotations?.[getCurrentRotPlan(_dk)];
-    if (_pr) delete _pr.customRotations[getRotationKey(rotDate.getFullYear(), rotDate.getMonth())];
+    if (_pr) delete _pr.customRotations[getRotationKey(curDate.getFullYear(), curDate.getMonth())];
     await saveState(); 
     editingGroups = null; 
     checkAutomaticGraduation();
