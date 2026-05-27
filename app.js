@@ -1711,8 +1711,7 @@ function renderMainCalendar() {
         const pd = getPlazasForDay(svc, dateKey);
         if (pd > 1) {
             const filled = Object.keys(dayShifts || {}).filter(u => dayShifts[u] === svc.nombre).length;
-            const badgeColor = filled >= pd ? 'var(--fest)' : (filled > 0 ? '#16a34a' : '#64748b');
-            html += `<div style="font-size:0.6rem; color:${badgeColor}; font-weight:bold; line-height:1.2; margin-top:1px;">${filled}/${pd}</div>`;
+            html += `<div style="font-size:0.6rem; background:${svc.color}; color:white; font-weight:bold; border-radius:3px; padding:1px 3px; display:inline-block; margin-top:1px;">${filled}/${pd}</div>`;
         }
     });
     
