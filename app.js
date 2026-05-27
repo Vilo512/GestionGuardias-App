@@ -2806,7 +2806,9 @@ function renderAdminHoras() {
     } else {
         tablaHtml = '<p style="color:#94a3b8; font-style:italic;">No hay residentes aprobados.</p>';
     }
-    document.getElementById('aview-horas').innerHTML =
+    const _elHoras = document.getElementById('aview-horas');
+    if (!_elHoras) return;
+    _elHoras.innerHTML =
         `<h3 style="margin-bottom:16px; font-size:1.1rem; color:var(--dark);">⏱️ Horas por Residente — ${MONTHS[m]} ${y}</h3>${tablaHtml}`;
 }
 
