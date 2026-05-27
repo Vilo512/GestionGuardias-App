@@ -3804,10 +3804,14 @@ function getAnalisisFestivos(y, m) {
     const monthHasAnyShifts = Object.keys(state.shifts || {}).some(dk => dk.startsWith(monthPrefix));
 
     let rondaTerminada = false;
-    if (monthHasAnyShifts && state.configMes && state.configMes[mk] && getCurrentTurn(y, m) === null) {
-        rondaTerminada = true;
+    if (state.configMes && state.configMes[mk] && getCurrentTurn(y, m) === null) {
+        const allSkipped = (state.configMes[mk].ordenSeleccion?.length > 0) &&
+            state.configMes[mk].ordenSeleccion.every(r =>
+                (state.skippedTurns?.[mk] || []).includes(r) || state.configMes[mk].pausados?.[r]
+            );
+        if (monthHasAnyShifts || allSkipped) rondaTerminada = true;
     }
-    
+
     if (!rondaTerminada) {
         return { estado: 'libre', exceso: 0, nominados: [], svcNombre: null };
     }
