@@ -1721,10 +1721,10 @@ function renderMainCalendar() {
     if (multihuecoItems.length > 0) {
         cell.style.position = 'relative';
         const badgeDiv = document.createElement('div');
-        badgeDiv.setAttribute('style', 'font-size:0.6rem; background:rgba(255,255,255,0.7); border-radius:3px; padding:1px 4px; position:absolute; bottom:2px; right:2px; line-height:1.4;');
+        badgeDiv.setAttribute('style', 'font-size:0.6rem; background:rgba(255,255,255,0.7); border-radius:3px; padding:1px 4px; position:absolute; bottom:2px; right:2px; display:flex; flex-direction:column; align-items:flex-end; gap:1px;');
         badgeDiv.innerHTML = multihuecoItems.map(item =>
-            `<span style="color:${item.color}; font-weight:bold;">${item.filled}/${item.pd}</span>`
-        ).join(' ');
+            `<span style="color:${item.color}; font-weight:bold; white-space:nowrap;">${item.filled}/${item.pd}</span>`
+        ).join('');
         cell.appendChild(badgeDiv);
     }
 
