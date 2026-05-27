@@ -3612,19 +3612,15 @@ function getHistoricoFestivosResidentes(targetY, targetM, validTags, targetSvc =
 function renderAlertaCargaMensual() {
     const container = document.getElementById('alerta-carga-mensual');
     if (!container) return;
-    
+    container.innerHTML = '';
+
     const y = curDate.getFullYear();
     const m = curDate.getMonth();
     const mk = getRotationKey(y, m);
-    if (!state.configMes || !state.configMes[mk]) {
-        /* container.innerHTML = ''; */ return;
-    }
-    
+    if (!state.configMes || !state.configMes[mk]) return;
+
     const analisis = getAnalisisFestivos(y, m);
-    
-    if (analisis.estado === 'libre') {
-        /* container.innerHTML = ''; */ return;
-    }
+    if (analisis.estado === 'libre') return;
 
     let criterioTexto = "suerte aleatoria";
     if (analisis.criterio === 'historico_festivos') criterioTexto = "tienen el menor histórico de Festivos";
