@@ -3697,7 +3697,7 @@ async function ejecutarAsignacionForzosa(y, m, targetSvcNombre) {
                     if (state.shifts[dk][u] === svc.nombre && !u.startsWith('VRE')) assignedCount++;
                 }
             }
-            const needed = (svc.plazasPorDia > 0 ? svc.plazasPorDia : 0);
+            const needed = getPlazasForDay(svc, dk);
             if (assignedCount < needed) {
                 for (let i = 0; i < (needed - assignedCount); i++) {
                     huecosLibres.push({ dk, svc: svc.nombre });
@@ -3705,60 +3705,50 @@ async function ejecutarAsignacionForzosa(y, m, targetSvcNombre) {
             }
         }
     }
-    
+
     if (huecosLibres.length === 0) return alert("No se han detectado huecos libres de este servicio en el calendario.");
-    
-    const candidatos = analisis.nominados;
+
+    const candidatos = [...analisis.nominados]; // copia mutable para rotación de fairness
     let asignacionesLog = [];
-    let saltadosLog = [];
+    let huecosImpossibles = [];
     let huecosAsignados = 0;
-    
-    for (let c = 0; c < candidatos.length; c++) {
-        const residente = candidatos[c];
-        
-        let huecoElegidoIndex = -1;
-        for (let h = 0; h < huecosLibres.length; h++) {
-            const hueco = huecosLibres[h];
-            
-            let projected = JSON.parse(JSON.stringify(state.shifts || {}));
+
+    for (let hIdx = 0; hIdx < huecosLibres.length; hIdx++) {
+        const hueco = huecosLibres[hIdx];
+        let asignado = false;
+
+        for (let c = 0; c < candidatos.length; c++) {
+            const residente = candidatos[c];
+            if (state.shifts[hueco.dk]?.[residente]) continue; // ya cubre este día
+
+            const projected = JSON.parse(JSON.stringify(state.shifts || {}));
             if (!projected[hueco.dk]) projected[hueco.dk] = {};
-            
-            if (projected[hueco.dk][residente]) continue;
-            
             projected[hueco.dk][residente] = hueco.svc;
-            
-            const conflicts = getIllegalShiftsForUser(residente, projected);
-            if (conflicts.length === 0) {
-                huecoElegidoIndex = h;
+
+            if (getIllegalShiftsForUser(residente, projected).length === 0) {
+                if (!state.shifts[hueco.dk]) state.shifts[hueco.dk] = {};
+                state.shifts[hueco.dk][residente] = hueco.svc;
+                asignacionesLog.push(`${residente} → ${hueco.svc} (${formatDK(hueco.dk)})`);
+                huecosAsignados++;
+                candidatos.push(candidatos.splice(c, 1)[0]); // rotación fairness
+                asignado = true;
                 break;
             }
         }
-        
-        if (huecoElegidoIndex !== -1) {
-            const hueco = huecosLibres[huecoElegidoIndex];
-            if (!state.shifts[hueco.dk]) state.shifts[hueco.dk] = {};
-            state.shifts[hueco.dk][residente] = hueco.svc;
-            
-            huecosLibres.splice(huecoElegidoIndex, 1);
-            asignacionesLog.push(`${residente} -> ${hueco.svc} (${formatDK(hueco.dk)})`);
-            huecosAsignados++;
-            
-            // To be totally fair and sequentially re-evaluate, we break immediately after ONE assignment
-            // The Admin will click the button again, which triggers full recalculation.
-            break;
-        } else {
-            saltadosLog.push(residente);
+
+        if (!asignado) {
+            huecosImpossibles.push(`${hueco.svc} (${formatDK(hueco.dk)})`);
         }
     }
-    
+
     await saveState();
     renderAll();
-    
-    let mensajeFinal = `Inyección Forzosa procesada.\n\nSe asignaron ${huecosAsignados} guardias:\n${asignacionesLog.join('\\n')}`;
-    if (saltadosLog.length > 0) {
-        mensajeFinal += `\n\n⚠️ Los nominados originales no podían cubrir por incompatibilidad con salientes. Quedan huecos, pulsa otra vez para calcular nuevos nominados.`;
+
+    let mensajeFinal = `Inyección Forzosa procesada.\n\nSe asignaron ${huecosAsignados} guardia(s):\n${asignacionesLog.join('\n')}`;
+    if (huecosImpossibles.length > 0) {
+        mensajeFinal += `\n\n⚠️ ${huecosImpossibles.length} hueco(s) imposibles de cubrir sin violar descansos obligatorios:\n${huecosImpossibles.join('\n')}`;
     }
-    
+
     alert(mensajeFinal);
 }
 
