@@ -2,7 +2,7 @@
 **Versión PRD auditada:** 0.8  
 **Codebase auditado:** `app.js` (4 447 líneas, monolítico vanilla JS + Supabase)  
 **Fecha de última revisión:** Mayo 2026  
-**Estado general:** 0 divergencias activas, 4 funciones no implementadas. 14 ítems resueltos o alineados con PRD v1.0. 1 ítem nuevo (W4-B) pendiente de implementación futura.
+**Estado general:** 0 divergencias activas, 5 funciones no implementadas. 14 ítems resueltos o alineados con PRD v1.0. 1 ítem nuevo (W4-B) pendiente de implementación futura.
 
 ---
 
@@ -32,6 +32,7 @@ Este archivo es la **memoria de trabajo persistente** del Engineering Lead entre
 | N2 | ❌ Falta | §15 / §8.4 | Registro persistente de huecos sin candidato válido | `pendiente` |
 | N3 | ❌ Falta | §5.1 | Calendario automático de huecos desde patrón configurable | `pendiente` |
 | N4 | ❌ Falta | §4 / D-02 | Importación de festivos desde fuente oficial | `pendiente` |
+| N5 | ❌ Falta | §8.4 / §15 | Botón admin "Activar subasta ya" para forzar asignación global inmediata | `pendiente` |
 
 ---
 
@@ -486,6 +487,44 @@ No existe campo de localidad en el contenedor, no hay API conectada, solo entrad
 
 ---
 
+### N5 — Botón admin "Activar subasta ya"
+**Sección PRD:** §8.4 / §15  
+**Impacto:** Medio — herramienta de emergencia y debug para lanzar la asignación forzosa global sin esperar las condiciones temporales  
+**Estado:** `pendiente`
+
+**Diagnóstico:**
+La asignación forzosa (`ejecutarAsignacionForzosa`) y el cierre de ventana voluntaria (`forzarCierreSubasta`) solo son accesibles cuando `getAnalisisFestivos` detecta activamente un servicio con huecos pendientes y lo expone en el banner de `renderAlertaCargaMensual`. No existe ningún punto de entrada que permita al admin lanzar el proceso completo de forma inmediata e incondicional.
+
+Ambas funciones operan sobre **un único servicio** a la vez y requieren que el análisis previo devuelva ese servicio como activo. Si hay múltiples servicios con cobertura incompleta, el admin debe ejecutar el proceso servicio a servicio, lo que resulta impracticable en situaciones de urgencia.
+
+```js
+// Solo accesible cuando el análisis dice que hay algo pendiente — no hay override
+async function ejecutarAsignacionForzosa(y, m, targetSvcNombre) {
+    const analisis = getAnalisisFestivos(y, m);
+    if (analisis.estado === 'libre' || analisis.svcNombre !== targetSvcNombre) return alert("El estado ha cambiado.");
+    // ...
+}
+```
+
+**Acción requerida:**
+- Crear función `activarSubastaGlobal(y, m)` que itere sobre todos los servicios con `subastaTrigger` configurado y ejecute para cada uno: cierre de ventana voluntaria + asignación forzosa, independientemente del estado actual
+- Añadir botón "⚡ Activar subasta ya" en el panel admin (solo `isAdmin`), visible en la cabecera del calendario o en la pestaña de administración, con `confirm()` de confirmación explícita antes de proceder
+- El botón opera sobre el mes activo (`curDate`)
+- Si un servicio ya tiene todos sus huecos cubiertos, saltarlo silenciosamente
+
+**Dependencias previas:** Ninguna — funciona de forma autónoma  
+**Dependencias posteriores:**
+- Cuando **N1** esté implementado: los residentes afectados por asignaciones forzosas recibirán la notificación `guardia_forzada` automáticamente (N5 es productor de ese evento)
+- Cuando **N2** esté implementado: los huecos sin candidato generados por N5 quedarán registrados persistentemente (N5 es productor de esos eventos)
+
+### Resultado
+**Estado final:** `pendiente`  
+**Decisiones tomadas:** —  
+**Efectos secundarios detectados:** —  
+**Archivos modificados:** —
+
+---
+
 ## Inventario de lo implementado correctamente
 
 Para referencia del agente: estas secciones son conformes al PRD v0.7. No requieren intervención salvo que un ítem activo las afecte como efecto secundario.
@@ -527,3 +566,4 @@ Para referencia del agente: estas secciones son conformes al PRD v0.7. No requie
 | v1.4 | Mayo 2026 | W4 resuelto (inserción en grupo mínimo sin reempaquetado salvo desbordamiento). W4-B nuevo ítem pendiente (identidad de grupo con slots y memoria inter-plan). PRD actualizado a v0.9. |
 | v1.5 | Mayo 2026 | W5 resuelto (selector mes en perfil, pestaña Horas admin/delegado, chivato multihueco en calendario principal). |
 | v1.6 | Mayo 2026 | W6 nuevo y resuelto (navegador de mes duplicado en vista Rotación eliminado; `rotDate`/`changeRotMonth` reemplazados por `curDate`). PRD actualizado a v1.0. |
+| v1.7 | Mayo 2026 | N5 nuevo (botón admin "Activar subasta ya" — asignación forzosa global inmediata, independiente de N1-N4). |
