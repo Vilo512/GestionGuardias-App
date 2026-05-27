@@ -1,5 +1,5 @@
 # GestionGuardias App — Product Requirements Document
-**Versión:** 0.8  
+**Versión:** 0.9  
 **Estado:** Funcionalidad core cerrada — abierto a extensiones UI/UX  
 **Audiencia:** Engineering Lead, desarrolladores, diseñadores  
 **Última actualización:** Mayo 2026
@@ -218,28 +218,30 @@ Transcurrida la ventana voluntaria, los huecos obligatorios sin cubrir se asigna
 
 ### 9.1 Estructura de grupos
 
-Los residentes se organizan en **grupos de rotación** con un máximo de 4 miembros.
+Los residentes se organizan en **grupos de rotación** con un máximo recomendado de 4 miembros. La distribución `[3,3,3,4,4]` para 17 residentes es una sugerencia, no un requisito rígido. El admin puede ajustar manualmente los tamaños de grupo y el sistema respetará ese orden.
 
-| Nº residentes | Distribución de grupos |
+| Nº residentes | Distribución sugerida |
 |---|---|
 | 1–4 | 1 grupo |
 | 5–8 | 2 grupos |
 | 9–12 | 3 grupos |
 | 13–16 | 4 grupos de 4 |
-| 17 | 3-3-3-4-4 (redistribución) |
+| 17 | 3-3-3-4-4 |
 | 18–20 | Rellenar hacia 5 grupos de 4 |
 
-Los integrantes de un grupo **no se mezclan** con los de otro salvo en una redistribución explícita.
+Los integrantes de un grupo **no se mezclan** con los de otro salvo en una redistribución explícita solicitada por el admin.
 
 ### 9.2 Incorporación de nuevos residentes
 - Entran por la **parte inferior** del grupo con menor número de miembros en el momento de la incorporación
-- Se preserva el orden relativo de los residentes ya presentes
-- Los residentes que "acabalgan" su residencia (fecha de cambio de contrato distinta a la mayoría) entran en el grupo correspondiente al nuevo plan manteniendo esta lógica
+- En caso de empate de tamaño, entra en el último grupo empatado
+- Se preserva el orden relativo de los residentes ya presentes — el reempaquetado automático **no se dispara** salvo que algún grupo supere el máximo de 4 miembros
+- Cuando el reempaquetado sí es necesario, el sistema muestra un aviso al admin indicando qué grupos se ven afectados y qué residentes cambian de grupo
 
 ### 9.3 Redistribución y nueva base
-- Ocurre al superar el límite de grupos completos o cuando el número de residentes activos lo requiere
+- Ocurre únicamente cuando un grupo supera 4 miembros o cuando el admin la solicita explícitamente
 - El sistema genera una **nueva base de rotación** intentando preservar el orden relativo previo
 - El estado de rotación (posición de grupos y miembros) persiste mes a mes en la base de datos
+- El orden configurado manualmente por el admin se preserva siempre que sea posible
 
 ### 9.4 Lógica de rotación mensual
 
@@ -259,6 +261,35 @@ Reglas:
 - Los **graduados** salen del sistema de rotación activa cuando ya no existe ningún Plan de Guardias activo que les aplique. El criterio no es un número fijo de cambios de contrato sino la ausencia de plan siguiente: una especialidad de 4 años tiene 4 planes (R1–R4) y gradúa al superar R4; una de 5 años tiene 5 planes y gradúa al superar R5.
 - Su histórico permanece visible en el contenedor de forma permanente
 - No participan en ningún cálculo de turnos futuros
+
+### 9.6 Identidad de grupo y memoria de slots *(pendiente de implementación — W4-B)*
+
+Los grupos tienen **identidad persistente**: no son simples listas de nombres sino colecciones de slots con historia. Este sistema garantiza equidad a largo plazo evitando que un residente quede sistemáticamente en posiciones desfavorables por accidentes de reempaquetado.
+
+#### Slots de grupo
+Cada posición dentro de un grupo es un **slot** con los siguientes atributos:
+- `titular_actual` — residente activo en el slot en este momento
+- `titular_original` — primer residente que ocupó el slot (o el de mayor antigüedad acumulada)
+- `meses_ocupacion` — meses que el titular actual lleva en el slot
+- `estado` — `activo` | `abierto` (vacante temporal, no cuenta para rotación ni turnos)
+
+#### Memoria inter-plan
+Cuando un grupo de residentes transita de un Plan de Guardias al siguiente (R1 → R2, R2 → R3…) el grupo mantiene su identidad: Bea, Carlos y Javi siguen juntos en R2 si estaban juntos en R1. El sistema traspasa la estructura de slots al nuevo plan en lugar de reasignar desde cero.
+
+#### Slots abiertos por acabalgo
+Un residente con contrato acabalgado (fechas de cambio de contrato distintas a la mayoría) puede ausentarse temporalmente de su plan. Durante su ausencia:
+- Su slot queda `abierto`: no visible en el calendario, no cuenta para rotación ni turnos
+- Si entra un nuevo residente, puede ocupar ese slot temporalmente
+
+#### Política de prioridad de slot ("first come, longer stay")
+Cuando el titular original de un slot regresa tras una ausencia:
+- Si el slot está `abierto` → recupera su posición
+- Si el slot está ocupado por un sustituto:
+  - Si el sustituto lleva **menos meses** que el titular original acumuló en su día → el titular original recupera el slot
+  - Si el sustituto lleva **más meses** que el titular original → el slot pertenece al sustituto; el titular original se incorpora como nuevo residente (grupo más pequeño)
+
+#### Residentes fijos (chincheta)
+Algunos residentes tienen requisito de RRHH de conciliación que les garantiza siempre la primera posición de elección. Se marcan como `residentesFijos` y se sitúan en un grupo especial al inicio de la rotación, no sujetos al algoritmo de slots. Ya implementado parcialmente en `pr.residentesFijos[]`.
 
 ---
 
@@ -588,3 +619,4 @@ EventoAuditoria
 | v0.6 | Roles y autenticación: Google OAuth, roles acumulativos, toggle admin/residente, delegados múltiples. Distribución de permisos admin vs delegado. Sección UI/UX pendiente añadida. |
 | v0.7 | Alineación con implementación real: obligatoriedad modelada a nivel de servicio (subastaTrigger), no por hueco individual. Mercadillo aplica dos restricciones: saliente/entrante + reglaIntercambio. Criterio de graduación por ausencia de plan (no por número fijo de cambios). Registro histórico revisable (no inmutable): admin puede corregir logs, residentes pueden deshacer operaciones de mercadillo consumadas. Modelo de datos de Servicio y Hueco actualizados. |
 | v0.8 | §3.3 actualizado: modo simulación con selector en calendar banner, write guards, banner sticky y sesión real inalterada. §8.4: nota de soft-lock en asignación manual forzosa. §15: "toggle" → selector de simulación. §16.1: referencia actualizada. Roles: modelo de datos incluye `delegado` en `Usuario.rol`. |
+| v0.9 | §9.1: distribución de grupos como sugerencia, no requisito rígido. §9.2: política de inserción en grupo mínimo sin reempaquetado automático salvo necesidad, aviso al admin cuando grupos se ven afectados. §9.3: redistribución solo bajo demanda o desbordamiento. §9.6 nuevo: identidad de grupo y memoria de slots (W4-B, pendiente). |

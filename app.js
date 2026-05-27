@@ -3046,15 +3046,27 @@ async function adminAprobarUsuario(userId, userName) {
     const { error } = await supabaseClient.from('perfiles').update({ estado: 'aprobado' }).eq('id', userId);
     if(error) return alert("Error: " + error.message);
     
-    // Añadir al final de la base del Plan que le corresponde ahora mismo
+    // Añadir al grupo con menor número de miembros (W4)
     const dk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
     const planName = getCurrentRotPlan(dk);
     if (!state.planRotations) state.planRotations = {};
     if (!state.planRotations[planName]) state.planRotations[planName] = { baseGroups: [], baseYear: curDate.getFullYear(), baseMonth: curDate.getMonth(), customRotations: {}, residentesFijos: [] };
     const pr = state.planRotations[planName];
-    let filaIndia = (pr.baseGroups || []).flat();
-    filaIndia.push(userName);
-    pr.baseGroups = reempaquetarGruposPlan(filaIndia, pr);
+    const grupos = (pr.baseGroups && pr.baseGroups.length > 0 && pr.baseGroups.some(g => g.length > 0))
+        ? pr.baseGroups
+        : null;
+    if (!grupos) {
+        // Primer residente del plan: crear el grupo inicial
+        pr.baseGroups = [[userName]];
+    } else {
+        // Encontrar el grupo con menos miembros (último en caso de empate)
+        const minIdx = grupos.reduce((best, g, i) => g.length <= grupos[best].length ? i : best, 0);
+        grupos[minIdx].push(userName);
+        // Solo reempaquetar si algún grupo supera el máximo de 4
+        if (grupos.some(g => g.length > 4)) {
+            pr.baseGroups = reempaquetarGruposPlan(grupos.flat(), pr);
+        }
+    }
     
     invalidateConfigMes();
     await saveState(); 

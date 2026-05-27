@@ -2,7 +2,7 @@
 **Versión PRD auditada:** 0.8  
 **Codebase auditado:** `app.js` (4 447 líneas, monolítico vanilla JS + Supabase)  
 **Fecha de última revisión:** Mayo 2026  
-**Estado general:** 3 divergencias activas, 4 funciones no implementadas. 11 ítems resueltos o alineados con PRD v0.8.
+**Estado general:** 2 divergencias activas, 4 funciones no implementadas. 12 ítems resueltos o alineados con PRD v0.9. 1 ítem nuevo (W4-B) pendiente de implementación futura.
 
 ---
 
@@ -24,7 +24,8 @@ Este archivo es la **memoria de trabajo persistente** del Engineering Lead entre
 | W1 | ⚠️ Diverge | §3.2 | Roles binarios en vez de ternarios | `resuelto` |
 | W2 | ⚠️ Diverge | §3.3 | Toggle modo residente impersona a otro usuario | `resuelto` |
 | W3 | ⚠️ Diverge | §8.3 | Duración ventana voluntaria hardcodeada a 48h | `resuelto` |
-| W4 | ⚠️ Diverge | §9.2 | Nuevo residente entra al último grupo, no al más pequeño | `pendiente` |
+| W4 | ⚠️ Diverge | §9.2 | Nuevo residente entra al último grupo, no al más pequeño | `resuelto` |
+| W4-B | 🔮 Futuro | §9.6 | Identidad de grupo con memoria de slots inter-plan | `pendiente` |
 | W5 | ⚠️ Diverge | §14 / §13.1 | Recuento de horas sin selector de mes ni visibilidad admin | `pendiente` |
 | N1 | ❌ Falta | §12 | Sistema de notificaciones in-app completo | `pendiente` |
 | N2 | ❌ Falta | §15 / §8.4 | Registro persistente de huecos sin candidato válido | `pendiente` |
@@ -197,24 +198,54 @@ const horasRestantes = Math.max(0, 48 - horasTranscurridas);
 **Sección PRD:** §9.2  
 **Impacto:** Medio — afecta la equidad de la rotación al incorporar residentes  
 **Archivos:** `app.js` líneas 2951–2953  
-**Estado:** `pendiente`
+**Estado:** `resuelto`
 
 **Diagnóstico:**
 PRD: "Entran por la parte inferior del grupo con menor número de miembros." Código: `filaIndia.push(userName)` añade al final del array flat y `reempaquetarGruposPlan` lo sitúa en el último grupo, que tras el empaquetado puede no ser el más pequeño si los grupos tienen tamaños desiguales.
 
 ```js
-// líneas 2951-2953
+// líneas 2951-2953 (antes)
 let filaIndia = (pr.baseGroups || []).flat();
 filaIndia.push(userName);  // siempre al final del array flat
 pr.baseGroups = reempaquetarGruposPlan(filaIndia, pr);
 ```
 
-**Acción requerida:**
-- En `adminAprobarUsuario`, antes de hacer push al flat array, identificar el grupo con menor número de miembros en `pr.baseGroups`
-- Insertar el nuevo residente al final de ese grupo específico, no al final del flat array global
-- Verificar que `reempaquetarGruposPlan` no redistribuye si no hay cambio de nivel, para no deshacer la inserción correcta
-
 **Dependencias previas:** Ninguna  
+**Dependencias posteriores:** W4-B (sistema de slots, construye sobre esta base)
+
+### Resultado
+**Estado final:** `resuelto`  
+**Decisiones tomadas:**
+- Se identifica el grupo con menor número de miembros en `pr.baseGroups` y se añade el nuevo residente directamente al final de ese grupo, sin aplanar ni redistribuir.
+- En caso de empate de tamaño, se usa el último grupo empatado (más cercano al comportamiento anterior).
+- `reempaquetarGruposPlan` solo se invoca si algún grupo supera 4 miembros tras la inserción. Esto preserva los órdenes manuales del admin.
+- Se maneja el caso inicial vacío (`baseGroups: []` o `[[]]`) creando el primer grupo directamente.
+- La distribución `[3,3,3,4,4]` pasa a ser sugerencia, no requisito rígido (ver PRD v0.9 §9.1).
+
+**Efectos secundarios detectados:** Ninguno relevante. El reempaquetado al superar máximo sigue comportándose igual que antes.
+
+**Archivos modificados:** `app.js` (~6 líneas en `adminAprobarUsuario`).
+
+---
+
+### W4-B — Identidad de grupo con memoria de slots inter-plan
+**Sección PRD:** §9.6  
+**Impacto:** Alto — equidad a largo plazo en la rotación, especialmente con acabalgos y cambios de plan  
+**Archivos:** `app.js` — requiere cambios en modelo de datos de `state.planRotations`  
+**Estado:** `pendiente`
+
+**Diagnóstico:**
+El modelo actual de grupos (`baseGroups: string[][]`) es una lista plana sin memoria. No distingue entre un slot vacante temporal y uno permanente, no preserva la identidad de grupo al cambiar de plan, y no tiene política para residentes con contratos acabalgados.
+
+**Acción requerida:**
+- Rediseñar `baseGroups` como array de slots: `{ titular_actual, titular_original, meses_ocupacion, estado }`
+- Al transitar de plan (R1→R2), traspasar la estructura de grupos del plan anterior al nuevo en lugar de crear desde cero
+- Implementar slots `abierto` para acabalgos: no cuentan en rotación pero mantienen posición reservada
+- Política de prioridad: si el titular original regresa y su slot está ocupado, comparar meses de ocupación para decidir quién se queda
+- Migración de datos: convertir `baseGroups: string[][]` existentes al nuevo formato de slots
+- Aviso al admin cuando el reempaquetado afecte grupos, mostrando quién cambia de grupo
+
+**Dependencias previas:** W4 (base correcta de inserción en grupo mínimo)  
 **Dependencias posteriores:** Ninguna
 
 ### Resultado
@@ -433,3 +464,4 @@ Para referencia del agente: estas secciones son conformes al PRD v0.7. No requie
 | v1.1 | Mayo 2026 | Revisión contra PRD v0.7. Resueltos W3/W6/W7/W8-A/N2 por alineación del PRD con el código. 5 divergencias activas, 4 no implementados. |
 | v1.2 | Mayo 2026 | W1 resuelto (roles ternarios, Supabase constraint, isDelegado). W2 resuelto (simulatedViewUser, banner sticky, toolbar unificada, write guards en 7 funciones, soft-lock en adminForceAssign). Restricciones de los 5 agentes actualizadas. PRD actualizado a v0.8. |
 | v1.3 | Mayo 2026 | W3 resuelto (ventana_voluntaria_horas en JSON configuracion, normalizeConfig con fallback 48, UI en panel Ajustes, clamp 24-48). |
+| v1.4 | Mayo 2026 | W4 resuelto (inserción en grupo mínimo sin reempaquetado salvo desbordamiento). W4-B nuevo ítem pendiente (identidad de grupo con slots y memoria inter-plan). PRD actualizado a v0.9. |
