@@ -1,5 +1,5 @@
 # GestionGuardias App — Product Requirements Document
-**Versión:** 0.9  
+**Versión:** 1.0  
 **Estado:** Funcionalidad core cerrada — abierto a extensiones UI/UX  
 **Audiencia:** Engineering Lead, desarrolladores, diseñadores  
 **Última actualización:** Mayo 2026
@@ -404,6 +404,8 @@ En **cualquier vista** donde se actúe sobre datos de un mes concreto, la interf
 
 Vistas afectadas: asignación, rotación, mercadillo, recuento de horas, auditoría, panel de admin.
 
+**Fuente única de verdad:** El mes activo está controlado por una única variable global (`curDate`). Ninguna vista mantiene su propio estado de mes independiente. Los controles ◀/▶ del header actualizan `curDate` y todas las vistas reaccionan en consecuencia.
+
 ### 13.2 Registro histórico
 El sistema conserva un registro **completo** de:
 
@@ -620,3 +622,4 @@ EventoAuditoria
 | v0.7 | Alineación con implementación real: obligatoriedad modelada a nivel de servicio (subastaTrigger), no por hueco individual. Mercadillo aplica dos restricciones: saliente/entrante + reglaIntercambio. Criterio de graduación por ausencia de plan (no por número fijo de cambios). Registro histórico revisable (no inmutable): admin puede corregir logs, residentes pueden deshacer operaciones de mercadillo consumadas. Modelo de datos de Servicio y Hueco actualizados. |
 | v0.8 | §3.3 actualizado: modo simulación con selector en calendar banner, write guards, banner sticky y sesión real inalterada. §8.4: nota de soft-lock en asignación manual forzosa. §15: "toggle" → selector de simulación. §16.1: referencia actualizada. Roles: modelo de datos incluye `delegado` en `Usuario.rol`. |
 | v0.9 | §9.1: distribución de grupos como sugerencia, no requisito rígido. §9.2: política de inserción en grupo mínimo sin reempaquetado automático salvo necesidad, aviso al admin cuando grupos se ven afectados. §9.3: redistribución solo bajo demanda o desbordamiento. §9.6 nuevo: identidad de grupo y memoria de slots (W4-B, pendiente). |
+| v1.0 | §13.1: clarificación de fuente única de verdad (`curDate`); eliminada la excepción implícita de la vista de Rotación que mantenía su propio estado de mes independiente. |

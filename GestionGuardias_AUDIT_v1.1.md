@@ -2,7 +2,7 @@
 **Versión PRD auditada:** 0.8  
 **Codebase auditado:** `app.js` (4 447 líneas, monolítico vanilla JS + Supabase)  
 **Fecha de última revisión:** Mayo 2026  
-**Estado general:** 1 divergencia activa, 4 funciones no implementadas. 13 ítems resueltos o alineados con PRD v0.9. 1 ítem nuevo (W4-B) pendiente de implementación futura.
+**Estado general:** 0 divergencias activas, 4 funciones no implementadas. 14 ítems resueltos o alineados con PRD v1.0. 1 ítem nuevo (W4-B) pendiente de implementación futura.
 
 ---
 
@@ -27,6 +27,7 @@ Este archivo es la **memoria de trabajo persistente** del Engineering Lead entre
 | W4 | ⚠️ Diverge | §9.2 | Nuevo residente entra al último grupo, no al más pequeño | `resuelto` |
 | W4-B | 🔮 Futuro | §9.6 | Identidad de grupo con memoria de slots inter-plan | `pendiente` |
 | W5 | ⚠️ Diverge | §14 / §13.1 | Recuento de horas sin selector de mes ni visibilidad admin | `resuelto` |
+| W6 | ⚠️ Diverge | §13.1 | Vista de Rotación con navegador de mes propio, desacoplado de `curDate` | `resuelto` |
 | N1 | ❌ Falta | §12 | Sistema de notificaciones in-app completo | `pendiente` |
 | N2 | ❌ Falta | §15 / §8.4 | Registro persistente de huecos sin candidato válido | `pendiente` |
 | N3 | ❌ Falta | §5.1 | Calendario automático de huecos desde patrón configurable | `pendiente` |
@@ -225,6 +226,55 @@ pr.baseGroups = reempaquetarGruposPlan(filaIndia, pr);
 **Efectos secundarios detectados:** Ninguno relevante. El reempaquetado al superar máximo sigue comportándose igual que antes.
 
 **Archivos modificados:** `app.js` (~6 líneas en `adminAprobarUsuario`).
+
+---
+
+### W6 — Vista de Rotación con navegador de mes propio
+**Sección PRD:** §13.1  
+**Impacto:** Bajo — UX inconsistente; el usuario debía navegar con dos selectores independientes  
+**Archivos:** `app.js` líneas 91, 3170–3175, 3179–3208  
+**Estado:** `resuelto`
+
+**Diagnóstico:**
+PRD §13.1: "El mes activo está controlado por una única variable global. Ninguna vista mantiene su propio estado de mes independiente."
+
+Código: la vista de Rotación declaraba `rotDate` (variable propia) y `changeRotMonth` (función de navegación propia). Esto generaba dos navegadores ◀/▶ visibles simultáneamente: uno en el header global y otro embebido dentro de la vista de Rotación. Ambos podían apuntar a meses distintos sin sincronización garantizada.
+
+```js
+// línea 91 — estado de mes duplicado
+let rotDate = new Date(curDate.getFullYear(), curDate.getMonth(), 1);
+
+// líneas 3170-3175 — navegación paralela
+function changeRotMonth(delta) {
+    let y = rotDate.getFullYear(), m = rotDate.getMonth() + delta;
+    if (m > 11) { m = 0; y++; } else if (m < 0) { m = 11; y--; }
+    rotDate = new Date(y, m, 1);
+    editingGroups = null;
+    renderRotationView();
+}
+```
+
+**Acción requerida:**
+- Eliminar `rotDate` y `changeRotMonth`
+- Sustituir todos los usos de `rotDate` por `curDate`
+- Eliminar el bloque `monthNavHtml` de `renderRotationView`
+- Verificar que `editingGroups = null` sigue ejecutándose al navegar (ya ocurre en `changeMonth`)
+
+**Dependencias previas:** Ninguna  
+**Dependencias posteriores:** Ninguna
+
+### Resultado
+**Estado final:** `resuelto`  
+**Decisiones tomadas:**
+- `rotDate` y `changeRotMonth` eliminados completamente (-35 líneas).
+- Todos los usos de `rotDate` sustituidos por `curDate` mediante replace global (12 ocurrencias en `renderRotationView`, `toggleResidenteFijo`, `moveResToPrevGroup`, `saveCustomMonth`, `saveAsNewBase`, `clearCustomMonth`).
+- El bloque `monthNavHtml` con los botones ← → eliminado de `renderRotationView`.
+- `editingGroups = null` ya se ejecuta en `changeMonth` (línea 1429) al navegar con los botones principales.
+- PRD actualizado a v1.0 con la aclaración de fuente única de verdad en §13.1.
+
+**Efectos secundarios detectados:** Ninguno.
+
+**Archivos modificados:** `app.js` (15 inserciones, 35 eliminaciones).
 
 ---
 
@@ -476,3 +526,4 @@ Para referencia del agente: estas secciones son conformes al PRD v0.7. No requie
 | v1.3 | Mayo 2026 | W3 resuelto (ventana_voluntaria_horas en JSON configuracion, normalizeConfig con fallback 48, UI en panel Ajustes, clamp 24-48). |
 | v1.4 | Mayo 2026 | W4 resuelto (inserción en grupo mínimo sin reempaquetado salvo desbordamiento). W4-B nuevo ítem pendiente (identidad de grupo con slots y memoria inter-plan). PRD actualizado a v0.9. |
 | v1.5 | Mayo 2026 | W5 resuelto (selector mes en perfil, pestaña Horas admin/delegado, chivato multihueco en calendario principal). |
+| v1.6 | Mayo 2026 | W6 nuevo y resuelto (navegador de mes duplicado en vista Rotación eliminado; `rotDate`/`changeRotMonth` reemplazados por `curDate`). PRD actualizado a v1.0. |
