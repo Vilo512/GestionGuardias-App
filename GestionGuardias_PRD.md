@@ -1,5 +1,5 @@
 # GestionGuardias App — Product Requirements Document
-**Versión:** 1.1  
+**Versión:** 1.2  
 **Estado:** Funcionalidad core cerrada — abierto a extensiones UI/UX  
 **Audiencia:** Engineering Lead, desarrolladores, diseñadores  
 **Última actualización:** Mayo 2026
@@ -182,6 +182,10 @@ El admin define para cada Plan de Guardias un conjunto de **reglas de asignació
 
 ## 8. Motor de Turnos — Flujo de Asignación Mensual
 
+**Panel de turno en meses pasados:** El indicador de turno activo (banner "Turno de X") solo debe mostrarse para el mes activo o meses futuros. Para meses ya finalizados, el panel de turno no debe renderizarse — su información carece de significado operativo y genera confusión.
+
+**Invariante de reset:** La función de reset mensual debe dejar el mes en estado completamente limpio, equivalente a un mes sin actividad. Esto incluye borrar cualquier marca de subasta cerrada forzosamente (`subastasCerradasForzosas`) para ese mes, de modo que el flujo completo pueda reiniciarse desde cero.
+
 ### 8.1 Selección activa
 1. El residente en turno recibe notificación in-app
 2. Accede a la vista de asignación del mes (con selector de mes explícito)
@@ -201,6 +205,8 @@ Una vez completada la ronda de asignación inicial:
 3. Cualquier residente del contenedor puede reclamar esos huecos libremente, sin restricción de orden
 4. Restricción activa: saliente/entrante
 5. La apertura de la ventana se notifica in-app al consultar el mes en cuestión
+
+**Durante la ventana voluntaria el calendario debe permanecer abierto.** Todos los residentes pueden auto-asignarse guardias disponibles simultáneamente — no aplica el sistema de turno rotativo. El check `isMyTurn` no debe bloquear asignaciones en este estado.
 
 ### 8.4 Forzamiento
 Transcurrida la ventana voluntaria, los huecos obligatorios sin cubrir se asignan forzosamente:
@@ -637,3 +643,4 @@ EventoAuditoria
 | v0.9 | §9.1: distribución de grupos como sugerencia, no requisito rígido. §9.2: política de inserción en grupo mínimo sin reempaquetado automático salvo necesidad, aviso al admin cuando grupos se ven afectados. §9.3: redistribución solo bajo demanda o desbordamiento. §9.6 nuevo: identidad de grupo y memoria de slots (W4-B, pendiente). |
 | v1.0 | §13.1: clarificación de fuente única de verdad (`curDate`); eliminada la excepción implícita de la vista de Rotación que mantenía su propio estado de mes independiente. |
 | v1.1 | §8.5 nuevo: override de emergencia "Activar subasta ya" con directiva de implementación (`activarSubastaGlobal`, ruta paralela sin modificar funciones existentes). |
+| v1.2 | §8: invariante de reset (limpiar `subastasCerradasForzosas`), panel de turno solo en mes activo/futuro. §8.3: calendario abierto durante ventana voluntaria, `isMyTurn` no bloquea en estado `subasta_abierta`. |

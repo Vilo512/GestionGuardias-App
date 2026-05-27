@@ -1,8 +1,8 @@
 # GestionGuardias App — Auditoría de Implementación
-**Versión PRD auditada:** 0.8  
+**Versión PRD auditada:** 1.2  
 **Codebase auditado:** `app.js` (4 447 líneas, monolítico vanilla JS + Supabase)  
 **Fecha de última revisión:** Mayo 2026  
-**Estado general:** 0 divergencias activas, 5 funciones no implementadas. 14 ítems resueltos o alineados con PRD v1.0. 1 ítem nuevo (W4-B) pendiente de implementación futura.
+**Estado general:** 3 divergencias activas, 5 funciones no implementadas. 14 ítems resueltos o alineados con PRD v1.2. 1 ítem nuevo (W4-B) pendiente de implementación futura.
 
 ---
 
@@ -28,6 +28,9 @@ Este archivo es la **memoria de trabajo persistente** del Engineering Lead entre
 | W4-B | 🔮 Futuro | §9.6 | Identidad de grupo con memoria de slots inter-plan | `pendiente` |
 | W5 | ⚠️ Diverge | §14 / §13.1 | Recuento de horas sin selector de mes ni visibilidad admin | `resuelto` |
 | W6 | ⚠️ Diverge | §13.1 | Vista de Rotación con navegador de mes propio, desacoplado de `curDate` | `resuelto` |
+| W7 | ⚠️ Diverge | §8 | Reset de mes no limpia `subastasCerradasForzosas` — impide re-forzar subasta | `pendiente` |
+| W8 | ⚠️ Diverge | §8.3 | Calendario bloqueado durante ventana voluntaria — `isMyTurn` impide auto-asignación libre | `pendiente` |
+| W9 | ⚠️ Diverge | §8 | Panel de turno muestra "Turno de Nadie" en meses pasados para admin/delegado | `pendiente` |
 | N1 | ❌ Falta | §12 | Sistema de notificaciones in-app completo | `pendiente` |
 | N2 | ❌ Falta | §15 / §8.4 | Registro persistente de huecos sin candidato válido | `pendiente` |
 | N3 | ❌ Falta | §5.1 | Calendario automático de huecos desde patrón configurable | `pendiente` |
@@ -353,6 +356,100 @@ for (let dk in state.shifts || {}) {
 
 ---
 
+### W7 — Reset de mes no limpia el estado de subasta forzada
+**Sección PRD:** §8 (invariante de reset)  
+**Impacto:** Medio — impide re-ejecutar el flujo completo de subasta tras un reset, bloqueando el uso de debug y emergencias  
+**Archivos:** `app.js` línea 2832 (`adminResetMonth`), línea 3670 (`subastasCerradasForzosas`)  
+**Estado:** `pendiente`
+
+**Diagnóstico:**
+`adminResetMonth` limpia `state.shifts[dk]`, `state.skippedTurns[monthKey]`, `state.pendingExceptions[monthKey]` y `state.configMes[monthKey]`, pero no toca `state.subastasCerradasForzosas`. Tras el reset, `getAnalisisFestivos` sigue encontrando la clave `${y}_${m}_${svcNombre}` como `true` y devuelve `estado: 'subasta_cerrada'` — el botón de forzar subasta no reaparece.
+
+```js
+// línea 2832 — falta borrar subastasCerradasForzosas
+async function adminResetMonth(y, m) {
+    // ...borra shifts, skippedTurns, pendingExceptions, configMes...
+    // ❌ NO borra subastasCerradasForzosas[y_m_*]
+    await saveState(); renderAll();
+}
+// línea 3920 — la marca persiste y bloquea el reintento
+const isForzada = state.subastasCerradasForzosas?.[`${y}_${m}_${svc.nombre}`];
+```
+
+**Acción requerida:**
+- En `adminResetMonth`, añadir limpieza de todas las claves de `state.subastasCerradasForzosas` que comiencen por `${y}_${m}_`
+- Una línea quirúrgica: `if (state.subastasCerradasForzosas) { Object.keys(state.subastasCerradasForzosas).forEach(k => { if (k.startsWith(\`${y}_${m}_\`)) delete state.subastasCerradasForzosas[k]; }); }`
+
+**Dependencias previas:** Ninguna  
+**Dependencias posteriores:** N5 (el override "Activar subasta ya" también necesita este fix para poder re-ejecutarse tras un reset)
+
+### Resultado
+**Estado final:** `pendiente`  
+**Decisiones tomadas:** —  
+**Efectos secundarios detectados:** —  
+**Archivos modificados:** —
+
+---
+
+### W8 — Calendario bloqueado durante la ventana voluntaria
+**Sección PRD:** §8.3  
+**Impacto:** Alto — durante la ventana voluntaria ningún residente puede auto-asignarse, anulando el propósito de la fase  
+**Archivos:** `app.js` — `openShiftModal` / `toggleShift` (guard de `isMyTurn`), `renderAlertaCargaMensual` (estado `subasta_abierta`)  
+**Estado:** `pendiente`
+
+**Diagnóstico:**
+PRD §8.3: "Cualquier residente puede reclamar esos huecos libremente, sin restricción de orden."
+
+Cuando `getAnalisisFestivos` devuelve `estado: 'subasta_abierta'`, `getCurrentTurn` ya devolvió `null` (todos terminaron su ronda). El modal de asignación evalúa `isMyTurn = (turnUser === viewUser)`, que es `false` para todos los residentes porque `turnUser === null`. El calendario queda efectivamente bloqueado para auto-asignación aunque la ventana esté abierta.
+
+**Acción requerida:**
+- En `openShiftModal` (y en `toggleShift` si tiene guard propio), introducir una condición que exima el check de `isMyTurn` cuando `getAnalisisFestivos(y, m).estado === 'subasta_abierta'`
+- Durante `subasta_abierta`, cualquier residente puede asignarse en los huecos del servicio en subasta, respetando únicamente la restricción de saliente/entrante
+- Los huecos de servicios que NO están en subasta no deben verse afectados por este cambio
+
+**Dependencias previas:** Ninguna  
+**Dependencias posteriores:** N5 (el override de emergencia sería menos necesario si W8 permite la auto-asignación libre)
+
+### Resultado
+**Estado final:** `pendiente`  
+**Decisiones tomadas:** —  
+**Efectos secundarios detectados:** —  
+**Archivos modificados:** —
+
+---
+
+### W9 — Panel de turno muestra "Turno de Nadie" en meses pasados
+**Sección PRD:** §8  
+**Impacto:** Bajo — ruido visual y confusión para admin/delegado al revisar meses anteriores  
+**Archivos:** `app.js` líneas 1548–1584 (`renderAlertaCargaMensual`, branch `isDelegado`)  
+**Estado:** `pendiente`
+
+**Diagnóstico:**
+PRD §8: "El indicador de turno activo solo debe mostrarse para el mes activo o meses futuros."
+
+En el branch `isDelegado && simulatedViewUser === null` (línea 1548), el banner se renderiza siempre independientemente del mes. Cuando `getCurrentTurn(y, m)` devuelve `null` en un mes ya finalizado, la plantilla interpolada produce `Turno de: <b>Nadie</b>`, lo que no tiene significado operativo en un mes pasado.
+
+```js
+// línea 1554 — muestra "Nadie" sin comprobar si el mes ya pasó
+`${isAdmin ? '👑 Modo Admin' : '⭐ Modo Delegado'}. Turno de: <b>${turnUser || 'Nadie'}</b>`
+```
+
+**Acción requerida:**
+- Al inicio del branch `isDelegado`, calcular si el mes visualizado (`y`, `m`) es anterior al mes actual real (`new Date()`)
+- Si el mes es pasado y `turnUser === null`: sustituir el banner de turno por un mensaje neutro (ej. "Mes archivado. Usa el mercadillo para correcciones.") o simplemente no renderizar el bloque de turno
+- El botón "Reset Mes" puede mantenerse visible para meses pasados si es útil
+
+**Dependencias previas:** Ninguna  
+**Dependencias posteriores:** Ninguna
+
+### Resultado
+**Estado final:** `pendiente`  
+**Decisiones tomadas:** —  
+**Efectos secundarios detectados:** —  
+**Archivos modificados:** —
+
+---
+
 ## Ítems ❌ — No implementados
 
 ---
@@ -567,3 +664,4 @@ Para referencia del agente: estas secciones son conformes al PRD v0.7. No requie
 | v1.5 | Mayo 2026 | W5 resuelto (selector mes en perfil, pestaña Horas admin/delegado, chivato multihueco en calendario principal). |
 | v1.6 | Mayo 2026 | W6 nuevo y resuelto (navegador de mes duplicado en vista Rotación eliminado; `rotDate`/`changeRotMonth` reemplazados por `curDate`). PRD actualizado a v1.0. |
 | v1.7 | Mayo 2026 | N5 nuevo (botón admin "Activar subasta ya" — asignación forzosa global inmediata, independiente de N1-N4). |
+| v1.8 | Mayo 2026 | W7/W8/W9 nuevos (reset no limpia subastasCerradasForzosas; calendario bloqueado en ventana voluntaria; "Turno de Nadie" en meses pasados). PRD actualizado a v1.2. |
