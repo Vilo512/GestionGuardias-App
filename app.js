@@ -87,19 +87,21 @@ async function limpiarFuturos(y, m) {
 }
 
 let curDate = new Date(2026, 0, 1);
-// 📅 Mes independiente para la vista de Rotación (no comparte navegación con el calendario)
-let rotDate = new Date(curDate.getFullYear(), curDate.getMonth(), 1);
 let selectedRotPlan = null;
 function getCurrentRotPlan(dk) {
-    if (isAdmin && selectedRotPlan && selectedRotPlan !== "AUTO") return selectedRotPlan;
+    if (isDelegado && selectedRotPlan && selectedRotPlan !== "AUTO") return selectedRotPlan;
     const p = getPlanForUserOnDate(currentUserProfile, dk);
     return p ? p.nombre : (promoConfig.planes?.[0]?.nombre || "Plan Base");
 }
 let isAdmin = false;
-let loggedInUser = null; 
+let isDelegado = false;
+let loggedInUser = null;
+let simulatedViewUser = null;
 let currentAdminView = 'pediatria';
 let editingGroups = null; 
-let showOnlyMine = false; 
+let showOnlyMine = false;
+let perfilHorasFiltroY = new Date().getFullYear();
+let perfilHorasFiltroM = new Date().getMonth(); // 0-indexed
 let promoConfig = { servicios: [] };
 let globalProfiles = []; // Almacena las fechas de inicio/cambio de todos los residentes activos
 
@@ -208,10 +210,8 @@ async function saveState() {
   }
 }
 
-// ==========================================
-// 2. PERSISTENCIA Y NORMALIZACIÓN DE CONFIG
-// ==========================================
 function normalizeConfig(config) {
+    if (!config.ventana_voluntaria_horas || config.ventana_voluntaria_horas < 24 || config.ventana_voluntaria_horas > 48) config.ventana_voluntaria_horas = 48;
     if (!config.planes) {
         config.planes = [{ id: 'plan-' + Date.now(), nombre: "Plan R1 (Año 1)", servicios: config.servicios || [] }];
         delete config.servicios;
@@ -407,9 +407,10 @@ async function evaluarEstadoUsuario() {
       } 
       else if (currentUserProfile.estado === 'aprobado') {
           document.querySelector('.tabs').style.display = 'flex';
-          isAdmin = (currentUserProfile.rol === 'admin'); 
+          isAdmin = (currentUserProfile.rol === 'admin');
+          isDelegado = (currentUserProfile.rol === 'admin' || currentUserProfile.rol === 'delegado');
           const tabAdmin = document.getElementById('tab-admin');
-          if (tabAdmin) tabAdmin.style.display = isAdmin ? 'inline-block' : 'none'; 
+          if (tabAdmin) tabAdmin.style.display = isDelegado ? 'inline-block' : 'none';
           await loadPromoConfig();
           await loadState(); 
           nav('cal');
@@ -487,8 +488,53 @@ async function crearNuevaPromocionMaster(h, s, n) {
 	
 async function loginWithGoogle() { const { error } = await supabaseClient.auth.signInWithOAuth({ provider: 'google', options: { queryParams: { prompt: 'select_account' } } }); if (error) alert("Error: " + error.message); }
 async function logoutUser() { setStatus('Cerrando sesión...'); await supabaseClient.auth.signOut(); window.location.reload(); }
-function impersonateUser(user) { if (!confirm(`Vas a pasar a la vista de usuario como ${user}. Dejarás de ser Admin temporalmente. ¿Continuar?`)) return; loggedInUser = user; isAdmin = false; nav('cal'); checkAutomaticGraduation();
-    renderAll(); }
+function impersonateUser(user) { activateSimulationMode(user); }
+
+function activateSimulationMode(nombre) {
+    simulatedViewUser = nombre;
+    document.getElementById('simulation-banner-name').textContent = nombre;
+    document.getElementById('simulation-banner').classList.add('active');
+    const h = document.querySelector('.header')?.offsetHeight || 62;
+    document.body.style.setProperty('--header-h', h + 'px');
+    nav('cal');
+    renderAll();
+}
+
+function exitSimulationMode() {
+    simulatedViewUser = null;
+    document.getElementById('simulation-banner').classList.remove('active');
+    renderAll();
+}
+
+function onAdminModeChange() {
+    const mode = document.getElementById('sel-admin-mode')?.value;
+    const residentRow = document.getElementById('admin-action-resident-row');
+    const confirmBtn = document.getElementById('admin-action-confirm-btn');
+    if (!residentRow || !confirmBtn) return;
+    if (mode) {
+        residentRow.classList.add('visible');
+        confirmBtn.className = 'admin-action-toolbar__confirm-btn' + (mode === 'grant' ? ' mode-grant' : '');
+        confirmBtn.textContent = mode === 'grant' ? 'Otorgar' : 'Visualizar';
+    } else {
+        residentRow.classList.remove('visible');
+    }
+}
+
+function onAdminActionConfirm(y, m) {
+    const mode = document.getElementById('sel-admin-mode')?.value;
+    const res = document.getElementById('sel-admin-resident')?.value;
+    if (!mode || !res) return alert('Selecciona una acción y un residente.');
+    if (mode === 'grant') {
+        if (simulatedViewUser !== null) { alert('⚠️ Estás en modo visualización. Sal de la simulación para realizar cambios.'); return; }
+        if (!state.grantedTurn) state.grantedTurn = {};
+        state.grantedTurn[getRotationKey(y, m)] = res;
+        if (!state.exceptionLogs) state.exceptionLogs = [];
+        state.exceptionLogs.push({ user: res, monthStr: `${MONTHS[m]} ${y}`, reason: 'Turno otorgado manualmente por admin', shiftsSummary: '', timestamp: new Date().toLocaleString('es-ES') });
+        saveState(); renderAll();
+    } else if (mode === 'simulate') {
+        activateSimulationMode(res);
+    }
+}
 function renderUserHeader() {
   const el = document.getElementById('user-display');
   if (authSession) el.innerHTML = `<div class="user-badge">👤 ${getInitials(loggedInUser)} <button onclick="logoutUser()" style="padding:2px 6px; font-size:0.7rem; margin-left:4px; border:none; background:rgba(0,0,0,0.1); color:var(--dark); border-radius:4px;">Salir</button></div>`;
@@ -711,8 +757,11 @@ function getRotation(y, m, forcedPlanName) {
             return userPlan && userPlan.nombre === planName;
         }).map(p => p.nombre_mostrar);
         
-        // 2. Extraer a los que ya no pertenecen manteniendo los grupos
-        currentGroups = currentGroups.map(g => g.filter(n => eligible.includes(n))).filter(g => g.length > 0);
+        // 2. Extraer a los que ya no pertenecen manteniendo los grupos. Los residentes virtuales (que no están en globalProfiles) se mantienen para que sigan rotando de forma indefinida en su plan original.
+        currentGroups = currentGroups.map(g => g.filter(n => {
+            const esReal = globalProfiles.some(p => p.nombre_mostrar === n);
+            return esReal ? eligible.includes(n) : true;
+        })).filter(g => g.length > 0);
         
         // 3. Añadir a los rezagados o nuevos al último grupo
         const existingMembers = currentGroups.flat();
@@ -770,10 +819,35 @@ function reempaquetarGruposPlan(lista, pr) {
     else return gruposMoviles;
 }
 
+// Obtiene la lista de nombres de residentes virtuales configurados en las rotaciones
+function getVirtualResidents() {
+    let list = [];
+    if (state.planRotations) {
+        for (const planName of Object.keys(state.planRotations)) {
+            const pr = state.planRotations[planName];
+            const flatGroups = (pr.baseGroups || []).flat();
+            for (const n of flatGroups) {
+                const exists = globalProfiles.some(p => p.nombre_mostrar === n);
+                if (!exists && !list.includes(n)) {
+                    list.push(n);
+                }
+            }
+        }
+    }
+    return list;
+}
+
 function getAllResidents() {
     let list = [];
     if (!globalProfiles || globalProfiles.length === 0) return list;
     list = globalProfiles.map(p => p.nombre_mostrar);
+    
+    // Añadir residentes virtuales para que participen de las rotaciones y cálculos
+    const virtuals = getVirtualResidents();
+    for (const v of virtuals) {
+        if (!list.includes(v)) list.push(v);
+    }
+    
     if (state.graduados) {
         list = list.filter(u => !state.graduados.includes(u));
     }
@@ -850,9 +924,28 @@ function getUserProgress(user, y, m) {
     let isFinished = true; 
     let messages = [];
 
-    const uProfile = globalProfiles.find(p => p.nombre_mostrar === user) || currentUserProfile;
-    const referenceDk = formatDateKey(y, m, 15);
-    const activePlan = getPlanForUserOnDate(uProfile, referenceDk);
+    let uProfile = globalProfiles.find(p => p.nombre_mostrar === user);
+    let activePlan = null;
+    if (uProfile) {
+        const referenceDk = formatDateKey(y, m, 15);
+        activePlan = getPlanForUserOnDate(uProfile, referenceDk);
+    } else {
+        // Es un residente virtual. Buscamos en qué plan de state.planRotations está su nombre en baseGroups
+        if (state.planRotations) {
+            for (const planName of Object.keys(state.planRotations)) {
+                const pr = state.planRotations[planName];
+                const flatBase = (pr.baseGroups || []).flat();
+                if (flatBase.includes(user)) {
+                    activePlan = (promoConfig.planes || []).find(pl => pl.nombre === planName);
+                    break;
+                }
+            }
+        }
+        if (!activePlan) {
+            const referenceDk = formatDateKey(y, m, 15);
+            activePlan = getPlanForUserOnDate(currentUserProfile, referenceDk);
+        }
+    }
     const serviciosActivos = activePlan ? activePlan.servicios : [];
 
     let totalFestivosHacidos = 0;
@@ -928,12 +1021,13 @@ function getUserProgress(user, y, m) {
 
     // El cerebro ajusta la exigencia según la subasta
     const analisis = getAnalisisFestivos(y, m);
-    let minimoExigibleEsteMes = analisis.minimoBase;
+    const viabilidad = calcularViabilidadFestivosMensual(y, m);
+    let minimoExigibleEsteMes = viabilidad.minimoExigible || 0;
 
     // Si la subasta ha fracasado o el mes es inasumible, exigimos el +1 a los nominados
     if (analisis.estado === 'critico' || analisis.estado === 'subasta_cerrada') {
         if (analisis.nominados.includes(user)) {
-            minimoExigibleEsteMes = analisis.minimoBase + 1; 
+            minimoExigibleEsteMes = (viabilidad.minimoExigible || 0) + 1; 
         }
     }
 
@@ -1175,8 +1269,8 @@ async function iniciarProcesoSalida(destinoId) {
     }
 
     // CAMINO C: Sucesión Obligatoria Automática (Eres el Dueño y hay gente dentro)
-    const delegados = otrosUsuarios.filter(u => u.rol === 'admin');
-    const residentes = otrosUsuarios.filter(u => u.rol !== 'admin');
+    const delegados = otrosUsuarios.filter(u => u.rol === 'delegado');
+    const residentes = otrosUsuarios.filter(u => u.rol !== 'admin' && u.rol !== 'delegado');
     const sucesor = delegados.length > 0 ? delegados[0] : residentes[0];
     
     alert(`👑 Traspaso Automático: Como eras el administrador principal, al abandonar el grupo la corona ha sido transferida automáticamente a ${sucesor.nombre_mostrar}.`);
@@ -1228,6 +1322,7 @@ async function ejecutarSalidaFinal(destinoId) {
             currentUserProfile.estado = 'aprobado';
             currentUserProfile.rol = 'admin';
             isAdmin = true;
+            isDelegado = true;
 
             alert("¡Has despertado el contenedor! Ahora eres el Administrador principal.");
             return evaluarEstadoUsuario();
@@ -1248,8 +1343,9 @@ async function ejecutarSalidaFinal(destinoId) {
     // Actualizamos la memoria local
     currentUserProfile.promocion_id = destinoId || null;
     currentUserProfile.estado = 'pendiente';
-    isAdmin = false; 
-    
+    isAdmin = false;
+    isDelegado = false;
+
     alert(destinoId ? "Solicitud enviada al nuevo grupo." : "Has salido del grupo correctamente.");
     evaluarEstadoUsuario(); 
 }
@@ -1258,7 +1354,7 @@ async function ejecutarSalidaFinal(destinoId) {
 // RENDERIZADO VISUAL GLOBAL Y NAVEGACIÓN
 // ==========================================
 function nav(tab) {
-  if (tab === 'admin' && !isAdmin) return; 
+  if (tab === 'admin' && !isDelegado) return;
 
   // Añadimos 'perfil' a la lista para que oculte las demás
   ['cal','merc','rot','grupos','help','admin', 'perfil'].forEach(t => {
@@ -1268,9 +1364,9 @@ function nav(tab) {
     if (tb) tb.className = `tab ${t === tab ? 'active' : ''}`;
   });
   
-  if (tab === 'admin' && isAdmin) {
+  if (tab === 'admin' && isDelegado) {
       document.getElementById('admin-panel').style.display = 'block';
-      navAdmin(currentAdminView || 'pediatria');
+      navAdmin(currentAdminView || 'excepciones');
   }
   
   if (tab === 'grupos') renderGruposView();
@@ -1280,17 +1376,25 @@ function nav(tab) {
 }
 
 function navAdmin(sub) {
+  const adminOnlySubs = ['calendario', 'ajustes', 'seguridad'];
+  if (adminOnlySubs.includes(sub) && !isAdmin) sub = 'excepciones';
   currentAdminView = sub;
-  ['calendario','excepciones','export','cuentas','seguridad','ajustes'].forEach(t => {
+  ['calendario','excepciones','export','cuentas','horas','seguridad','ajustes'].forEach(t => {
     const view = document.getElementById(`aview-${t}`); if (view) view.style.display = t === sub ? 'block' : 'none';
-    const tab = document.getElementById(`atab-${t}`); if (tab) tab.className = `tab ${t === sub ? 'active' : ''}`;
+    const tab = document.getElementById(`atab-${t}`);
+    if (tab) {
+      tab.className = `tab ${t === sub ? 'active' : ''}`;
+      if (adminOnlySubs.includes(t)) tab.style.display = isAdmin ? '' : 'none';
+    }
   });
+  document.getElementById('admin-nav-header').style.display = (sub === 'calendario' || sub === 'horas') ? 'block' : 'none';
   document.getElementById('admin-cal-views').style.display = (sub === 'calendario') ? 'block' : 'none';
   if (sub === 'cuentas') renderAccountsList();
   if (sub === 'calendario') renderAdminCalendar();
   if (sub === 'excepciones') renderAdminExceptions();
   if (sub === 'ajustes') renderAdminAjustes();
   if (sub === 'seguridad') renderAdminSeguridad();
+  if (sub === 'horas') renderAdminHoras();
 }
 
 async function renderAdminSeguridad() {
@@ -1345,10 +1449,11 @@ function renderAll() {
   renderMercadoInboxAndLog();
   renderRotationView();
   
-  if (isAdmin) {
+  if (isDelegado) {
     if (currentAdminView === 'cuentas') renderAccountsList();
     else if (currentAdminView === 'calendario') renderAdminCalendar();
     else if (currentAdminView === 'excepciones') renderAdminExceptions();
+    else if (currentAdminView === 'horas') renderAdminHoras();
   }
 }
 
@@ -1440,41 +1545,50 @@ function renderMainCalendar() {
       pendingReasonForTurn = state.pendingExceptions[monthKey][turnUser]; 
     }
     
-    if (isAdmin) {
+    if (isDelegado && simulatedViewUser === null) {
        if (!state.grantedTurn) state.grantedTurn = {};
        const granted = state.grantedTurn[monthKey];
        let html = `<div style="background:#f1f5f9; border:1px solid #cbd5e1; color:#475569; padding:10px 12px; border-radius:8px; margin-bottom:1rem; font-size:0.85rem; display:flex; flex-direction:column; gap:8px;">`;
-       // Turno actual
        const turnLabel = granted
            ? `🎁 Turno <b>otorgado</b> a: <b style="color:#7c3aed">${turnUser || 'Nadie'}</b> <span style="font-size:0.7rem;color:#7c3aed">(turno especial)</span>`
-           : `👑 <b>Modo Admin</b>. Turno de: <b>${turnUser || 'Nadie'}</b> ${pendingReasonForTurn ? '<span style="color:var(--fest);">(🛑 PENDIENTE)</span>' : ''}`;
+           : `${isAdmin ? '👑 <b>Modo Admin</b>' : '⭐ <b>Modo Delegado</b>'}. Turno de: <b>${turnUser || 'Nadie'}</b> ${pendingReasonForTurn ? '<span style="color:var(--fest);">(🛑 PENDIENTE)</span>' : ''}`;
        html += `<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;"><span>${turnLabel}</span><div style="display:flex; gap:8px;">`;
        if (turnUser) {
-         html += `<button class="primary" style="padding:4px 8px; font-size:0.75rem; background:var(--adu);" onclick="impersonateUser('${turnUser}')">🕵️‍♂️ Impersonar</button>`;
          html += `<button class="danger" style="padding:4px 8px; font-size:0.75rem;" onclick="adminSkipTurn('${turnUser}', ${y}, ${m})">Saltar turno ⏭️</button>`;
          if (granted) html += `<button class="primary" style="padding:4px 8px; font-size:0.75rem; background:#7c3aed;" onclick="adminClearGrantedTurn(${y}, ${m})">❌ Cancelar turno otorgado</button>`;
        }
        html += `<button class="danger" style="padding:4px 8px; font-size:0.75rem; background:var(--fest); color:white;" onclick="adminResetMonth(${y}, ${m})">⚠️ Reset Mes</button></div></div>`;
-       // Selector para otorgar turno
-       const activosParaOtorgar = getResidentesActivosEnMes(y, m);
-       const optsOtorgar = activosParaOtorgar.map(r => `<option value="${r}" ${r === granted ? 'selected' : ''}>${r}</option>`).join('');
-       html += `<div style="display:flex; align-items:center; gap:8px; border-top:1px solid #e2e8f0; padding-top:8px; flex-wrap:wrap;">
-           <span style="font-size:0.75rem; color:#7c3aed; font-weight:bold;">🎁 Otorgar turno a:</span>
-           <select id="sel-grant-turn" style="flex:1; min-width:160px; padding:4px; border-radius:5px; border:1px solid #cbd5e1; font-size:0.8rem;">
-               <option value="">— Seleccionar residente —</option>
-               ${optsOtorgar}
-           </select>
-           <button class="primary" style="padding:4px 10px; font-size:0.75rem; background:#7c3aed;" onclick="adminGrantTurn(${y}, ${m})">🎁 Otorgar</button>
-       </div>`;
-       if (skipped.length > 0) { html += `<div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid #e2e8f0; padding-top:6px;"><span style="font-size:0.75rem; color:var(--fest);">Saltados: ${skipped.join(', ')}</span><button class="primary" style="padding:4px 8px; font-size:0.75rem; background:var(--ped);" onclick="adminResetSkips(${y}, ${m})">Restaurar saltados 🔄</button></div>`; }
-       html += `</div>`;
+       // Toolbar unificado: Otorgar turno / Visualizar como
+       const activosToolbar = getResidentesActivosEnMes(y, m);
+       const optsToolbar = activosToolbar.map(r => `<option value="${r}">${r}</option>`).join('');
+       html += `<div class="admin-action-toolbar">
+           <div class="admin-action-toolbar__mode-row">
+               <span class="admin-action-toolbar__mode-label">Acción:</span>
+               <select id="sel-admin-mode" class="admin-action-toolbar__mode-select" onchange="onAdminModeChange()">
+                   <option value="">— Seleccionar acción —</option>
+                   <option value="grant">🎁 Otorgar turno a...</option>
+                   <option value="simulate">👁 Visualizar como...</option>
+               </select>
+           </div>
+           <div id="admin-action-resident-row" class="admin-action-toolbar__resident-row">
+               <select id="sel-admin-resident" class="admin-action-toolbar__resident-select">
+                   <option value="">— Residente —</option>
+                   ${optsToolbar}
+               </select>
+               <button id="admin-action-confirm-btn" class="admin-action-toolbar__confirm-btn" onclick="onAdminActionConfirm(${y}, ${m})">Confirmar</button>
+           </div>`;
+       if (skipped.length > 0) {
+           html += `<div class="admin-action-toolbar__skipped-row"><span class="admin-action-toolbar__skipped-label">Saltados: ${skipped.join(', ')}</span><button class="primary icon-btn" style="background:var(--ped);" onclick="adminResetSkips(${y}, ${m})">Restaurar saltados 🔄</button></div>`;
+       }
+       html += `</div></div>`;
        banner.innerHTML = html;
     } else if (turnUser) {
-       if (turnUser === loggedInUser) {
+       const effectiveUser = simulatedViewUser ?? loggedInUser;
+       if (turnUser === effectiveUser) {
          if (pendingReasonForTurn) {
            banner.innerHTML = `<div style="background:#fef3c7; color:#854d0e; border:1px solid #fde047; padding:10px 12px; border-radius:8px; margin-bottom:1rem; font-size:0.85rem;">⏳ <b>Validación pendiente:</b> Has solicitado saltar el turno por el motivo "<i>${pendingReasonForTurn}</i>".<br><br>⚠️ Tu turno está <b>pausado y bloqueado</b>. Debes avisar al Admin.</div>`;
          } else {
-           const pData = getUserProgress(loggedInUser, y, m);
+           const pData = getUserProgress(effectiveUser, y, m);
            
            let bannerHtml = `<div style="background:#fef9c3; color:#854d0e; border:1px solid #fde047; padding:8px 12px; border-radius:8px; margin-bottom:1rem; font-size:0.85rem;">✨ <b>¡Es tu turno de elección!</b><br>`;
            
@@ -1502,7 +1616,7 @@ function renderMainCalendar() {
         if (analisisFinal.estado === 'subasta_abierta') {
             // Fase 2: turnos completos pero quedan guardias en subasta voluntaria
             const horasRestantes = analisisFinal.horasRestantes || 0;
-            if (isAdmin) {
+            if (isDelegado && simulatedViewUser === null) {
                 banner.innerHTML = `<div style="background:#fff7ed; border:2px dashed #f97316; color:#c2410c; padding:10px 14px; border-radius:10px; margin-bottom:1rem; font-size:0.85rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
                     <span>📢 <b>Todos eligieron.</b> Quedan <b>${Math.ceil(analisisFinal.exceso)}</b> guardia(s) de <b>${analisisFinal.svcNombre}</b> en Subasta Voluntaria. Tiempo restante: <b>${horasRestantes}h</b>.</span>
                     <div style="display:flex;gap:6px;">
@@ -1517,7 +1631,7 @@ function renderMainCalendar() {
 
         } else if (analisisFinal.estado === 'subasta_cerrada' || analisisFinal.estado === 'critico') {
             // Fase 3: subasta cerrada forzosa, pendiente de inyección
-            if (isAdmin) {
+            if (isDelegado && simulatedViewUser === null) {
                 banner.innerHTML = `<div style="background:#fef2f2; border:2px dashed #ef4444; color:#b91c1c; padding:10px 14px; border-radius:10px; margin-bottom:1rem; font-size:0.85rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
                     <span>⚖️ <b>Subasta Cerrada.</b> Quedan <b>${Math.ceil(analisisFinal.exceso)}</b> guardia(s) de <b>${analisisFinal.svcNombre}</b> pendientes de asignación forzosa.</span>
                     <div style="display:flex;gap:6px;">
@@ -1534,7 +1648,7 @@ function renderMainCalendar() {
         } else {
             // ✅ Fase final: todos eligieron Y la subasta está resuelta → Mes completamente cerrado
             const mesNombre = `${MONTHS[m]} ${y}`;
-            if (isAdmin) {
+            if (isDelegado && simulatedViewUser === null) {
                 banner.innerHTML = `<div style="background: linear-gradient(135deg, #064e3b, #065f46); color:white; padding:14px 18px; border-radius:12px; margin-bottom:1rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
                     <div>
                         <div style="font-size:1rem; font-weight:bold; margin-bottom:4px;">🎉 Asignación de ${mesNombre} completada</div>
@@ -1584,17 +1698,34 @@ function renderMainCalendar() {
     if (bgStyle) cell.setAttribute('style', bgStyle);
     
     let html = `<div class="day-number">${d}</div>`;
-    
+    const multihuecoItems = [];
+
     // 🛡️ AQUÍ ESTABA EL ERROR: Recorremos los servicios definidos arriba
     todosLosServicios.forEach(svc => {
         let assigned = Object.keys(dayShifts || {}).filter(u => dayShifts[u] === svc.nombre);
-        if (showOnlyMine && loggedInUser) assigned = assigned.filter(u => u === loggedInUser);
+        if (showOnlyMine && (simulatedViewUser || loggedInUser)) assigned = assigned.filter(u => u === (simulatedViewUser ?? loggedInUser));
         assigned.forEach(u => {
             html += `<div class="shift-badge" style="background:${svc.color};">👤 ${getInitials(u)}</div>`;
         });
+        const pd = getPlazasForDay(svc, dateKey);
+        if (pd > 1) {
+            const filled = Object.keys(dayShifts || {}).filter(u => dayShifts[u] === svc.nombre).length;
+            multihuecoItems.push({ color: svc.color, filled, pd });
+        }
     });
-    
+
     cell.innerHTML = html;
+
+    if (multihuecoItems.length > 0) {
+        cell.style.position = 'relative';
+        const badgeDiv = document.createElement('div');
+        badgeDiv.setAttribute('style', 'font-size:0.6rem; background:rgba(255,255,255,0.7); border-radius:3px; padding:1px 4px; position:absolute; bottom:2px; right:2px; display:flex; flex-direction:column; align-items:flex-end; gap:1px;');
+        badgeDiv.innerHTML = multihuecoItems.map(item =>
+            `<span style="color:${item.color}; font-weight:bold; white-space:nowrap;">${item.filled}/${item.pd}</span>`
+        ).join('');
+        cell.appendChild(badgeDiv);
+    }
+
     cell.onclick = () => openShiftModal(y, m, d, dateKey);
     grid.appendChild(cell);
   }
@@ -1607,22 +1738,25 @@ function renderMainCalendar() {
 // EL MODAL DINÁMICO (Capa 2 y Multi-Slot)
 // ==========================================
 function openShiftModal(y, m, d, dateKey) {
-  if (!isAdmin && !loggedInUser) { alert("⚠️ Inicia sesión para usar el calendario."); loginWithGoogle(); return; }
+  if (!isDelegado && !loggedInUser) { alert("⚠️ Inicia sesión para usar el calendario."); loginWithGoogle(); return; }
   const dayShifts = state.shifts[dateKey] || {};
   const monthKey = getRotationKey(y, m);
-  const turnUser = getCurrentTurn(y, m); 
-  const isMyTurn = turnUser === loggedInUser;
-  const isUserPending = !!(state.pendingExceptions && state.pendingExceptions[monthKey] && state.pendingExceptions[monthKey][loggedInUser]);
-  
+  const viewUser = simulatedViewUser ?? loggedInUser;
+  const turnUser = getCurrentTurn(y, m);
+  const isMyTurn = turnUser === viewUser;
+  const isUserPending = !!(state.pendingExceptions && state.pendingExceptions[monthKey] && state.pendingExceptions[monthKey][viewUser]);
+
   // DETERMINACIÓN DIARIA: ¿Qué plan tengo yo HOY en el calendario?
   const myPlanOnDate = getPlanForUserOnDate(currentUserProfile, dateKey);
   const serviciosDisponibles = myPlanOnDate ? myPlanOnDate.servicios : [];
-  const pDataFull = getUserProgress(loggedInUser, y, m).progress;
+  const pDataFull = getUserProgress(viewUser, y, m).progress;
   const theTag = getDayTag(y, m, d);
 
   const modal = document.createElement('div'); modal.className = 'modal-overlay'; modal.id = 'shift-modal';
   let html = `<div class="modal"><h3 style="margin-bottom:0.5rem;">${d} de ${MONTHS[m]} ${y}</h3>`;
-  if (isAdmin) html += `<p style="margin-bottom:1.5rem; color:var(--fest); font-weight:bold;">👑 MODO ADMIN (Control Total)</p>`;
+  if (simulatedViewUser !== null) html += `<p style="margin-bottom:1.5rem; color:#7c3aed; font-weight:bold;">👁 Viendo como: ${simulatedViewUser}</p>`;
+  else if (isAdmin) html += `<p style="margin-bottom:1.5rem; color:var(--fest); font-weight:bold;">👑 MODO ADMIN (Control Total)</p>`;
+  else if (isDelegado) html += `<p style="margin-bottom:1.5rem; color:var(--adu); font-weight:bold;">⭐ MODO DELEGADO</p>`;
   else html += `<p style="margin-bottom:1.5rem; color:#64748b; font-size:0.9rem;">Usuario actual: <b>${loggedInUser}</b> (Evaluando: ${myPlanOnDate ? myPlanOnDate.nombre : 'Sin Plan'})</p>`;
   
   // Cambiamos el bucle para que recorra SOLO tus servicios autorizados para esta fecha
@@ -1630,8 +1764,8 @@ serviciosDisponibles.forEach((svc, svcIdx) => {
     html += `<div class="shift-option" style="flex-direction:column; align-items:stretch;"><div class="shift-option-header"><strong style="color:${svc.color};">${svc.nombre}</strong></div>`;
     const holders = Object.keys(dayShifts || {}).filter(u => dayShifts[u] === svc.nombre);
     
-    if (isAdmin) {
-// A) INTERFAZ PARA EL ADMINISTRADOR
+    if (isDelegado && simulatedViewUser === null) {
+// A) INTERFAZ PARA ADMIN/DELEGADO
 holders.forEach(h => { 
     let currentMode = state.shiftModifiers?.[dateKey]?.[h]?.tipo || 'normal';
     html += `<div style="background:#f8fafc; border:1px solid #e2e8f0; padding:10px; border-radius:6px; margin-top:8px;">
@@ -1649,10 +1783,10 @@ holders.forEach(h => {
 	}); // ⚠️ ESTE CIERRE ES EL QUE HABÍAS BORRADO
         html += `<div style="display:flex; gap:4px; margin-top:12px; border-top:1px solid #e2e8f0; padding-top:8px;"><select id="force-sel-${svcIdx}" style="margin:0; padding:4px; font-size:0.8rem;"><option value="">Añadir Residente...</option>${getAllResidents().map(r => `<option value="${r}">${r}</option>`).join('')}</select><button class="primary" style="background:var(--dark); color:white;" onclick="adminForceAssign('${dateKey}', '${svc.nombre}', ${y}, ${m}, ${d}, 'force-sel-${svcIdx}')">Poner</button></div>`;
     } else {
-        const isMine = dayShifts[loggedInUser] === svc.nombre;
+        const isMine = dayShifts[viewUser] === svc.nombre;
         let isIllegal = false; let tempShifts = JSON.parse(JSON.stringify(state.shifts || {}));
-        if (!tempShifts[dateKey]) tempShifts[dateKey] = {}; tempShifts[dateKey][loggedInUser] = svc.nombre;
-        if (getIllegalShiftsForUser(loggedInUser, tempShifts).length > 0) isIllegal = true;
+        if (!tempShifts[dateKey]) tempShifts[dateKey] = {}; tempShifts[dateKey][viewUser] = svc.nombre;
+        if (getIllegalShiftsForUser(viewUser, tempShifts).length > 0) isIllegal = true;
         
         let disabled = false; let reason = "";
         let pData = pDataFull[svc.nombre];
@@ -1661,7 +1795,7 @@ holders.forEach(h => {
         if (isUserPending && !isMine) { disabled = true; reason = "Turno bloqueado (Pendiente Admin)."; }
         else if (isIllegal && !isMine) { disabled = true; reason = "Ilegal: Choca con Saliente"; }
         else if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dateKey, myPlanOnDate ? myPlanOnDate.nombre : null) && !isMine) { disabled = true; reason = "Día no habilitado."; }
-        else if (isUserBusyOnDay(loggedInUser, dateKey) && !isMine) { disabled = true; reason = "Ya tienes guardia hoy."; }
+        else if (isUserBusyOnDay(viewUser, dateKey) && !isMine) { disabled = true; reason = "Ya tienes guardia hoy."; }
         else if (!isMyTurn && !isMine) { disabled = true; reason = `Bloqueado (Toca a ${turnUser}).`; }
         else if (pd > 0 && holders.length >= pd && !isMine) { disabled = true; reason = `Completo (${holders.length}/${pd}).`; }
         else if (isMyTurn && !isMine && !isUserPending) {
@@ -1676,15 +1810,15 @@ holders.forEach(h => {
         
 // B) INTERFAZ PARA EL RESIDENTE LOGUEADO
 if (isMine) {
-    let currentMode = state.shiftModifiers?.[dateKey]?.[loggedInUser]?.tipo || 'normal';
+    let currentMode = state.shiftModifiers?.[dateKey]?.[viewUser]?.tipo || 'normal';
     html += `<div style="display:flex; flex-direction:column; gap:6px; margin-top:8px; background:#fffbeb; padding:10px; border-radius:6px; border:1px solid #fde047;">
         <div style="display:flex; justify-content:space-between; align-items:center;">
             <span style="font-size:0.85rem; color:#713f12;"><b>Tu Guardia Seleccionada</b></span>
-            <button class="danger" onclick="toggleShift('${dateKey}', '${svc.nombre}')">Quitar</button>
+            <button class="danger" ${simulatedViewUser !== null ? 'disabled style="opacity:0.4"' : ''} onclick="toggleShift('${dateKey}', '${svc.nombre}')">Quitar</button>
         </div>
         <div style="margin-top:4px;">
             <label style="font-size:0.75rem; color:#713f12; display:block; margin-bottom:2px; font-weight:bold;">Ajustar Modalidad:</label>
-            <select onchange="updateShiftMode('${dateKey}', '${loggedInUser}', this.value)" style="margin:0; padding:6px; font-size:0.8rem; width:100%; background:white; border:1px solid #ca8a04; border-radius:4px;">
+            <select ${simulatedViewUser !== null ? 'disabled' : `onchange="updateShiftMode('${dateKey}', '${viewUser}', this.value)"`} style="margin:0; padding:6px; font-size:0.8rem; width:100%; background:white; border:1px solid #ca8a04; border-radius:4px;">
                 <option value="normal" ${currentMode === 'normal' ? 'selected' : ''}>Guardia Normal</option>
                 <option value="partida_primera" ${currentMode === 'partida_primera' ? 'selected' : ''}>Partida Diurna (50% Horas / Sin Saliente)</option>
                 <option value="partida_segunda" ${currentMode === 'partida_segunda' ? 'selected' : ''}>Partida Nocturna (50% Horas / Con Saliente)</option>
@@ -1693,7 +1827,7 @@ if (isMine) {
     </div>`;
 } else {
             html += `<div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;"><span style="font-size:0.85rem; color:${isIllegal && !isMine ? 'var(--fest)' : '#64748b'}; font-weight:${isIllegal && !isMine ? 'bold' : 'normal'}">${reason || occStr}</span>`;
-            html += `<button class="primary" ${disabled ? 'disabled style="opacity:0.4"' : ''} onclick="toggleShift('${dateKey}', '${svc.nombre}')">Elegir</button></div>`;
+            html += `<button class="primary" ${(disabled || simulatedViewUser !== null) ? 'disabled style="opacity:0.4"' : ''} onclick="toggleShift('${dateKey}', '${svc.nombre}')">Elegir</button></div>`;
         }
     }
     html += `</div>`;
@@ -1703,6 +1837,7 @@ if (isMine) {
 }
 
 async function toggleShift(dateKey, svc) {
+  if (simulatedViewUser !== null) { alert('⚠️ Estás en modo visualización. Sal de la simulación para realizar cambios.'); return; }
   if (!state.shifts[dateKey]) state.shifts[dateKey] = {};
   if (state.shifts[dateKey][loggedInUser] === svc) delete state.shifts[dateKey][loggedInUser];
   else state.shifts[dateKey][loggedInUser] = svc;
@@ -1710,16 +1845,27 @@ async function toggleShift(dateKey, svc) {
   document.getElementById('shift-modal').remove(); renderMainCalendar(); await saveState();
 }
 async function adminForceAssign(dateKey, svc, y, m, d, selectId) {
+  if (simulatedViewUser !== null) { alert('⚠️ Estás en modo visualización. Sal de la simulación para realizar cambios.'); return; }
   const res = document.getElementById(selectId).value; if (!res) return;
+  let tempShifts = JSON.parse(JSON.stringify(state.shifts || {}));
+  if (!tempShifts[dateKey]) tempShifts[dateKey] = {};
+  tempShifts[dateKey][res] = svc;
+  const conflicts = getIllegalShiftsForUser(res, tempShifts);
+  if (conflicts.length > 0) {
+    const msg = conflicts.join('\n• ');
+    if (!confirm(`⚠️ Conflicto de salientes/entrantes para ${res}:\n• ${msg}\n\n¿Asignar de todas formas?`)) return;
+  }
   if (isUserBusyOnDay(res, dateKey)) { if (!confirm(`⚠️ ${res} ya tiene otra guardia este día. ¿Asignarle también ${svc}?`)) return; }
   if (!state.shifts[dateKey]) state.shifts[dateKey] = {}; state.shifts[dateKey][res] = svc;
   document.getElementById('shift-modal').remove(); renderMainCalendar(); await saveState(); openShiftModal(y, m, d, dateKey);
 }
 async function adminForceRemove(dateKey, resToRemove, y, m, d) {
+  if (simulatedViewUser !== null) { alert('⚠️ Estás en modo visualización. Sal de la simulación para realizar cambios.'); return; }
   if (state.shifts[dateKey]) { delete state.shifts[dateKey][resToRemove]; if (Object.keys(state.shifts[dateKey] || {}).length === 0) delete state.shifts[dateKey]; }
   document.getElementById('shift-modal').remove(); renderMainCalendar(); await saveState(); openShiftModal(y, m, d, dateKey);
 }
 async function userSkipTurn(y, m) {
+    if (simulatedViewUser !== null) { alert('⚠️ Estás en modo visualización. Sal de la simulación para realizar cambios.'); return; }
     const sel = document.getElementById('user-skip-reason'); const val = sel.value === 'Otros' ? document.getElementById('user-skip-reason-other').value.trim() : sel.value;
     if (!val) return alert("Selecciona o escribe un motivo.");
     if (sel.value === 'Otros') {
@@ -1737,6 +1883,7 @@ async function userSkipTurn(y, m) {
     renderAll();
 }
 async function adminSkipTurn(turnUser, y, m) {
+   if (simulatedViewUser !== null) { alert('⚠️ Estás en modo visualización. Sal de la simulación para realizar cambios.'); return; }
    if(!confirm(`¿Saltar forzosamente el turno de ${turnUser}?`)) return;
    const monthKey = getRotationKey(y, m);
    if (!state.skippedTurns[monthKey]) state.skippedTurns[monthKey] = [];
@@ -1751,6 +1898,7 @@ async function adminSkipTurn(turnUser, y, m) {
 // TURNO OTORGADO (ADMIN GRANT TURN)
 // ==========================================
 async function adminGrantTurn(y, m) {
+    if (simulatedViewUser !== null) { alert('⚠️ Estás en modo visualización. Sal de la simulación para realizar cambios.'); return; }
     const sel = document.getElementById('sel-grant-turn');
     const residente = sel?.value;
     if (!residente) { alert('Selecciona un residente al que otorgar el turno.'); return; }
@@ -1801,7 +1949,7 @@ function renderMercadoCalendar() {
     
     promoConfig.servicios.forEach(svc => {
         let assigned = Object.keys(dayShifts || {}).filter(u => dayShifts[u] === svc.nombre);
-        if (showOnlyMine && loggedInUser) assigned = assigned.filter(u => u === loggedInUser);
+        if (showOnlyMine && (simulatedViewUser || loggedInUser)) assigned = assigned.filter(u => u === (simulatedViewUser ?? loggedInUser));
         assigned.forEach(u => {
             let isVre = u.startsWith('VRE');
             html += `<div class="shift-badge ${isVre ? 'bg-vre' : ''}" style="background:${isVre ? '#94a3b8' : svc.color};">👤 ${isVre ? 'VRE' : getInitials(u)}</div>`;
@@ -1875,51 +2023,7 @@ function renderMercadoVender(dk, svc) {
 function executeSellRequest(dk, svc) { const target = document.getElementById('vender-to-user').value; if (!target) return alert("Selecciona a quién vender."); const trade = { id: Date.now(), type: 'venta', requester: loggedInUser, target: target, d1: dk, s1: svc, timestamp: new Date().toLocaleString('es-ES') }; let conflicts = checkTradeConflicts(trade); if (conflicts.length > 0) { if (!confirm("⚠️ ATENCIÓN: Conflictos:\n\n" + conflicts.join("\n") + "\n\n¿Proponer de todos modos?")) return; } if (target === 'Externo') { trade.status = 'approved'; alert("Venta a externo realizada."); } else { trade.status = 'pending'; alert(`Solicitud enviada a ${target}.`); } if(!state.trades) state.trades = []; state.trades.push(trade); saveState(); document.getElementById('mercado-modal').remove(); checkAutomaticGraduation();
     renderAll(); }
 
-function renderMercadoCambiar(dk, svc) { document.getElementById('mercado-dynamic').innerHTML = `<h4 style="margin-bottom:1rem;">Cambiar guardia de ${svc}</h4><label style="font-size:0.85rem; color:#64748b;">1. Fecha objetivo:</label><input type="date" id="cambio-date" onchange="loadCambioTargets('${dk}', '${svc}')"><div id="cambio-targets-area" style="margin-top:1rem;"></div>`; }
-function loadCambioTargets(myDk, mySvc) { 
-    const dateVal = document.getElementById('cambio-date').value; 
-    if (!dateVal) return; const [y, mStr, dStr] = dateVal.split('-'); 
-    const targetDk = `${y}_${mStr}_${dStr}`; 
-    if (isPastDate(targetDk)) return document.getElementById('cambio-targets-area').innerHTML = `<p style="color:var(--fest); font-size:0.85rem;">No puedes seleccionar el pasado.</p>`; 
-    const computed = getComputedShifts(); 
-    const dayShifts = computed[targetDk] || {}; 
-    let html = `<label style="font-size:0.85rem; color:#64748b;">2. ¿Con quién la cambias?</label><select id="cambio-to-user"><option value="">-- Selecciona opción --</option>`; 
-    html += `<option value="Externo|">👽 Mover a este día (Otro Residente Externo)</option>`; 
-    for (let u in dayShifts) { 
-        if (u !== loggedInUser && !u.startsWith('VRE')) {
-            if (canUserTakeShift(u, loggedInUser, myDk, mySvc) && canUserTakeShift(loggedInUser, u, targetDk, dayShifts[u])) {
-                html += `<option value="${u}|${dayShifts[u]}">🔄 ${u} (Su ${dayShifts[u]})</option>`; 
-            }
-        } 
-    } 
-    html += `</select><button class="merc" style="width:100%; margin-top:10px;" onclick="proxySwapRequest('${myDk}', '${mySvc}', '${targetDk}')">Solicitar Cambio</button>`; 
-    document.getElementById('cambio-targets-area').innerHTML = html; 
-}
-function proxySwapRequest(myDk, mySvc, targetDk) { const val = document.getElementById('cambio-to-user').value; if (!val) return alert("Selecciona opción."); const [targetUser, targetSvc] = val.split('|'); executeSwapRequestDirect(myDk, mySvc, targetDk, targetSvc, targetUser); }
 
-function renderMercadoCambiarAjena(targetDk, targetSvc, targetUser) { 
-    const container = document.getElementById('mercado-dynamic'); 
-    if (!canUserTakeShift(loggedInUser, targetUser, targetDk, targetSvc)) {
-        container.innerHTML = `<p style="color:var(--fest); padding:10px; background:#fee2e2; border-radius:8px;">⚠️ Tu nivel actual no te permite asumir esta guardia de ${targetSvc}.</p>`;
-        return;
-    }
-    const computed = getComputedShifts(); let myFutureShifts = []; 
-    for (let dk in computed) { 
-        if (!isPastDate(dk) && computed[dk][loggedInUser]) { 
-            if (canUserTakeShift(targetUser, loggedInUser, dk, computed[dk][loggedInUser])) {
-                myFutureShifts.push({dk: dk, svc: computed[dk][loggedInUser]}); 
-            }
-        } 
-    } 
-    let html = `<h4 style="margin-bottom:1rem; color:var(--adu);">Ofrecer cambio a ${targetUser}</h4><div style="background:#f8fafc; padding:8px; border-radius:8px; margin-bottom:1rem; font-size:0.85rem; border:1px solid #cbd5e1;">Te quedarías su: <b>${targetSvc} (${formatDK(targetDk)})</b></div>`; 
-    if (myFutureShifts.length === 0) { 
-        html += `<p style="font-size:0.85rem; color:var(--fest); font-weight:bold;">No tienes guardias compatibles para ofrecerle a cambio.</p>`; 
-    } else { 
-        html += `<label style="font-size:0.85rem; color:#64748b;">¿Qué guardia tuya le ofreces a cambio?</label><select id="cambio-ajena-sel"><option value="">-- Selecciona tu guardia compatible --</option>${myFutureShifts.map(s => `<option value="${s.dk}|${s.svc}">${formatDK(s.dk)} - ${s.svc}</option>`).join('')}</select><button class="primary" style="width:100%; margin-top:10px; background:var(--adu);" onclick="executeSwapRequestAjena('${targetDk}', '${targetSvc}', '${targetUser}')">Enviar Propuesta de Cambio</button>`; 
-    } 
-    container.innerHTML = html; 
-}
-function executeSwapRequestAjena(targetDk, targetSvc, targetUser) { const val = document.getElementById('cambio-ajena-sel').value; if(!val) return alert("Selecciona tu guardia."); const [myDk, mySvc] = val.split('|'); executeSwapRequestDirect(myDk, mySvc, targetDk, targetSvc, targetUser); }
 
 function executeSwapRequestDirect(myDk, mySvc, targetDk, targetSvc, targetUser) { const trade = { id: Date.now(), type: 'cambio', requester: loggedInUser, target: targetUser, d1: myDk, s1: mySvc, d2: targetDk, s2: targetSvc, timestamp: new Date().toLocaleString('es-ES') }; let conflicts = checkTradeConflicts(trade); if (conflicts.length > 0) { if (!confirm("⚠️ Conflictos:\n" + conflicts.join("\n") + "\n¿Proponer de todos modos?")) return; } if (targetUser === 'Externo') { trade.status = 'approved'; alert("Cambio con externo realizado."); } else { trade.status = 'pending'; alert(`Solicitud enviada a ${targetUser}.`); } if(!state.trades) state.trades = []; state.trades.push(trade); saveState(); document.getElementById('mercado-modal').remove(); checkAutomaticGraduation();
     renderAll(); }
@@ -1931,9 +2035,22 @@ function executeBuyRequest(dk, svc, targetUser) { if (targetUser !== 'Externo' &
 function renderAdminAjustes() {
   const container = document.getElementById('admin-config-container');
   let html = ``;
-  
+
   if (!promoConfig.planes) promoConfig.planes = [];
-  
+
+  // ── Configuración general del contenedor (solo admin) ──
+  html += `
+  <div class="cfg-card" style="border-left:4px solid #7c3aed; margin-bottom:20px;">
+    <h3 style="margin-bottom:0.75rem; color:#7c3aed;">⚙️ Configuración General</h3>
+    <div style="display:flex; align-items:flex-end; gap:16px; flex-wrap:wrap;">
+      <div>
+        <label style="font-size:0.8rem; color:#64748b; display:block; margin-bottom:4px;">Duración ventana voluntaria (horas)</label>
+        <input type="number" id="cfg-ventana-horas" value="${promoConfig.ventana_voluntaria_horas || 48}" min="24" max="48" style="margin:0; width:90px;">
+      </div>
+      <p style="font-size:0.78rem; color:#94a3b8; margin:0; flex:1; min-width:180px;">Tiempo disponible para reclamar voluntariamente una guardia desierta antes del forzamiento automático. Entre 24 y 48 horas.</p>
+    </div>
+  </div>`;
+
   promoConfig.planes.forEach((plan, pIdx) => {
     html += `
     <details style="background:#f1f5f9; border:2px solid #cbd5e1; border-radius:12px; padding:15px; margin-bottom:20px;"><summary style="font-weight:bold; cursor:pointer; font-size:1.1rem; color:var(--dark);">👉 Desplegar/Ocultar: ${plan.nombre}</summary><div style="margin-top: 15px;">
@@ -2157,6 +2274,13 @@ function adminToggleRuleTag(pIdx, svcIdx, ruleIdx, tag) {
 function syncConfigFromUI() {
   if (!promoConfig) promoConfig = {};
   if (!promoConfig.planes) promoConfig.planes = [];
+
+  // 0. Configuración general del contenedor
+  const ventanaInput = document.getElementById('cfg-ventana-horas');
+  if (ventanaInput) {
+    const v = parseInt(ventanaInput.value) || 48;
+    promoConfig.ventana_voluntaria_horas = Math.min(48, Math.max(24, v));
+  }
 
   // 1. Recorremos cada plan configurado en la interfaz
   promoConfig.planes.forEach((plan, pIdx) => {
@@ -2659,9 +2783,53 @@ async function adminRejectException(u, monthKey) { if(!confirm(`¿Rechazar?`)) r
     renderAll(); }
 async function adminAddExceptionReason() { const v = document.getElementById('new-reason-input').value.trim(); if (!v) return; if (!state.exceptionReasons) state.exceptionReasons = []; state.exceptionReasons.push(v); document.getElementById('new-reason-input').value = ''; await saveState(); renderAdminExceptions(); }
 async function adminRemoveExceptionReason(idx) { if (!confirm("¿Borrar?")) return; state.exceptionReasons.splice(idx, 1); await saveState(); renderAdminExceptions(); }
+
+function renderAdminHoras() {
+    const y = curDate.getFullYear(), m = curDate.getMonth();
+    const residentes = (globalProfiles || [])
+        .filter(p => p.estado === 'aprobado')
+        .map(p => {
+            const res = calcHorasResidente(p.nombre_mostrar, y, m);
+            return { nombre: p.nombre_mostrar, ...res };
+        })
+        .sort((a, b) => b.horasMes - a.horasMes);
+
+    let tablaHtml = '';
+    if (residentes.length > 0) {
+        const filas = residentes.map(r =>
+            `<tr style="border-bottom:1px solid #f1f5f9;">
+                <td style="padding:10px 12px; font-weight:bold; color:var(--dark);">${r.nombre}</td>
+                <td style="padding:10px 12px; text-align:right; font-weight:bold;">${r.horasMes.toFixed(1)} h</td>
+                <td style="padding:10px 12px; text-align:right; color:#475569;">${r.completasMes} / ${r.partidasMes}</td>
+                <td style="padding:10px 12px; text-align:right; color:#475569;">${r.horasAnio.toFixed(1)} h</td>
+                <td style="padding:10px 12px; text-align:right; color:#94a3b8;">${r.horasTotal.toFixed(1)} h</td>
+            </tr>`).join('');
+        tablaHtml = `<div style="overflow-x:auto;">
+            <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+                <thead>
+                    <tr style="background:#f1f5f9;">
+                        <th style="padding:10px 12px; font-size:0.78rem; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0; text-align:left;">RESIDENTE</th>
+                        <th style="padding:10px 12px; font-size:0.78rem; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0; text-align:right;">HORAS MES</th>
+                        <th style="padding:10px 12px; font-size:0.78rem; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0; text-align:right;">COMPLETAS / PARTIDAS</th>
+                        <th style="padding:10px 12px; font-size:0.78rem; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0; text-align:right;">TOTAL ${y}</th>
+                        <th style="padding:10px 12px; font-size:0.78rem; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0; text-align:right;">HISTÓRICO</th>
+                    </tr>
+                </thead>
+                <tbody>${filas}</tbody>
+            </table>
+        </div>`;
+    } else {
+        tablaHtml = '<p style="color:#94a3b8; font-style:italic;">No hay residentes aprobados.</p>';
+    }
+    const _elHoras = document.getElementById('aview-horas');
+    if (!_elHoras) return;
+    _elHoras.innerHTML =
+        `<h3 style="margin-bottom:16px; font-size:1.1rem; color:var(--dark);">⏱️ Horas por Residente — ${MONTHS[m]} ${y}</h3>${tablaHtml}`;
+}
+
 async function adminResetSkips(y, m) { const monthKey = getRotationKey(y, m); if (state.skippedTurns[monthKey]) { delete state.skippedTurns[monthKey]; await saveState(); checkAutomaticGraduation();
     renderAll(); } }
-async function adminResetMonth(y, m) { if (!confirm(`¡PELIGRO! ¿Borrar todas las guardias de este mes?`)) return; const days = getDaysInMonth(y, m); for(let d = 1; d <= days; d++) { const dk = formatDateKey(y, m, d); delete state.shifts[dk]; } const monthKey = getRotationKey(y, m); delete state.skippedTurns[monthKey]; if (state.pendingExceptions && state.pendingExceptions[monthKey]) delete state.pendingExceptions[monthKey]; await saveState(); checkAutomaticGraduation();
+async function adminResetMonth(y, m) { if (!confirm(`¡PELIGRO! ¿Borrar todas las guardias de este mes?`)) return; const days = getDaysInMonth(y, m); for(let d = 1; d <= days; d++) { const dk = formatDateKey(y, m, d); delete state.shifts[dk]; } const monthKey = getRotationKey(y, m); delete state.skippedTurns[monthKey]; if (state.pendingExceptions && state.pendingExceptions[monthKey]) delete state.pendingExceptions[monthKey]; if (state.configMes && state.configMes[monthKey]) delete state.configMes[monthKey]; if (state.subastasCerradasForzosas) { Object.keys(state.subastasCerradasForzosas).forEach(k => { if (k.startsWith(`${y}_${m}_`)) delete state.subastasCerradasForzosas[k]; }); } if (state.subastaNominados) { Object.keys(state.subastaNominados).forEach(k => { if (k.startsWith(`${y}_${m}_`)) delete state.subastaNominados[k]; }); } await saveState(); checkAutomaticGraduation();
     renderAll(); }
 async function adminVaciarGeneracion() {
     if (!confirm("⚠️ ATENCIÓN: Vas a expulsar a todos los residentes normales y borrar todas las guardias y calendarios. Las reglas se mantendrán. ¿Estás seguro?")) return;
@@ -2687,7 +2855,9 @@ async function adminVaciarGeneracion() {
     state.exceptionLogs = [];
     state.pendingExceptions = {};
     state.trades = [];
-    
+    state.subastasCerradasForzosas = {};
+    state.subastaNominados = {};
+
     // 3. Reseteamos la rotación para que solo quede el Admin actual
     const _vacPlanName = promoConfig.planes?.[0]?.nombre || "Plan Base";
     state.planRotations = {};
@@ -2742,9 +2912,9 @@ async function requestTradeUndo(id) { let t = state.trades.find(x => x.id === id
     renderAll(); }
 
 function renderMercadoCambiar(dk, svc) { const container = document.getElementById('mercado-dynamic'); container.innerHTML = `<h4 style="margin-bottom:1rem;">Cambiar guardia de ${svc}</h4><label style="font-size:0.85rem; color:#64748b;">1. Elige la fecha objetivo:</label><input type="date" id="cambio-date" onchange="loadCambioTargets('${dk}', '${svc}')"><div id="cambio-targets-area" style="margin-top:1rem;"></div>`; }
-function loadCambioTargets(myDk, mySvc) { const dateVal = document.getElementById('cambio-date').value; if (!dateVal) return; const [y, mStr, dStr] = dateVal.split('-'); const targetDk = `${y}_${mStr}_${dStr}`; if (isPastDate(targetDk)) { document.getElementById('cambio-targets-area').innerHTML = `<p style="color:var(--fest); font-size:0.85rem;">No puedes seleccionar una fecha del pasado para hacer un cambio.</p>`; return; } const computed = getComputedShifts(); const dayShifts = computed[targetDk] || {}; let html = `<label style="font-size:0.85rem; color:#64748b;">2. ¿Con quién la cambias?</label><select id="cambio-to-user"><option value="">-- Selecciona opción --</option>`; html += `<option value="Externo|">👽 Mover a este día (Otro Residente Externo)</option>`; for (let u in dayShifts) { if (u !== loggedInUser && !u.startsWith('VRE')) html += `<option value="${u}|${dayShifts[u]}">🔄 ${u} (Su ${dayShifts[u]})</option>`; } html += `</select><button class="merc" style="width:100%; margin-top:10px;" onclick="proxySwapRequest('${myDk}', '${mySvc}', '${targetDk}')">Solicitar Cambio</button>`; document.getElementById('cambio-targets-area').innerHTML = html; }
+function loadCambioTargets(myDk, mySvc) { const dateVal = document.getElementById('cambio-date').value; if (!dateVal) return; const [y, mStr, dStr] = dateVal.split('-'); const targetDk = `${y}_${mStr}_${dStr}`; if (isPastDate(targetDk)) { document.getElementById('cambio-targets-area').innerHTML = `<p style="color:var(--fest); font-size:0.85rem;">No puedes seleccionar una fecha del pasado para hacer un cambio.</p>`; return; } const computed = getComputedShifts(); const dayShifts = computed[targetDk] || {}; let html = `<label style="font-size:0.85rem; color:#64748b;">2. ¿Con quién la cambias?</label><select id="cambio-to-user"><option value="">-- Selecciona opción --</option>`; html += `<option value="Externo|">👽 Mover a este día (Otro Residente Externo)</option>`; for (let u in dayShifts) { if (u !== loggedInUser && !u.startsWith('VRE')) { if (canUserTakeShift(u, loggedInUser, myDk, mySvc) && canUserTakeShift(loggedInUser, u, targetDk, dayShifts[u])) { html += `<option value="${u}|${dayShifts[u]}">🔄 ${u} (Su ${dayShifts[u]})</option>`; } } } html += `</select><button class="merc" style="width:100%; margin-top:10px;" onclick="proxySwapRequest('${myDk}', '${mySvc}', '${targetDk}')">Solicitar Cambio</button>`; document.getElementById('cambio-targets-area').innerHTML = html; }
 function proxySwapRequest(myDk, mySvc, targetDk) { const val = document.getElementById('cambio-to-user').value; if (!val) return alert("Selecciona una opción de cambio."); const [targetUser, targetSvc] = val.split('|'); executeSwapRequestDirect(myDk, mySvc, targetDk, targetSvc, targetUser); }
-function renderMercadoCambiarAjena(targetDk, targetSvc, targetUser) { const container = document.getElementById('mercado-dynamic'); const computed = getComputedShifts(); let myFutureShifts = []; for (let dk in computed) { if (!isPastDate(dk) && computed[dk][loggedInUser]) { myFutureShifts.push({dk: dk, svc: computed[dk][loggedInUser]}); } } let html = `<h4 style="margin-bottom:1rem; color:var(--adu);">Ofrecer cambio a ${targetUser}</h4><div style="background:#f8fafc; padding:8px; border-radius:8px; margin-bottom:1rem; font-size:0.85rem; border:1px solid #cbd5e1;">Te quedarías su: <b>${targetSvc} (${formatDK(targetDk)})</b></div>`; if (myFutureShifts.length === 0) { html += `<p style="font-size:0.85rem; color:var(--fest); font-weight:bold;">No tienes guardias futuras programadas para ofrecerle a cambio.</p>`; } else { html += `<label style="font-size:0.85rem; color:#64748b;">¿Qué guardia tuya le ofreces a cambio?</label><select id="cambio-ajena-sel"><option value="">-- Selecciona una de tus guardias --</option>${myFutureShifts.map(s => `<option value="${s.dk}|${s.svc}">${formatDK(s.dk)} - ${s.svc}</option>`).join('')}</select><button class="primary" style="width:100%; margin-top:10px; background:var(--adu);" onclick="executeSwapRequestAjena('${targetDk}', '${targetSvc}', '${targetUser}')">Enviar Propuesta de Cambio</button>`; } container.innerHTML = html; }
+function renderMercadoCambiarAjena(targetDk, targetSvc, targetUser) { const container = document.getElementById('mercado-dynamic'); if (!canUserTakeShift(loggedInUser, targetUser, targetDk, targetSvc)) { container.innerHTML = `<p style="color:var(--fest); padding:10px; background:#fee2e2; border-radius:8px;">⚠️ Tu nivel actual no te permite asumir esta guardia de ${targetSvc}.</p>`; return; } const computed = getComputedShifts(); let myFutureShifts = []; for (let dk in computed) { if (!isPastDate(dk) && computed[dk][loggedInUser]) { if (canUserTakeShift(targetUser, loggedInUser, dk, computed[dk][loggedInUser])) { myFutureShifts.push({dk: dk, svc: computed[dk][loggedInUser]}); } } } let html = `<h4 style="margin-bottom:1rem; color:var(--adu);">Ofrecer cambio a ${targetUser}</h4><div style="background:#f8fafc; padding:8px; border-radius:8px; margin-bottom:1rem; font-size:0.85rem; border:1px solid #cbd5e1;">Te quedarías su: <b>${targetSvc} (${formatDK(targetDk)})</b></div>`; if (myFutureShifts.length === 0) { html += `<p style="font-size:0.85rem; color:var(--fest); font-weight:bold;">No tienes guardias futuras programadas para ofrecerle a cambio.</p>`; } else { html += `<label style="font-size:0.85rem; color:#64748b;">¿Qué guardia tuya le ofreces a cambio?</label><select id="cambio-ajena-sel"><option value="">-- Selecciona una de tus guardias --</option>${myFutureShifts.map(s => `<option value="${s.dk}|${s.svc}">${formatDK(s.dk)} - ${s.svc}</option>`).join('')}</select><button class="primary" style="width:100%; margin-top:10px; background:var(--adu);" onclick="executeSwapRequestAjena('${targetDk}', '${targetSvc}', '${targetUser}')">Enviar Propuesta de Cambio</button>`; } container.innerHTML = html; }
 function executeSwapRequestAjena(targetDk, targetSvc, targetUser) { const val = document.getElementById('cambio-ajena-sel').value; if(!val) return alert("Selecciona una guardia tuya para ofrecer."); const [myDk, mySvc] = val.split('|'); executeSwapRequestDirect(myDk, mySvc, targetDk, targetSvc, targetUser); }
 // ==========================================
 // GESTIÓN DE USUARIOS, DELEGADOS Y ABDICACIÓN
@@ -2802,7 +2972,8 @@ async function renderAccountsList() {
   aprobados.forEach(u => {
       // Etiquetas visuales de Rango
       let rolBadge = '✅ Residente';
-      if (u.rol === 'admin') rolBadge = (promo.creador_id === u.id) ? '👑 Dueño' : '⭐ Delegado';
+      if (u.rol === 'admin') rolBadge = '👑 Dueño';
+      else if (u.rol === 'delegado') rolBadge = '⭐ Delegado';
       
       let acciones = '';
 
@@ -2819,15 +2990,15 @@ async function renderAccountsList() {
               // El Dueño puede expulsar a cualquiera
               acciones += `<button class="danger icon-btn" style="margin-right:4px;" onclick="adminExpulsarUsuario('${u.id}', '${u.nombre_mostrar}')">Expulsar</button>`;
               
-              if (u.rol !== 'admin') {
-                  acciones += `<button class="primary icon-btn" style="margin-right:4px; background:var(--dark);" onclick="adminCambiarRol('${u.id}', 'admin')">Hacer Delegado</button>`;
-              } else {
-                  acciones += `<button class="danger icon-btn" style="margin-right:4px;" onclick="adminCambiarRol('${u.id}', null)">Quitar Delegado</button>`;
+              if (u.rol === 'delegado') {
+                  acciones += `<button class="danger icon-btn" style="margin-right:4px;" onclick="adminCambiarRol('${u.id}', 'residente')">Quitar Delegado</button>`;
+              } else if (u.rol !== 'admin') {
+                  acciones += `<button class="primary icon-btn" style="margin-right:4px; background:var(--dark);" onclick="adminCambiarRol('${u.id}', 'delegado')">Hacer Delegado</button>`;
               }
               acciones += `<button class="primary icon-btn" style="background:var(--adu);" onclick="adminTraspasarCorona('${u.id}', '${u.nombre_mostrar}')">Coronar Dueño</button>`;
           } else {
-              // Eres un Delegado. Solo puedes interactuar con residentes normales.
-              if (u.rol !== 'admin') {
+              // Delegado: solo puede expulsar residentes, no a admins ni a otros delegados.
+              if (u.rol !== 'admin' && u.rol !== 'delegado') {
                   acciones += `<button class="danger icon-btn" style="margin-right:4px;" onclick="adminExpulsarUsuario('${u.id}', '${u.nombre_mostrar}')">Expulsar</button>`;
               }
           }
@@ -2871,7 +3042,7 @@ async function adminTraspasarCorona(userId, userName) {
     setStatus('Traspasando corona...');
     await supabaseClient.from('promociones').update({ creador_id: userId }).eq('id', currentUserProfile.promocion_id);
     await supabaseClient.from('perfiles').update({ rol: 'admin' }).eq('id', userId);
-    await supabaseClient.from('perfiles').update({ rol: 'admin' }).eq('id', currentUserProfile.id);
+    await supabaseClient.from('perfiles').update({ rol: 'delegado' }).eq('id', currentUserProfile.id);
     alert(`La corona ha sido cedida a ${userName}. Ahora eres un Delegado.`);
     window.location.reload();
 }
@@ -2941,16 +3112,29 @@ async function adminAprobarUsuario(userId, userName) {
     const { error } = await supabaseClient.from('perfiles').update({ estado: 'aprobado' }).eq('id', userId);
     if(error) return alert("Error: " + error.message);
     
-    // Añadir al final de la base del Plan que le corresponde ahora mismo
+    // Añadir al grupo con menor número de miembros (W4)
     const dk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
     const planName = getCurrentRotPlan(dk);
     if (!state.planRotations) state.planRotations = {};
     if (!state.planRotations[planName]) state.planRotations[planName] = { baseGroups: [], baseYear: curDate.getFullYear(), baseMonth: curDate.getMonth(), customRotations: {}, residentesFijos: [] };
     const pr = state.planRotations[planName];
-    let filaIndia = (pr.baseGroups || []).flat();
-    filaIndia.push(userName);
-    pr.baseGroups = reempaquetarGruposPlan(filaIndia, pr);
+    const grupos = (pr.baseGroups && pr.baseGroups.length > 0 && pr.baseGroups.some(g => g.length > 0))
+        ? pr.baseGroups
+        : null;
+    if (!grupos) {
+        // Primer residente del plan: crear el grupo inicial
+        pr.baseGroups = [[userName]];
+    } else {
+        // Encontrar el grupo con menos miembros (último en caso de empate)
+        const minIdx = grupos.reduce((best, g, i) => g.length <= grupos[best].length ? i : best, 0);
+        grupos[minIdx].push(userName);
+        // Solo reempaquetar si algún grupo supera el máximo de 4
+        if (grupos.some(g => g.length > 4)) {
+            pr.baseGroups = reempaquetarGruposPlan(grupos.flat(), pr);
+        }
+    }
     
+    invalidateConfigMes();
     await saveState(); 
     await renderAccountsList(); 
     setStatus('Conectado ✅');
@@ -2983,26 +3167,14 @@ async function adminRechazarUsuario(userId) {
     setStatus('Conectado ✅');
 }
 
-function changeRotMonth(delta) {
-    let y = rotDate.getFullYear(), m = rotDate.getMonth() + delta;
-    if (m > 11) { m = 0; y++; } else if (m < 0) { m = 11; y--; }
-    rotDate = new Date(y, m, 1);
-    editingGroups = null;
-    renderRotationView();
-}
-
 function renderRotationView() {
-    // Sincroniza rotDate con curDate solo si rotDate está en el pasado lejano (inicialización)
-    if (rotDate.getFullYear() === 2026 && rotDate.getMonth() === 0 && curDate.getMonth() !== 0) {
-        rotDate = new Date(curDate.getFullYear(), curDate.getMonth(), 1);
-    }
-    const y = rotDate.getFullYear(), m = rotDate.getMonth();
+    const y = curDate.getFullYear(), m = curDate.getMonth();
     const dk = formatDateKey(y, m, 1);
 
     // Inject Plan Selector
     const containerTop = document.getElementById('rot-content');
     let planSelectorHtml = '';
-    if (isAdmin && promoConfig.planes) {
+    if (isDelegado && promoConfig.planes) {
         planSelectorHtml = `<div style="margin-bottom:15px; padding:10px; background:#f8fafc; border-radius:8px; display:flex; align-items:center; gap:10px;">
             <label style="font-weight:bold; font-size:0.9rem;">Viendo Rotacin de:</label>
             <select id="rot-plan-select" style="padding:5px; border-radius:5px; border:1px solid #cbd5e1;" onchange="selectedRotPlan = this.value; renderRotationView();">
@@ -3016,13 +3188,7 @@ function renderRotationView() {
     }
     
     const groups = getRotation(y, m);
-    // Cabecera de mes con navegación propia
-    const monthNavHtml = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
-        <button onclick="changeRotMonth(-1)" style="padding:4px 10px;border-radius:6px;border:1px solid #cbd5e1;cursor:pointer;">&larr;</button>
-        <strong style="font-size:1rem;">${MONTHS[m]} ${y}</strong>
-        <button onclick="changeRotMonth(1)" style="padding:4px 10px;border-radius:6px;border:1px solid #cbd5e1;cursor:pointer;">&rarr;</button>
-    </div>`;
-    containerTop.innerHTML = monthNavHtml + planSelectorHtml;
+    containerTop.innerHTML = planSelectorHtml;
     
     const listDiv = document.createElement('div');
 
@@ -3035,12 +3201,6 @@ function renderRotationView() {
         listDiv.appendChild(div); 
     }); 
     containerTop.appendChild(listDiv);
-    // Ignore old loop: 
-    [].forEach((g, i) => { 
-        const div = document.createElement('div'); div.className = 'rot-group'; 
-        div.innerHTML = `<h4 style="margin-bottom:0.5rem; color:var(--dark);">Grupo ${i+1}</h4>` + g.map(res => `<div style="padding:4px 0; border-bottom:1px dashed #e2e8f0; font-size:0.9rem;"><strong>${order++}.</strong> ${res}</div>`).join(''); 
-        listDiv.appendChild(div); 
-    }); 
     if (isAdmin) { 
         document.getElementById('admin-rot-tools').style.display = 'block'; 
         if (!editingGroups) editingGroups = JSON.parse(JSON.stringify(groups)); 
@@ -3049,7 +3209,7 @@ function renderRotationView() {
 }
 
 async function toggleResidenteFijo(nombre) {
-    const dk = formatDateKey(rotDate.getFullYear(), rotDate.getMonth(), 1);
+    const dk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
     const planName = getCurrentRotPlan(dk);
     if (!state.planRotations || !state.planRotations[planName]) return;
     const pr = state.planRotations[planName];
@@ -3075,6 +3235,7 @@ async function toggleResidenteFijo(nombre) {
     
     editingGroups = nuevoBlock;
     pr.baseGroups = JSON.parse(JSON.stringify(editingGroups));
+    invalidateConfigMes();
     await saveState();
     renderEditor();
 }
@@ -3195,7 +3356,7 @@ function moveResInGroup(gIdx, rIdx, dir) {
 // Mueve un residente al grupo anterior (intercambia con el último de ese grupo)
 function moveResToPrevGroup(gIdx, rIdx) {
     if (gIdx <= 0) return;
-    const _dk2 = formatDateKey(rotDate.getFullYear(), rotDate.getMonth(), 1);
+    const _dk2 = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
     const _pr2 = state.planRotations?.[getCurrentRotPlan(_dk2)] || { residentesFijos: [] };
     const esFijoGroup = gIdx === 0 || (gIdx === 1 && editingGroups[0].some(n => (_pr2.residentesFijos||[]).includes(n)));
     if (esFijoGroup) return; // No mover al grupo de fijos
@@ -3319,29 +3480,29 @@ function editorAddGroup() { editingGroups.push([]); renderEditor(); }
 function editorRemoveGroup(gi) { editingGroups.splice(gi, 1); renderEditor(); }
 
 async function saveCustomMonth() {
-    const _dk = formatDateKey(rotDate.getFullYear(), rotDate.getMonth(), 1);
+    const _dk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
     const _planName = getCurrentRotPlan(_dk);
     const _pr = state.planRotations?.[_planName];
-    if (_pr) _pr.customRotations[getRotationKey(rotDate.getFullYear(), rotDate.getMonth())] = JSON.parse(JSON.stringify(editingGroups));
+    if (_pr) _pr.customRotations[getRotationKey(curDate.getFullYear(), curDate.getMonth())] = JSON.parse(JSON.stringify(editingGroups));
     await saveState(); 
     checkAutomaticGraduation();
     renderAll(); 
     alert("Excepción guardada SOLO para este mes. Los meses siguientes seguirán su curso matemático normal ignorando este cambio."); 
 }
 async function saveAsNewBase() {
-    const _dk = formatDateKey(rotDate.getFullYear(), rotDate.getMonth(), 1);
+    const _dk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
     const _planName = getCurrentRotPlan(_dk);
     if (!state.planRotations) state.planRotations = {};
-    if (!state.planRotations[_planName]) state.planRotations[_planName] = { baseGroups: [], baseYear: rotDate.getFullYear(), baseMonth: rotDate.getMonth(), customRotations: {}, residentesFijos: [] };
+    if (!state.planRotations[_planName]) state.planRotations[_planName] = { baseGroups: [], baseYear: curDate.getFullYear(), baseMonth: curDate.getMonth(), customRotations: {}, residentesFijos: [] };
     const _pr = state.planRotations[_planName];
     _pr.baseGroups = JSON.parse(JSON.stringify(editingGroups));
-    _pr.baseMonth = rotDate.getMonth();
-    _pr.baseYear = rotDate.getFullYear();
+    _pr.baseMonth = curDate.getMonth();
+    _pr.baseYear = curDate.getFullYear();
     _pr.customRotations = {};
 
     // Limpiar el caché de ordenSeleccion para todos los meses desde la nueva base en adelante
     // para que se regeneren con el orden rotado correcto
-    const baseVal = rotDate.getFullYear() * 12 + rotDate.getMonth();
+    const baseVal = curDate.getFullYear() * 12 + curDate.getMonth();
     if (state.configMes) {
         let cleared = 0;
         Object.keys(state.configMes).forEach(mk => {
@@ -3352,18 +3513,18 @@ async function saveAsNewBase() {
                 cleared++;
             }
         });
-        if (cleared > 0) console.log(`🔄 configMes: ${cleared} mes(es) desde ${MONTHS[rotDate.getMonth()]} ${rotDate.getFullYear()} borrados y se regenerarán automáticamente.`);
+        if (cleared > 0) console.log(`🔄 configMes: ${cleared} mes(es) desde ${MONTHS[curDate.getMonth()]} ${curDate.getFullYear()} borrados y se regenerarán automáticamente.`);
     }
 
     await saveState();
     renderRotationView();
-    alert(`¡Base Absoluta establecida para el Plan '${_planName}'!\nEl orden de turno de todos los meses desde ${MONTHS[rotDate.getMonth()]} ${rotDate.getFullYear()} en adelante se ha recalculado automáticamente.`);
+    alert(`¡Base Absoluta establecida para el Plan '${_planName}'!\nEl orden de turno de todos los meses desde ${MONTHS[curDate.getMonth()]} ${curDate.getFullYear()} en adelante se ha recalculado automáticamente.`);
 }
 
 async function clearCustomMonth() {
-    const _dk = formatDateKey(rotDate.getFullYear(), rotDate.getMonth(), 1);
+    const _dk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
     const _pr = state.planRotations?.[getCurrentRotPlan(_dk)];
-    if (_pr) delete _pr.customRotations[getRotationKey(rotDate.getFullYear(), rotDate.getMonth())];
+    if (_pr) delete _pr.customRotations[getRotationKey(curDate.getFullYear(), curDate.getMonth())];
     await saveState(); 
     editingGroups = null; 
     checkAutomaticGraduation();
@@ -3410,21 +3571,21 @@ function calcularViabilidadFestivosMensual(ano, mes) {
     };
 }
 	
-function getHistoricoFestivosResidentes(targetY, targetM, validTags, targetSvc = null) {
+function getHistoricoFestivosResidentes(targetY, targetM, validTags, targetSvc = null, includeCurrentMonth = false) {
     if (!validTags) validTags = ['fin_de_semana', 'festivo_intersemanal'];
-    
+
     let historico = {};
     getAllResidents().forEach(r => historico[r] = 0);
-    
+
     if (!state.shifts) return historico;
-    
+
     const computed = getComputedShifts();
     Object.keys(computed).forEach(dk => {
         const parts = dk.split('_');
         const y = parseInt(parts[0]), m = parseInt(parts[1]) - 1, d = parseInt(parts[2]);
-        
-        // 1. Filtro temporal estricto: solo el pasado del mismo año de residencia
-        if (y > targetY || (y === targetY && m >= targetM)) return;
+
+        // 1. Filtro temporal: histórico puro o incluyendo mes actual según criterio
+        if (y > targetY || (y === targetY && (includeCurrentMonth ? m > targetM : m >= targetM))) return;
         
         const tag = getDayTag(y, m, d);
         if (!validTags.includes(tag)) return;
@@ -3453,19 +3614,15 @@ function getHistoricoFestivosResidentes(targetY, targetM, validTags, targetSvc =
 function renderAlertaCargaMensual() {
     const container = document.getElementById('alerta-carga-mensual');
     if (!container) return;
-    
+    container.innerHTML = '';
+
     const y = curDate.getFullYear();
     const m = curDate.getMonth();
     const mk = getRotationKey(y, m);
-    if (!state.configMes || !state.configMes[mk]) {
-        /* container.innerHTML = ''; */ return;
-    }
-    
+    if (!state.configMes || !state.configMes[mk]) return;
+
     const analisis = getAnalisisFestivos(y, m);
-    
-    if (analisis.estado === 'libre') {
-        /* container.innerHTML = ''; */ return;
-    }
+    if (analisis.estado === 'libre') return;
 
     let criterioTexto = "suerte aleatoria";
     if (analisis.criterio === 'historico_festivos') criterioTexto = "tienen el menor histórico de Festivos";
@@ -3476,15 +3633,40 @@ function renderAlertaCargaMensual() {
 
     const nombresImplicados = analisis.nominados.map(r => `<b>${r}</b> ${analisis.criterio !== 'aleatorio' ? `(${analisis.historico[r]||0} contados)` : ''}`).join(', ');
 
+    // Contar huecos vacíos reales del calendario (slots, no residentes en exceso)
+    const referenceDk2 = formatDateKey(y, m, 15);
+    const planRef = getPlanForUserOnDate(currentUserProfile, referenceDk2) || promoConfig.planes?.[0];
+    const svcRef = planRef?.servicios?.find(s => s.nombre === analisis.svcNombre);
+    let huecosCount = Math.ceil(analisis.exceso); // fallback si no se puede calcular
+    if (svcRef) {
+        huecosCount = 0;
+        const totalDiasRef = getDaysInMonth(y, m);
+        for (let d = 1; d <= totalDiasRef; d++) {
+            const tag = getDayTag(y, m, d);
+            if ((svcRef.subastaTrigger || []).includes(tag)) {
+                const dk = formatDateKey(y, m, d);
+                if (svcRef.requiereHabilitacion && !isServiceEnabledOnDate(svcRef.nombre, dk)) continue;
+                let assigned = 0;
+                if (state.shifts[dk]) {
+                    for (const u in state.shifts[dk]) {
+                        if (state.shifts[dk][u] === svcRef.nombre && !u.startsWith('VRE')) assigned++;
+                    }
+                }
+                const needed = getPlazasForDay(svcRef, dk);
+                if (assigned < needed) huecosCount += (needed - assigned);
+            }
+        }
+    }
+
     if (analisis.estado === 'subasta_cerrada') {
         container.innerHTML = `
         <div style="background: #fff7ed; border: 2px dashed #f97316; color: #c2410c; padding: 15px; border-radius: 12px; margin-bottom: 20px; font-size: 0.9rem; line-height: 1.5;">
             <div style="display:flex; align-items:center; gap:8px; font-weight: bold; font-size: 1rem; margin-bottom: 6px;">
                 ⚖️ Subasta Cerrada - Justicia Distributiva (${analisis.svcNombre})
             </div>
-            Quedan <b>${Math.ceil(analisis.exceso)} guardia(s) pendientes</b> en <b>${analisis.svcNombre}</b>. 
+            Quedan <b>${huecosCount} guardia(s) pendientes</b> en <b>${analisis.svcNombre}</b>.
             El motor exige que ${nombresImplicados} <b>asuman la carga obligatoria</b> ya que ${criterioTexto}.
-            
+
             <div style="margin-top:15px;">
                 <button onclick="ejecutarAsignacionForzosa(${y}, ${m}, '${analisis.svcNombre}')" class="primary" style="background:var(--fest); width:100%;">⚡ Ejecutar Asignación Forzosa para ${analisis.svcNombre}</button>
             </div>
@@ -3495,7 +3677,7 @@ function renderAlertaCargaMensual() {
             <div style="display:flex; align-items:center; gap:8px; font-weight: bold; font-size: 1rem; margin-bottom: 6px;">
                 📢 Subasta Voluntaria Abierta - ${analisis.svcNombre} (Quedan ${analisis.horasRestantes} horas)
             </div>
-            Quedan <b>${Math.ceil(analisis.exceso)} guardia(s) desiertas</b> en <b>${analisis.svcNombre}</b>. Cualquier residente puede adjudicárselas voluntariamente ahora mismo. 
+            Quedan <b>${huecosCount} guardia(s) desiertas</b> en <b>${analisis.svcNombre}</b>. Cualquier residente puede adjudicárselas voluntariamente ahora mismo.
             Si siguen desiertas al expirar el tiempo, el motor se las exigirá forzosamente a: ${nombresImplicados}.
             
             <div style="margin-top:15px;">
@@ -3542,7 +3724,7 @@ async function ejecutarAsignacionForzosa(y, m, targetSvcNombre) {
                     if (state.shifts[dk][u] === svc.nombre && !u.startsWith('VRE')) assignedCount++;
                 }
             }
-            const needed = (svc.plazasPorDia > 0 ? svc.plazasPorDia : 0);
+            const needed = getPlazasForDay(svc, dk);
             if (assignedCount < needed) {
                 for (let i = 0; i < (needed - assignedCount); i++) {
                     huecosLibres.push({ dk, svc: svc.nombre });
@@ -3550,60 +3732,69 @@ async function ejecutarAsignacionForzosa(y, m, targetSvcNombre) {
             }
         }
     }
-    
+
     if (huecosLibres.length === 0) return alert("No se han detectado huecos libres de este servicio en el calendario.");
-    
-    const candidatos = analisis.nominados;
+
+    // Nominados primero (obligados); el resto del mes como fallback para días multihueco
+    const mk = getRotationKey(y, m);
+    const todosResidentes = state.configMes?.[mk]?.ordenSeleccion || [];
+    const candidatos = [
+        ...analisis.nominados,
+        ...todosResidentes.filter(r => !analisis.nominados.includes(r))
+    ];
+    const nominadosSet = new Set(analisis.nominados);
+    const nominadosBloqueados = new Set(); // nominados rechazados por descanso en ≥1 hueco
+    const nominadosAsignados = new Set();  // nominados que recibieron ≥1 asignación
     let asignacionesLog = [];
-    let saltadosLog = [];
+    let huecosImpossibles = [];
     let huecosAsignados = 0;
-    
-    for (let c = 0; c < candidatos.length; c++) {
-        const residente = candidatos[c];
-        
-        let huecoElegidoIndex = -1;
-        for (let h = 0; h < huecosLibres.length; h++) {
-            const hueco = huecosLibres[h];
-            
-            let projected = JSON.parse(JSON.stringify(state.shifts || {}));
+
+    for (let hIdx = 0; hIdx < huecosLibres.length; hIdx++) {
+        const hueco = huecosLibres[hIdx];
+        let asignado = false;
+
+        for (let c = 0; c < candidatos.length; c++) {
+            const residente = candidatos[c];
+            if (state.shifts[hueco.dk]?.[residente]) continue; // ya cubre este día
+
+            const projected = JSON.parse(JSON.stringify(state.shifts || {}));
             if (!projected[hueco.dk]) projected[hueco.dk] = {};
-            
-            if (projected[hueco.dk][residente]) continue;
-            
             projected[hueco.dk][residente] = hueco.svc;
-            
-            const conflicts = getIllegalShiftsForUser(residente, projected);
-            if (conflicts.length === 0) {
-                huecoElegidoIndex = h;
+
+            if (getIllegalShiftsForUser(residente, projected).length === 0) {
+                if (!state.shifts[hueco.dk]) state.shifts[hueco.dk] = {};
+                state.shifts[hueco.dk][residente] = hueco.svc;
+                asignacionesLog.push(`${residente} → ${hueco.svc} (${formatDK(hueco.dk)})`);
+                huecosAsignados++;
+                if (nominadosSet.has(residente)) nominadosAsignados.add(residente);
+                candidatos.push(candidatos.splice(c, 1)[0]); // rotación fairness
+                asignado = true;
                 break;
+            } else if (nominadosSet.has(residente)) {
+                // Nominado bloqueado por conflicto de descanso (saliente/entrante)
+                nominadosBloqueados.add(residente);
             }
         }
-        
-        if (huecoElegidoIndex !== -1) {
-            const hueco = huecosLibres[huecoElegidoIndex];
-            if (!state.shifts[hueco.dk]) state.shifts[hueco.dk] = {};
-            state.shifts[hueco.dk][residente] = hueco.svc;
-            
-            huecosLibres.splice(huecoElegidoIndex, 1);
-            asignacionesLog.push(`${residente} -> ${hueco.svc} (${formatDK(hueco.dk)})`);
-            huecosAsignados++;
-            
-            // To be totally fair and sequentially re-evaluate, we break immediately after ONE assignment
-            // The Admin will click the button again, which triggers full recalculation.
-            break;
-        } else {
-            saltadosLog.push(residente);
+
+        if (!asignado) {
+            huecosImpossibles.push(`${hueco.svc} (${formatDK(hueco.dk)})`);
         }
     }
-    
+
     await saveState();
     renderAll();
-    
-    let mensajeFinal = `Inyección Forzosa procesada.\n\nSe asignaron ${huecosAsignados} guardias:\n${asignacionesLog.join('\\n')}`;
-    if (saltadosLog.length > 0) {
-        mensajeFinal += `\n\n⚠️ Los nominados originales no podían cubrir por incompatibilidad con salientes. Quedan huecos, pulsa otra vez para calcular nuevos nominados.`;
+
+    // Nominados que no recibieron ninguna asignación por restricción de descanso
+    const salvados = [...nominadosBloqueados].filter(r => !nominadosAsignados.has(r));
+
+    let mensajeFinal = `Inyección Forzosa procesada.\n\nSe asignaron ${huecosAsignados} guardia(s):\n${asignacionesLog.join('\n')}`;
+    if (salvados.length > 0) {
+        mensajeFinal += `\n\n🍀 Salvados por restricción de descanso (saliente/entrante):\n${salvados.join(', ')} — estaban nominados pero ningún hueco disponible era legal para ellos.`;
     }
-    
+    if (huecosImpossibles.length > 0) {
+        mensajeFinal += `\n\n⚠️ ${huecosImpossibles.length} hueco(s) imposibles de cubrir sin violar descansos:\n${huecosImpossibles.join('\n')}`;
+    }
+
     alert(mensajeFinal);
 }
 
@@ -3645,10 +3836,14 @@ function getAnalisisFestivos(y, m) {
     const monthHasAnyShifts = Object.keys(state.shifts || {}).some(dk => dk.startsWith(monthPrefix));
 
     let rondaTerminada = false;
-    if (monthHasAnyShifts && state.configMes && state.configMes[mk] && getCurrentTurn(y, m) === null) {
-        rondaTerminada = true;
+    if (state.configMes && state.configMes[mk] && getCurrentTurn(y, m) === null) {
+        const allSkipped = (state.configMes[mk].ordenSeleccion?.length > 0) &&
+            state.configMes[mk].ordenSeleccion.every(r =>
+                (state.skippedTurns?.[mk] || []).includes(r) || state.configMes[mk].pausados?.[r]
+            );
+        if (monthHasAnyShifts || allSkipped) rondaTerminada = true;
     }
-    
+
     if (!rondaTerminada) {
         return { estado: 'libre', exceso: 0, nominados: [], svcNombre: null };
     }
@@ -3695,7 +3890,7 @@ function getAnalisisFestivos(y, m) {
             if (svc.subastaTrigger.includes(tag)) {
                 if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk)) continue;
                 
-                const needed = (svc.plazasPorDia > 0 ? svc.plazasPorDia : 0);
+                const needed = getPlazasForDay(svc, dk);
                 huecosObligatoriosSvc += needed;
                 
                 if (state.shifts[dk]) {
@@ -3716,11 +3911,11 @@ function getAnalisisFestivos(y, m) {
                 if (crit === 'historico_laborables') return getHistoricoFestivosResidentes(y, m, ['laborable']);
                 if (crit === 'historico_intersemanales') return getHistoricoFestivosResidentes(y, m, ['festivo_intersemanal']);
                 if (crit === 'historico_total') return getHistoricoFestivosResidentes(y, m, ['laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal']);
-                if (crit === 'historico_servicio') return getHistoricoFestivosResidentes(y, m, ['laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal'], svc.nombre);
+                if (crit === 'historico_servicio') return getHistoricoFestivosResidentes(y, m, ['laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal'], svc.nombre, true);
                 if (crit === 'historico_servicio_dinamico') {
                     const exists = miPlan.servicios.some(s => s.nombre === targetSvc);
                     if (!exists) return null; // fallback signal
-                    return getHistoricoFestivosResidentes(y, m, ['laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal'], targetSvc);
+                    return getHistoricoFestivosResidentes(y, m, ['laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal'], targetSvc, true);
                 }
                 return null;
             };
@@ -3736,22 +3931,60 @@ function getAnalisisFestivos(y, m) {
                 if (!historicoDesempate) fallbackDes = true;
             }
             
+            // Nominados: se calculan una sola vez y se persisten en state para que todos los
+            // usuarios vean el mismo resultado (el sorteo aleatorio por empate solo ocurre una vez).
+            // La clave incluye criterio+desempate: si el admin los cambia, el cache se invalida automáticamente.
+            const criterioSuffix = `${svc.subastaCriterio || 'aleatorio'}_${svc.subastaCriterioServicio || ''}_${svc.subastaDesempate || 'none'}_${svc.subastaDesempateServicio || ''}`;
+            const nominadosKey = `${y}_${m}_${svc.nombre}_${criterioSuffix}`;
             let nominados = [];
-            let residentesAleatorios = [...residentes].sort(() => Math.random() - 0.5);
-            
-            if (svc.subastaCriterio === 'aleatorio' || fallbackPri) {
-                nominados = residentesAleatorios.slice(0, excesoSvc);
+
+            const storedNominados = state.subastaNominados?.[nominadosKey];
+            if (storedNominados && storedNominados.length >= excesoSvc) {
+                // Cache válido y suficiente; slice por si alguien tomó slots voluntariamente
+                nominados = storedNominados.slice(0, excesoSvc);
             } else {
-                const residentesOrdenados = residentesAleatorios.sort((a, b) => {
-                    const diff = (historico[a] || 0) - (historico[b] || 0);
-                    if (diff !== 0) return diff;
-                    
-                    if (historicoDesempate && !fallbackDes) {
-                        return (historicoDesempate[a] || 0) - (historicoDesempate[b] || 0);
+                // Cache ausente o insuficiente (p.ej. excesoSvc creció por fix de plazas) → recomputar
+                if (svc.subastaCriterio === 'aleatorio' || fallbackPri) {
+                    nominados = [...residentes].sort(() => Math.random() - 0.5).slice(0, excesoSvc);
+                } else {
+                    // Sort determinista: Math.random() en el comparador corrompe el orden primario
+                    const residentesOrdenados = [...residentes].sort((a, b) => {
+                        const diff = (historico[a] || 0) - (historico[b] || 0);
+                        if (diff !== 0) return diff;
+                        if (historicoDesempate && !fallbackDes) {
+                            const diffDes = (historicoDesempate[a] || 0) - (historicoDesempate[b] || 0);
+                            if (diffDes !== 0) return diffDes;
+                        }
+                        return 0; // empate real: se resuelve por tramos abajo
+                    });
+                    // Selección por tramos: nunca mezcla conteos distintos si hay suficientes empatados
+                    nominados = [];
+                    let _idx = 0;
+                    while (nominados.length < excesoSvc && _idx < residentesOrdenados.length) {
+                        const _r0 = residentesOrdenados[_idx];
+                        const _pri0 = (historico[_r0] || 0);
+                        const _des0 = (historicoDesempate && !fallbackDes) ? (historicoDesempate[_r0] || 0) : null;
+                        const tramo = [];
+                        while (_idx < residentesOrdenados.length) {
+                            const _r = residentesOrdenados[_idx];
+                            if ((historico[_r] || 0) !== _pri0) break;
+                            if (_des0 !== null && (historicoDesempate[_r] || 0) !== _des0) break;
+                            tramo.push(_r);
+                            _idx++;
+                        }
+                        const _needed = excesoSvc - nominados.length;
+                        if (tramo.length <= _needed) {
+                            nominados.push(...tramo);
+                        } else {
+                            // Sorteo ciego solo dentro del tramo empatado
+                            nominados.push(...[...tramo].sort(() => Math.random() - 0.5).slice(0, _needed));
+                        }
                     }
-                    return 0;
-                });
-                nominados = residentesOrdenados.slice(0, excesoSvc);
+                }
+                // Persistir para que todos los usuarios vean el mismo sorteo
+                if (!state.subastaNominados) state.subastaNominados = {};
+                state.subastaNominados[nominadosKey] = nominados;
+                saveState(); // fire-and-forget: no bloqueamos el render
             }
             
             const inicioRonda = state.fechaFinRonda[keyMes];
@@ -3760,11 +3993,12 @@ function getAnalisisFestivos(y, m) {
             let estado = 'subasta_abierta';
             const isForzada = state.subastasCerradasForzosas && state.subastasCerradasForzosas[`${y}_${m}_${svc.nombre}`];
             
-            if (horasTranscurridas >= 48 || isForzada) {
+            const ventanaHoras = promoConfig.ventana_voluntaria_horas || 48;
+            if (horasTranscurridas >= ventanaHoras || isForzada) {
                 estado = 'subasta_cerrada';
             }
-            
-            const horasRestantes = Math.max(0, 48 - horasTranscurridas);
+
+            const horasRestantes = Math.max(0, ventanaHoras - horasTranscurridas);
             
             return { 
                 estado, 
@@ -3869,13 +4103,24 @@ window.resetAllConfigMes = async function() {
     renderAll();
 };
 
+// Invalida el cache de ordenSeleccion para que se recalcule en el próximo renderizado
+function invalidateConfigMes(mk) {
+    if (mk) {
+        if (state.configMes && state.configMes[mk]) {
+            delete state.configMes[mk];
+        }
+    } else {
+        state.configMes = {};
+    }
+}
+
 function getCurrentTurn(y, m) {
     if (_computingTurn) return null; // Corta la recursión
     const mk = getRotationKey(y, m);
     
     // Si no hay configMes para este mes, lo generamos automáticamente
     if (!state.configMes || !state.configMes[mk]) {
-        const dk = formatDateKey(y, m, 1);
+        const dk = formatDateKey(y, m, 15);
         const targetKey = getRotationKey(y, m);
         let flatOrden = [];
         
@@ -3890,9 +4135,11 @@ function getCurrentTurn(y, m) {
             const planFlat = (rotGroups || []).flat();
             
             // Solo incluir a quienes realmente pertenecen a este plan este mes y están aprobados
+            // Solo incluir a quienes realmente pertenecen a este plan este mes y están aprobados (y permitir residentes virtuales que ya forman parte del plan rotado)
             const enEstePlan = planFlat.filter(n => {
                 const p = globalProfiles.find(pr2 => pr2.nombre_mostrar === n);
-                if (!p || p.estado !== 'aprobado') return false;
+                if (!p) return true; // Si es virtual, se incluye por defecto en su plan asignado
+                if (p.estado !== 'aprobado') return false;
                 const planActual = getPlanForUserOnDate(p, dk);
                 return planActual && planActual.nombre === plan.nombre;
             });
@@ -3999,6 +4246,36 @@ function getResidentesActivosEnMes(y, m) {
         return !tieneBaja; // Si tiene baja, queda fuera de los activos del mes
     });
 }
+
+function calcHorasResidente(nombre, filtroY, filtroM) {
+    const prefMes = `${filtroY}_${String(filtroM + 1).padStart(2, '0')}_`;
+    const prefAnio = `${filtroY}_`;
+    let horasMes = 0, horasAnio = 0, horasTotal = 0;
+    let completasMes = 0, partidasMes = 0;
+    for (let dk in state.shifts || {}) {
+        if (!state.shifts[dk][nombre]) continue;
+        const svcName = state.shifts[dk][nombre];
+        const hrs = getShiftHours(dk, svcName, nombre);
+        horasTotal += hrs;
+        if (dk.startsWith(prefAnio)) {
+            horasAnio += hrs;
+            if (dk.startsWith(prefMes)) {
+                horasMes += hrs;
+                const tipo = state.shiftModifiers?.[dk]?.[nombre]?.tipo || 'normal';
+                if (tipo === 'partida_primera' || tipo === 'partida_segunda') partidasMes++;
+                else completasMes++;
+            }
+        }
+    }
+    return { horasMes, horasAnio, horasTotal, completasMes, partidasMes };
+}
+
+function setPerfilHorasFiltro(y, m) {
+    perfilHorasFiltroY = +y;
+    perfilHorasFiltroM = +m;
+    renderPerfilUsuario();
+}
+
 function renderPerfilUsuario() {
     const uProfile = currentUserProfile;
     if (!uProfile) return;
@@ -4012,46 +4289,35 @@ function renderPerfilUsuario() {
     if (!state.bajasLargas) state.bajasLargas = [];
     const misBajas = state.bajasLargas.filter(b => b.user === uProfile.nombre_mostrar);
 
-// 3. 📊 CÓMPUTO DE HORAS TOTALES DEL USUARIO PARA LA AUDITORÍA DE HUELGA
-    let totalHorasAcumuladas = 0;
-    let guardiasCompletasCount = 0;
-    let guardiasPartidasCount = 0;
+// 3. 📊 CÓMPUTO DE HORAS POR MES / AÑO / HISTÓRICO
+    const { horasMes, horasAnio, horasTotal,
+            completasMes, partidasMes } = calcHorasResidente(
+                uProfile.nombre_mostrar, perfilHorasFiltroY, perfilHorasFiltroM);
 
-    for (let dk in state.shifts || {}) {
-        if (state.shifts[dk][uProfile.nombre_mostrar]) {
-            const svcName = state.shifts[dk][uProfile.nombre_mostrar];
-            const hrs = getShiftHours(dk, svcName, uProfile.nombre_mostrar);
-            totalHorasAcumuladas += hrs;
-
-            const tipo = state.shiftModifiers?.[dk]?.[uProfile.nombre_mostrar]?.tipo || 'normal';
-            if (tipo === 'partida_primera' || tipo === 'partida_segunda') {
-                guardiasPartidasCount++;
-            } else {
-                guardiasCompletasCount++;
-            }
-        }
-    }
-
-    // ⚖️ PARÁMETROS LEGALES DE HUELGA / FORMACIÓN
+    // ⚖️ PARÁMETROS LEGALES DE HUELGA / FORMACIÓN (referencia all-time)
     const targetHoras = 695;
     const tolerancia = 55;
     const minHoras = targetHoras - tolerancia; // 640h
     const maxHoras = targetHoras + tolerancia; // 750h
+    const topeVisual = 850;
+    const porcentajeCarga = Math.min(100, (horasTotal / topeVisual) * 100);
 
-    // Para que la barra no se llene al 100% justo en 750, le damos un tope visual de 850h
-    const topeVisual = 850; 
-    const porcentajeCarga = Math.min(100, (totalHorasAcumuladas / topeVisual) * 100);
-
-    let colorBarra = 'var(--pac)'; // Naranja (Déficit)
+    let colorBarra = 'var(--pac)';
     let estadoTexto = 'Déficit Formativo (Revisar)';
-    
-    if (totalHorasAcumuladas >= minHoras && totalHorasAcumuladas <= maxHoras) {
-        colorBarra = 'var(--ped)'; // Verde (Óptimo)
+    if (horasTotal >= minHoras && horasTotal <= maxHoras) {
+        colorBarra = 'var(--ped)';
         estadoTexto = 'Rango Legal y Formativo Óptimo';
-    } else if (totalHorasAcumuladas > maxHoras) {
-        colorBarra = 'var(--fest)'; // Rojo (Exceso)
+    } else if (horasTotal > maxHoras) {
+        colorBarra = 'var(--fest)';
         estadoTexto = 'Exceso (Alerta de Descanso)';
     }
+
+    // Opciones para los selectores del recuento de horas
+    const _anioActual = new Date().getFullYear();
+    const anioOpcionesHoras = [_anioActual - 2, _anioActual - 1, _anioActual].map(y =>
+        `<option value="${y}" ${y === perfilHorasFiltroY ? 'selected' : ''}>${y}</option>`).join('');
+    const mesOpcionesHoras = MONTHS.map((mn, i) =>
+        `<option value="${i}" ${i === perfilHorasFiltroM ? 'selected' : ''}>${mn}</option>`).join('');
 
     // 4. Preparar las opciones de día y mes para el selector de contrato
     let dMes = '01';
@@ -4145,32 +4411,41 @@ function renderPerfilUsuario() {
                 <button onclick="solicitarBajaPerfil()" style="width:100%; margin-top: 16px; background: var(--dark); color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer;">➕ Añadir Ausencia</button>
             </div>
             <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); grid-column: span 2;">
-                <h3 style="margin-bottom: 15px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">⏱️ Auditoría de Carga Laboral (Horas)</h3>
-                
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; flex-wrap:wrap; gap:10px;">
+                    <h3 style="margin:0; font-size: 1.1rem; color: var(--dark);">⏱️ Auditoría de Carga Laboral (Horas)</h3>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <select onchange="setPerfilHorasFiltro(this.value, perfilHorasFiltroM)" style="margin:0; padding:5px 8px; font-size:0.85rem; border:1px solid #cbd5e1; border-radius:6px;">${anioOpcionesHoras}</select>
+                        <select onchange="setPerfilHorasFiltro(perfilHorasFiltroY, this.value)" style="margin:0; padding:5px 8px; font-size:0.85rem; border:1px solid #cbd5e1; border-radius:6px;">${mesOpcionesHoras}</select>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 14px;">
                     <div style="background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
-                        <span style="font-size: 0.8rem; color: #64748b; font-weight: bold; display: block;">HORAS COMPUTADAS</span>
-                        <span style="font-size: 1.8rem; font-weight: bold; color: ${colorBarra};">${totalHorasAcumuladas.toFixed(1)} h</span>
+                        <span style="font-size: 0.8rem; color: #64748b; font-weight: bold; display: block;">HORAS ${MONTHS[perfilHorasFiltroM].toUpperCase()}</span>
+                        <span style="font-size: 1.8rem; font-weight: bold; color: var(--dark);">${horasMes.toFixed(1)} h</span>
                     </div>
                     <div style="background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
                         <span style="font-size: 0.8rem; color: #64748b; font-weight: bold; display: block;">GUARDIAS COMPLETAS</span>
-                        <span style="font-size: 1.8rem; font-weight: bold; color: var(--adu);">${guardiasCompletasCount}</span>
+                        <span style="font-size: 1.8rem; font-weight: bold; color: var(--adu);">${completasMes}</span>
                     </div>
                     <div style="background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
                         <span style="font-size: 0.8rem; color: #64748b; font-weight: bold; display: block;">MEDIAS GUARDIAS (PARTIDAS)</span>
-                        <span style="font-size: 1.8rem; font-weight: bold; color: var(--merc);">${guardiasPartidasCount}</span>
+                        <span style="font-size: 1.8rem; font-weight: bold; color: var(--merc);">${partidasMes}</span>
                     </div>
+                </div>
+                <div style="display:flex; gap:24px; font-size:0.85rem; color:#64748b; margin-bottom:18px; flex-wrap:wrap;">
+                    <span>Total ${perfilHorasFiltroY}: <b style="color:var(--dark);">${horasAnio.toFixed(1)} h</b></span>
+                    <span>Total histórico: <b style="color:var(--dark);">${horasTotal.toFixed(1)} h</b></span>
                 </div>
 
                 <div>
                     <div style="display: flex; justify-content: space-between; font-size: 0.85rem; font-weight: bold; margin-bottom: 6px; color: #475569;">
                         <span style="color: ${colorBarra};">${estadoTexto}</span>
-                        <span>${totalHorasAcumuladas.toFixed(0)} / ${targetHoras} h (±${tolerancia}h)</span>
+                        <span>${horasTotal.toFixed(0)} / ${targetHoras} h (±${tolerancia}h)</span>
                     </div>
                     <div style="background: #e2e8f0; width: 100%; height: 12px; border-radius: 6px; position: relative; overflow: hidden;">
                         <div style="position: absolute; left: ${(minHoras/topeVisual)*100}%; width: 2px; height: 100%; background: #94a3b8; z-index: 2;" title="Mínimo Formativo (${minHoras}h)"></div>
                         <div style="position: absolute; left: ${(maxHoras/topeVisual)*100}%; width: 2px; height: 100%; background: #ef4444; z-index: 2;" title="Tope Máximo (${maxHoras}h)"></div>
-                        
                         <div style="background: ${colorBarra}; width: ${porcentajeCarga}%; height: 100%; transition: width 0.3s ease;"></div>
                     </div>
                     <p style="font-size: 0.75rem; color: #94a3b8; margin-top: 8px; line-height: 1.4;">
@@ -4197,6 +4472,7 @@ async function guardarFechaContratoPerfil() {
                 .eq('id', uProfile.id);
             if (error) throw error;
             alert("¡Fecha de contrato actualizada con éxito!");
+            invalidateConfigMes();
             renderPerfilUsuario();
         } catch (err) { alert("Error al guardar en Supabase."); }
     }
@@ -4218,6 +4494,7 @@ async function guardarFechaInicioPerfil() {
                 .eq('id', uProfile.id);
             if (error) throw error;
             alert("¡Fecha de inicio de residencia actualizada con éxito!");
+            invalidateConfigMes();
             renderPerfilUsuario();
         } catch (err) { alert("Error al guardar en Supabase."); }
     }
@@ -4267,22 +4544,6 @@ async function eliminarBajaPerfil(idBaja) {
 // MOTOR DE BALANCEO DINÁMICO (Regla 3-4)
 // ==========================================
 function reempaquetarGrupos(lista) { return reempaquetarGruposPlan(lista, state.planRotations?.[getCurrentRotPlan(formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1))] || {}); }
-function old_reempaquetarGrupos(lista) {
-    if (!lista || lista.length === 0) return [[]];
-    if (!state.residentesFijos) state.residentesFijos = [];
-    
-    let fijos = lista.filter(n => state.residentesFijos.includes(n));
-    let moviles = lista.filter(n => !state.residentesFijos.includes(n));
-    
-    let gruposMoviles = _reempaquetarGrupos(moviles);
-    
-    if (fijos.length > 0) {
-        return [fijos, ...gruposMoviles];
-    } else {
-        return gruposMoviles;
-    }
-}
-
 function _reempaquetarGrupos(lista) {
     if (!lista || lista.length === 0) return [[]];
     let n = lista.length;
