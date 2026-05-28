@@ -2560,12 +2560,17 @@ function executeExport() {
     const shiftsToUse = isMercado ? getComputedShifts() : state.shifts;
     const suffix = isMercado ? "Mercadillo" : "Original";
     
-    // Averiguar qué residentes pertenecen al plan (filtrando los que tienen ese plan como asociado o es el plan default)
+    // Averiguar qué residentes pertenecen al plan usando state.planRotations como fuente de verdad
+    const _residentesDePlan = new Set();
+    if (state.planRotations?.[planName]) {
+        (state.planRotations[planName].baseGroups || []).flat().forEach(n => _residentesDePlan.add(n));
+    }
     const residents = getAllResidents().filter(u => {
-        let p = globalProfiles.find(prof => prof.nombre_mostrar === u);
-        let planDelUser = p ? p.plan_asociado : null;
-        if (!planDelUser) planDelUser = promoConfig.planes[0].nombre;
-        return planDelUser === planName;
+        if (_residentesDePlan.has(u)) return true;
+        // Fallback: si no aparece en ningún planRotations, asignar al primer plan
+        const enAlgunPlan = state.planRotations && Object.values(state.planRotations).some(pr => (pr.baseGroups || []).flat().includes(u));
+        if (!enAlgunPlan) return planName === promoConfig.planes[0].nombre;
+        return false;
     });
 
     if (residents.length === 0) {
