@@ -374,8 +374,9 @@ async function syncUserProfile(user) {
       const { error: insertError } = await supabaseClient.from('perfiles').insert(newProfile);
       if (insertError) alert("Error al crear tu perfil en la base de datos.");
       else currentUserProfile = newProfile;
-    } else if (data) { 
-      currentUserProfile = data; 
+    } else if (data) {
+      currentUserProfile = data;
+      loggedInUser = data.nombre_mostrar;
     }
     
     setStatus('Conectado ✅');
@@ -4533,11 +4534,10 @@ function renderPerfilUsuario() {
                     <h3 style="margin-bottom: 12px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">✏️ Datos Personales</h3>
                     <div style="margin-bottom: 12px;">
                         <label style="font-size: 0.8rem; font-weight: bold; color: #64748b; display: block; margin-bottom: 4px;">Nombre y Apellidos:</label>
-                        <input type="text" id="perfil-nombre-mostrar" value="${uProfile.nombre_mostrar}" style="margin:0; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%; background: white;">
+                        <p style="margin: 0; padding: 8px; border: 1px solid #e2e8f0; border-radius: 6px; background: #f8fafc; color: #475569; font-size: 0.95rem;">${uProfile.nombre_mostrar}</p>
                     </div>
-                    <p style="font-size: 0.8rem; color: #94a3b8; line-height: 1.4;">* Escribe tu nombre real si Google lo capturó mal. Esto te cambiará el nombre en toda la aplicación.</p>
+                    <p style="font-size: 0.8rem; color: #94a3b8; line-height: 1.4;">El nombre se sincroniza automáticamente desde tu cuenta de Google. Contacta al administrador si necesitas corregirlo.</p>
                 </div>
-                <button onclick="guardarNombrePerfil()" style="width:100%; margin-top: 16px; background: var(--dark); color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer;">💾 Actualizar Nombre</button>
             </div>
 
             <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between;">
