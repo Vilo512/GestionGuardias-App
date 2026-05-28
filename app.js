@@ -2560,12 +2560,17 @@ function executeExport() {
     const shiftsToUse = isMercado ? getComputedShifts() : state.shifts;
     const suffix = isMercado ? "Mercadillo" : "Original";
     
-    // Averiguar qué residentes pertenecen al plan (filtrando los que tienen ese plan como asociado o es el plan default)
+    // Averiguar qué residentes pertenecen al plan usando state.planRotations como fuente de verdad
+    const _residentesDePlan = new Set();
+    if (state.planRotations?.[planName]) {
+        (state.planRotations[planName].baseGroups || []).flat().forEach(n => _residentesDePlan.add(n));
+    }
     const residents = getAllResidents().filter(u => {
-        let p = globalProfiles.find(prof => prof.nombre_mostrar === u);
-        let planDelUser = p ? p.plan_asociado : null;
-        if (!planDelUser) planDelUser = promoConfig.planes[0].nombre;
-        return planDelUser === planName;
+        if (_residentesDePlan.has(u)) return true;
+        // Fallback: si no aparece en ningún planRotations, asignar al primer plan
+        const enAlgunPlan = state.planRotations && Object.values(state.planRotations).some(pr => (pr.baseGroups || []).flat().includes(u));
+        if (!enAlgunPlan) return planName === promoConfig.planes[0].nombre;
+        return false;
     });
 
     if (residents.length === 0) {
@@ -3688,6 +3693,28 @@ function renderAlertaCargaMensual() {
         }
     }
 
+    const proyeccion = proyectarAsignacionForzosa(y, m, analisis);
+    let proyeccionHtml = '';
+    if (proyeccion.proyecciones.length > 0) {
+        const filas = proyeccion.proyecciones.map(p => {
+            const dia = parseInt(p.dk.split('_')[2]);
+            if (p.tipo === 'imposible') {
+                return `<span style="display:inline-block;background:#fee2e2;border-radius:6px;padding:2px 8px;margin:2px;font-size:0.82rem;">Día ${dia}: <b>Sin candidato legal</b></span>`;
+            }
+            const badge = p.esNominado
+                ? `<span style="background:#fde68a;color:#92400e;border-radius:4px;padding:1px 5px;font-size:0.75rem;margin-left:4px;">nominado</span>`
+                : `<span style="background:#dbeafe;color:#1e40af;border-radius:4px;padding:1px 5px;font-size:0.75rem;margin-left:4px;">sustituto</span>`;
+            return `<span style="display:inline-block;background:rgba(0,0,0,0.05);border-radius:6px;padding:2px 8px;margin:2px;font-size:0.82rem;">Día ${dia}: <b>${p.residente}</b>${badge}</span>`;
+        }).join('');
+        const salvadosLine = proyeccion.salvados.length > 0
+            ? `<div style="margin-top:5px;font-size:0.8rem;opacity:0.85;">🍀 Salvados por descanso: <b>${proyeccion.salvados.join(', ')}</b></div>`
+            : '';
+        proyeccionHtml = `<div style="margin-top:10px;padding-top:10px;border-top:1px dashed rgba(0,0,0,0.2);">
+            <div style="font-size:0.8rem;font-weight:600;margin-bottom:4px;">📋 Distribución proyectada:</div>
+            <div>${filas}</div>${salvadosLine}
+        </div>`;
+    }
+
     if (analisis.estado === 'subasta_cerrada') {
         container.innerHTML = `
         <div style="background: #fff7ed; border: 2px dashed #f97316; color: #c2410c; padding: 15px; border-radius: 12px; margin-bottom: 20px; font-size: 0.9rem; line-height: 1.5;">
@@ -3696,7 +3723,7 @@ function renderAlertaCargaMensual() {
             </div>
             Quedan <b>${huecosCount} guardia(s) pendientes</b> en <b>${analisis.svcNombre}</b>.
             El motor exige que ${nombresImplicados} <b>asuman la carga obligatoria</b> ya que ${criterioTexto}.
-
+            ${proyeccionHtml}
             <div style="margin-top:15px;">
                 <button onclick="ejecutarAsignacionForzosa(${y}, ${m}, '${analisis.svcNombre}')" class="primary" style="background:var(--fest); width:100%;">⚡ Ejecutar Asignación Forzosa para ${analisis.svcNombre}</button>
             </div>
@@ -3709,7 +3736,7 @@ function renderAlertaCargaMensual() {
             </div>
             Quedan <b>${huecosCount} guardia(s) desiertas</b> en <b>${analisis.svcNombre}</b>. Cualquier residente puede adjudicárselas voluntariamente ahora mismo.
             Si siguen desiertas al expirar el tiempo, el motor se las exigirá forzosamente a: ${nombresImplicados}.
-            
+            ${proyeccionHtml}
             <div style="margin-top:15px;">
                 <button onclick="forzarCierreSubasta(${y}, ${m}, '${analisis.svcNombre}')" class="primary icon-btn" style="background:#dc2626; border-color:#b91c1c;">🚫 Forzar Cierre de Subasta de ${analisis.svcNombre} Ahora</button>
             </div>
@@ -3726,6 +3753,78 @@ async function forzarCierreSubasta(y, m, svcNombre) {
     state.subastasCerradasForzosas[`${y}_${m}_${planKey}_${svcNombre}`] = true;
     await saveState();
     renderAll();
+}
+
+function proyectarAsignacionForzosa(y, m, analisis) {
+    const planRef = (promoConfig.planes || []).find(p => p.nombre === analisis.planNombre) || promoConfig.planes?.[0];
+    const svcRef = planRef?.servicios?.find(s => s.nombre === analisis.svcNombre);
+    if (!svcRef) return { proyecciones: [], salvados: [] };
+
+    const totalDias = getDaysInMonth(y, m);
+    const referenceDk = formatDateKey(y, m, 15);
+    let huecosLibres = [];
+
+    for (let d = 1; d <= totalDias; d++) {
+        const dk = formatDateKey(y, m, d);
+        const tag = getDayTag(y, m, d);
+        if (!svcRef.subastaTrigger.includes(tag)) continue;
+        if (svcRef.requiereHabilitacion && !isServiceEnabledOnDate(svcRef.nombre, dk, planRef.nombre)) continue;
+        let assignedCount = 0;
+        if (state.shifts[dk]) {
+            for (let u in state.shifts[dk]) {
+                if (state.shifts[dk][u] === svcRef.nombre && !u.startsWith('VRE')) {
+                    const uProfile = globalProfiles.find(p => p.nombre_mostrar === u);
+                    if (!uProfile || getPlanForUserOnDate(uProfile, referenceDk)?.nombre === planRef.nombre) assignedCount++;
+                }
+            }
+        }
+        const needed = getPlazasForDay(svcRef, dk);
+        if (assignedCount < needed) {
+            for (let i = 0; i < (needed - assignedCount); i++) huecosLibres.push({ dk, svc: svcRef.nombre });
+        }
+    }
+
+    if (huecosLibres.length === 0) return { proyecciones: [], salvados: [] };
+
+    const planResidentes = analisis.planResidentes?.length > 0
+        ? analisis.planResidentes
+        : (state.configMes?.[getRotationKey(y, m)]?.ordenSeleccion || []);
+    const candidatos = [
+        ...analisis.nominados,
+        ...planResidentes.filter(r => !analisis.nominados.includes(r))
+    ];
+    const nominadosSet = new Set(analisis.nominados);
+    const nominadosBloqueados = new Set();
+    const nominadosAsignados = new Set();
+    const simulatedShifts = JSON.parse(JSON.stringify(state.shifts || {}));
+    const proyecciones = [];
+
+    for (let hIdx = 0; hIdx < huecosLibres.length; hIdx++) {
+        const hueco = huecosLibres[hIdx];
+        let asignado = false;
+        for (let c = 0; c < candidatos.length; c++) {
+            const residente = candidatos[c];
+            if (simulatedShifts[hueco.dk]?.[residente]) continue;
+            const testShifts = JSON.parse(JSON.stringify(simulatedShifts));
+            if (!testShifts[hueco.dk]) testShifts[hueco.dk] = {};
+            testShifts[hueco.dk][residente] = hueco.svc;
+            if (getIllegalShiftsForUser(residente, testShifts).length === 0) {
+                if (!simulatedShifts[hueco.dk]) simulatedShifts[hueco.dk] = {};
+                simulatedShifts[hueco.dk][residente] = hueco.svc;
+                proyecciones.push({ dk: hueco.dk, svc: hueco.svc, residente, esNominado: nominadosSet.has(residente), tipo: 'asignado' });
+                if (nominadosSet.has(residente)) nominadosAsignados.add(residente);
+                candidatos.push(candidatos.splice(c, 1)[0]);
+                asignado = true;
+                break;
+            } else if (nominadosSet.has(residente)) {
+                nominadosBloqueados.add(residente);
+            }
+        }
+        if (!asignado) proyecciones.push({ dk: hueco.dk, svc: hueco.svc, residente: null, esNominado: false, tipo: 'imposible' });
+    }
+
+    const salvados = [...nominadosBloqueados].filter(r => !nominadosAsignados.has(r));
+    return { proyecciones, salvados };
 }
 
 async function ejecutarAsignacionForzosa(y, m, targetSvcNombre) {
@@ -3936,7 +4035,11 @@ function _getAnalisisFestivosImpl(y, m) {
         });
         if (tieneBaja) return false;
         const rProfile = globalProfiles.find(p => p.nombre_mostrar === residente);
-        if (!rProfile) return false;
+        if (!rProfile) {
+            // Residente virtual: incluir si pertenece a este plan por baseGroups
+            const vPlan = state.planRotations?.[miPlan.nombre];
+            return (vPlan?.baseGroups || []).flat().includes(residente);
+        }
         return getPlanForUserOnDate(rProfile, referenceDk)?.nombre === miPlan.nombre;
     });
     
