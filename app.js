@@ -1560,13 +1560,27 @@ function renderMainCalendar() {
        if (!state.grantedTurn) state.grantedTurn = {};
        const granted = state.grantedTurn[monthKey];
        let html = `<div style="background:#f1f5f9; border:1px solid #cbd5e1; color:#475569; padding:10px 12px; border-radius:8px; margin-bottom:1rem; font-size:0.85rem; display:flex; flex-direction:column; gap:8px;">`;
-       const turnLabel = granted
-           ? `🎁 Turno <b>otorgado</b> a: <b style="color:#7c3aed">${turnUser || 'Nadie'}</b> <span style="font-size:0.7rem;color:#7c3aed">(turno especial)</span>`
-           : `${isAdmin ? '👑 <b>Modo Admin</b>' : '⭐ <b>Modo Delegado</b>'}. Turno de: <b>${turnUser || 'Nadie'}</b> ${pendingReasonForTurn ? '<span style="color:var(--fest);">(🛑 PENDIENTE)</span>' : ''}`;
+       const af = !turnUser ? getAnalisisFestivos(y, m) : null;
+       let turnLabel;
+       if (granted) {
+           turnLabel = `🎁 Turno <b>otorgado</b> a: <b style="color:#7c3aed">${turnUser || 'Nadie'}</b> <span style="font-size:0.7rem;color:#7c3aed">(turno especial)</span>`;
+       } else if (!turnUser) {
+           if (af.estado === 'subasta_abierta') {
+               turnLabel = `${isAdmin ? '👑 <b>Modo Admin</b>' : '⭐ <b>Modo Delegado</b>'}. 📢 <b>Subasta Voluntaria</b> en curso — <b>${af.svcNombre}</b> (<b>${af.horasRestantes || 0}h</b> restantes)`;
+           } else if (af.estado === 'subasta_cerrada' || af.estado === 'critico') {
+               turnLabel = `${isAdmin ? '👑 <b>Modo Admin</b>' : '⭐ <b>Modo Delegado</b>'}. ⚖️ <b>Subasta cerrada</b> — <b>${af.svcNombre}</b> pendiente de asignación forzosa`;
+           } else {
+               turnLabel = `${isAdmin ? '👑 <b>Modo Admin</b>' : '⭐ <b>Modo Delegado</b>'}. 🎉 Mes <b>${MONTHS[m]} ${y}</b> completado`;
+           }
+       } else {
+           turnLabel = `${isAdmin ? '👑 <b>Modo Admin</b>' : '⭐ <b>Modo Delegado</b>'}. Turno de: <b>${turnUser}</b> ${pendingReasonForTurn ? '<span style="color:var(--fest);">(🛑 PENDIENTE)</span>' : ''}`;
+       }
        html += `<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;"><span>${turnLabel}</span><div style="display:flex; gap:8px;">`;
        if (turnUser) {
          html += `<button class="danger" style="padding:4px 8px; font-size:0.75rem;" onclick="adminSkipTurn('${turnUser}', ${y}, ${m})">Saltar turno ⏭️</button>`;
          if (granted) html += `<button class="primary" style="padding:4px 8px; font-size:0.75rem; background:#7c3aed;" onclick="adminClearGrantedTurn(${y}, ${m})">❌ Cancelar turno otorgado</button>`;
+       } else if (af && (af.estado === 'subasta_cerrada' || af.estado === 'critico')) {
+           html += `<button class="primary" style="padding:4px 8px; font-size:0.75rem; background:var(--fest); color:white;" onclick="ejecutarAsignacionForzosa(${y}, ${m}, '${af.svcNombre}')">⚡ Forzosa</button>`;
        }
        html += `<button class="danger" style="padding:4px 8px; font-size:0.75rem; background:var(--fest); color:white;" onclick="adminResetMonth(${y}, ${m})">⚠️ Reset Mes</button></div></div>`;
        // Toolbar unificado: Otorgar turno / Visualizar como
