@@ -658,6 +658,7 @@ Para referencia del agente: estas secciones son conformes al PRD v0.7. No requie
 | C19 | §11.5 Intercambio con externo (dos rutas) | `renderMercadoCambiar`, `renderMercadoCambiarAjena` | 2745, 2748 |
 | C20 | §13.2 / §13.3 Histórico y visibilidad | `state.trades[]`, `state.exceptionLogs[]`, `renderMercadoInboxAndLog`, `renderAdminExceptions` | 2714, 2647 |
 | C21 | §15 Panel admin funcional | `renderAdminAjustes`, `renderAccountsList`, `adminAprobarUsuario` | 1932, 2753, 2940 |
+| C22 | §8 / §9 Lookup canónico de servicio por plan | `getSvcConfig`, `getSvcConfigForUser` — reemplaza first-plan-wins en toda la app | 581, 587 |
 
 ---
 
@@ -675,3 +676,4 @@ Para referencia del agente: estas secciones son conformes al PRD v0.7. No requie
 | v1.7 | Mayo 2026 | N5 nuevo (botón admin "Activar subasta ya" — asignación forzosa global inmediata, independiente de N1-N4). |
 | v1.8 | Mayo 2026 | W7/W8/W9 nuevos (reset no limpia subastasCerradasForzosas; calendario bloqueado en ventana voluntaria; "Turno de Nadie" en meses pasados). PRD actualizado a v1.2. |
 | v1.9 | Mayo 2026 | W7 resuelto (PR #6): reset limpia subasta, nominados deterministas por tramos, asignación forzosa multihueco completa, criterios de servicio cuentan mes actual. |
+| v2.0 | Mayo 2026 | C22 nuevo y resuelto: bug sistémico de lookup de servicio por nombre sin contexto de plan. Introducidos `getSvcConfig`/`getSvcConfigForUser`; `isServiceEnabledOnDate` refactorizado; sort por `ordenSubasta` en `getAnalisisFestivos`; `getSalienteDaysForShift`/`getShiftHours` usan plan real del residente en lugar de Plan R1 fijo. |
