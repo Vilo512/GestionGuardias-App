@@ -3963,10 +3963,12 @@ function _getAnalisisFestivosImpl(y, m) {
         
         if (excesoSvc > 0) {
             const _getHist = (crit, targetSvc) => {
-                if (crit === 'historico_festivos') return getHistoricoFestivosResidentes(y, m, ['fin_de_semana', 'festivo_intersemanal']);
-                if (crit === 'historico_laborables') return getHistoricoFestivosResidentes(y, m, ['laborable']);
-                if (crit === 'historico_intersemanales') return getHistoricoFestivosResidentes(y, m, ['festivo_intersemanal']);
-                if (crit === 'historico_total') return getHistoricoFestivosResidentes(y, m, ['laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal']);
+                // includeCurrentMonth=true en todos los criterios: la subasta debe contar
+                // el año completo de residencia incluyendo el mes en curso
+                if (crit === 'historico_festivos') return getHistoricoFestivosResidentes(y, m, ['fin_de_semana', 'festivo_intersemanal'], null, true);
+                if (crit === 'historico_laborables') return getHistoricoFestivosResidentes(y, m, ['laborable'], null, true);
+                if (crit === 'historico_intersemanales') return getHistoricoFestivosResidentes(y, m, ['festivo_intersemanal'], null, true);
+                if (crit === 'historico_total') return getHistoricoFestivosResidentes(y, m, ['laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal'], null, true);
                 if (crit === 'historico_servicio') return getHistoricoFestivosResidentes(y, m, ['laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal'], svc.nombre, true);
                 if (crit === 'historico_servicio_dinamico') {
                     const exists = miPlan.servicios.some(s => s.nombre === targetSvc);
