@@ -2829,7 +2829,7 @@ function renderAdminHoras() {
 
 async function adminResetSkips(y, m) { const monthKey = getRotationKey(y, m); if (state.skippedTurns[monthKey]) { delete state.skippedTurns[monthKey]; await saveState(); checkAutomaticGraduation();
     renderAll(); } }
-async function adminResetMonth(y, m) { if (!confirm(`¡PELIGRO! ¿Borrar todas las guardias de este mes?`)) return; const days = getDaysInMonth(y, m); for(let d = 1; d <= days; d++) { const dk = formatDateKey(y, m, d); delete state.shifts[dk]; } const monthKey = getRotationKey(y, m); delete state.skippedTurns[monthKey]; if (state.pendingExceptions && state.pendingExceptions[monthKey]) delete state.pendingExceptions[monthKey]; if (state.configMes && state.configMes[monthKey]) delete state.configMes[monthKey]; await saveState(); checkAutomaticGraduation();
+async function adminResetMonth(y, m) { if (!confirm(`¡PELIGRO! ¿Borrar todas las guardias de este mes?`)) return; const days = getDaysInMonth(y, m); for(let d = 1; d <= days; d++) { const dk = formatDateKey(y, m, d); delete state.shifts[dk]; } const monthKey = getRotationKey(y, m); delete state.skippedTurns[monthKey]; if (state.pendingExceptions && state.pendingExceptions[monthKey]) delete state.pendingExceptions[monthKey]; if (state.configMes && state.configMes[monthKey]) delete state.configMes[monthKey]; if (state.subastasCerradasForzosas) { Object.keys(state.subastasCerradasForzosas).forEach(k => { if (k.startsWith(`${y}_${m}_`)) delete state.subastasCerradasForzosas[k]; }); } if (state.subastaNominados) { Object.keys(state.subastaNominados).forEach(k => { if (k.startsWith(`${y}_${m}_`)) delete state.subastaNominados[k]; }); } await saveState(); checkAutomaticGraduation();
     renderAll(); }
 async function adminVaciarGeneracion() {
     if (!confirm("⚠️ ATENCIÓN: Vas a expulsar a todos los residentes normales y borrar todas las guardias y calendarios. Las reglas se mantendrán. ¿Estás seguro?")) return;
@@ -2855,7 +2855,9 @@ async function adminVaciarGeneracion() {
     state.exceptionLogs = [];
     state.pendingExceptions = {};
     state.trades = [];
-    
+    state.subastasCerradasForzosas = {};
+    state.subastaNominados = {};
+
     // 3. Reseteamos la rotación para que solo quede el Admin actual
     const _vacPlanName = promoConfig.planes?.[0]?.nombre || "Plan Base";
     state.planRotations = {};
@@ -3569,21 +3571,21 @@ function calcularViabilidadFestivosMensual(ano, mes) {
     };
 }
 	
-function getHistoricoFestivosResidentes(targetY, targetM, validTags, targetSvc = null) {
+function getHistoricoFestivosResidentes(targetY, targetM, validTags, targetSvc = null, includeCurrentMonth = false) {
     if (!validTags) validTags = ['fin_de_semana', 'festivo_intersemanal'];
-    
+
     let historico = {};
     getAllResidents().forEach(r => historico[r] = 0);
-    
+
     if (!state.shifts) return historico;
-    
+
     const computed = getComputedShifts();
     Object.keys(computed).forEach(dk => {
         const parts = dk.split('_');
         const y = parseInt(parts[0]), m = parseInt(parts[1]) - 1, d = parseInt(parts[2]);
-        
-        // 1. Filtro temporal estricto: solo el pasado del mismo año de residencia
-        if (y > targetY || (y === targetY && m >= targetM)) return;
+
+        // 1. Filtro temporal: histórico puro o incluyendo mes actual según criterio
+        if (y > targetY || (y === targetY && (includeCurrentMonth ? m > targetM : m >= targetM))) return;
         
         const tag = getDayTag(y, m, d);
         if (!validTags.includes(tag)) return;
@@ -3612,19 +3614,15 @@ function getHistoricoFestivosResidentes(targetY, targetM, validTags, targetSvc =
 function renderAlertaCargaMensual() {
     const container = document.getElementById('alerta-carga-mensual');
     if (!container) return;
-    
+    container.innerHTML = '';
+
     const y = curDate.getFullYear();
     const m = curDate.getMonth();
     const mk = getRotationKey(y, m);
-    if (!state.configMes || !state.configMes[mk]) {
-        /* container.innerHTML = ''; */ return;
-    }
-    
+    if (!state.configMes || !state.configMes[mk]) return;
+
     const analisis = getAnalisisFestivos(y, m);
-    
-    if (analisis.estado === 'libre') {
-        /* container.innerHTML = ''; */ return;
-    }
+    if (analisis.estado === 'libre') return;
 
     let criterioTexto = "suerte aleatoria";
     if (analisis.criterio === 'historico_festivos') criterioTexto = "tienen el menor histórico de Festivos";
@@ -3635,15 +3633,40 @@ function renderAlertaCargaMensual() {
 
     const nombresImplicados = analisis.nominados.map(r => `<b>${r}</b> ${analisis.criterio !== 'aleatorio' ? `(${analisis.historico[r]||0} contados)` : ''}`).join(', ');
 
+    // Contar huecos vacíos reales del calendario (slots, no residentes en exceso)
+    const referenceDk2 = formatDateKey(y, m, 15);
+    const planRef = getPlanForUserOnDate(currentUserProfile, referenceDk2) || promoConfig.planes?.[0];
+    const svcRef = planRef?.servicios?.find(s => s.nombre === analisis.svcNombre);
+    let huecosCount = Math.ceil(analisis.exceso); // fallback si no se puede calcular
+    if (svcRef) {
+        huecosCount = 0;
+        const totalDiasRef = getDaysInMonth(y, m);
+        for (let d = 1; d <= totalDiasRef; d++) {
+            const tag = getDayTag(y, m, d);
+            if ((svcRef.subastaTrigger || []).includes(tag)) {
+                const dk = formatDateKey(y, m, d);
+                if (svcRef.requiereHabilitacion && !isServiceEnabledOnDate(svcRef.nombre, dk)) continue;
+                let assigned = 0;
+                if (state.shifts[dk]) {
+                    for (const u in state.shifts[dk]) {
+                        if (state.shifts[dk][u] === svcRef.nombre && !u.startsWith('VRE')) assigned++;
+                    }
+                }
+                const needed = getPlazasForDay(svcRef, dk);
+                if (assigned < needed) huecosCount += (needed - assigned);
+            }
+        }
+    }
+
     if (analisis.estado === 'subasta_cerrada') {
         container.innerHTML = `
         <div style="background: #fff7ed; border: 2px dashed #f97316; color: #c2410c; padding: 15px; border-radius: 12px; margin-bottom: 20px; font-size: 0.9rem; line-height: 1.5;">
             <div style="display:flex; align-items:center; gap:8px; font-weight: bold; font-size: 1rem; margin-bottom: 6px;">
                 ⚖️ Subasta Cerrada - Justicia Distributiva (${analisis.svcNombre})
             </div>
-            Quedan <b>${Math.ceil(analisis.exceso)} guardia(s) pendientes</b> en <b>${analisis.svcNombre}</b>. 
+            Quedan <b>${huecosCount} guardia(s) pendientes</b> en <b>${analisis.svcNombre}</b>.
             El motor exige que ${nombresImplicados} <b>asuman la carga obligatoria</b> ya que ${criterioTexto}.
-            
+
             <div style="margin-top:15px;">
                 <button onclick="ejecutarAsignacionForzosa(${y}, ${m}, '${analisis.svcNombre}')" class="primary" style="background:var(--fest); width:100%;">⚡ Ejecutar Asignación Forzosa para ${analisis.svcNombre}</button>
             </div>
@@ -3654,7 +3677,7 @@ function renderAlertaCargaMensual() {
             <div style="display:flex; align-items:center; gap:8px; font-weight: bold; font-size: 1rem; margin-bottom: 6px;">
                 📢 Subasta Voluntaria Abierta - ${analisis.svcNombre} (Quedan ${analisis.horasRestantes} horas)
             </div>
-            Quedan <b>${Math.ceil(analisis.exceso)} guardia(s) desiertas</b> en <b>${analisis.svcNombre}</b>. Cualquier residente puede adjudicárselas voluntariamente ahora mismo. 
+            Quedan <b>${huecosCount} guardia(s) desiertas</b> en <b>${analisis.svcNombre}</b>. Cualquier residente puede adjudicárselas voluntariamente ahora mismo.
             Si siguen desiertas al expirar el tiempo, el motor se las exigirá forzosamente a: ${nombresImplicados}.
             
             <div style="margin-top:15px;">
@@ -3701,7 +3724,7 @@ async function ejecutarAsignacionForzosa(y, m, targetSvcNombre) {
                     if (state.shifts[dk][u] === svc.nombre && !u.startsWith('VRE')) assignedCount++;
                 }
             }
-            const needed = (svc.plazasPorDia > 0 ? svc.plazasPorDia : 0);
+            const needed = getPlazasForDay(svc, dk);
             if (assignedCount < needed) {
                 for (let i = 0; i < (needed - assignedCount); i++) {
                     huecosLibres.push({ dk, svc: svc.nombre });
@@ -3709,60 +3732,69 @@ async function ejecutarAsignacionForzosa(y, m, targetSvcNombre) {
             }
         }
     }
-    
+
     if (huecosLibres.length === 0) return alert("No se han detectado huecos libres de este servicio en el calendario.");
-    
-    const candidatos = analisis.nominados;
+
+    // Nominados primero (obligados); el resto del mes como fallback para días multihueco
+    const mk = getRotationKey(y, m);
+    const todosResidentes = state.configMes?.[mk]?.ordenSeleccion || [];
+    const candidatos = [
+        ...analisis.nominados,
+        ...todosResidentes.filter(r => !analisis.nominados.includes(r))
+    ];
+    const nominadosSet = new Set(analisis.nominados);
+    const nominadosBloqueados = new Set(); // nominados rechazados por descanso en ≥1 hueco
+    const nominadosAsignados = new Set();  // nominados que recibieron ≥1 asignación
     let asignacionesLog = [];
-    let saltadosLog = [];
+    let huecosImpossibles = [];
     let huecosAsignados = 0;
-    
-    for (let c = 0; c < candidatos.length; c++) {
-        const residente = candidatos[c];
-        
-        let huecoElegidoIndex = -1;
-        for (let h = 0; h < huecosLibres.length; h++) {
-            const hueco = huecosLibres[h];
-            
-            let projected = JSON.parse(JSON.stringify(state.shifts || {}));
+
+    for (let hIdx = 0; hIdx < huecosLibres.length; hIdx++) {
+        const hueco = huecosLibres[hIdx];
+        let asignado = false;
+
+        for (let c = 0; c < candidatos.length; c++) {
+            const residente = candidatos[c];
+            if (state.shifts[hueco.dk]?.[residente]) continue; // ya cubre este día
+
+            const projected = JSON.parse(JSON.stringify(state.shifts || {}));
             if (!projected[hueco.dk]) projected[hueco.dk] = {};
-            
-            if (projected[hueco.dk][residente]) continue;
-            
             projected[hueco.dk][residente] = hueco.svc;
-            
-            const conflicts = getIllegalShiftsForUser(residente, projected);
-            if (conflicts.length === 0) {
-                huecoElegidoIndex = h;
+
+            if (getIllegalShiftsForUser(residente, projected).length === 0) {
+                if (!state.shifts[hueco.dk]) state.shifts[hueco.dk] = {};
+                state.shifts[hueco.dk][residente] = hueco.svc;
+                asignacionesLog.push(`${residente} → ${hueco.svc} (${formatDK(hueco.dk)})`);
+                huecosAsignados++;
+                if (nominadosSet.has(residente)) nominadosAsignados.add(residente);
+                candidatos.push(candidatos.splice(c, 1)[0]); // rotación fairness
+                asignado = true;
                 break;
+            } else if (nominadosSet.has(residente)) {
+                // Nominado bloqueado por conflicto de descanso (saliente/entrante)
+                nominadosBloqueados.add(residente);
             }
         }
-        
-        if (huecoElegidoIndex !== -1) {
-            const hueco = huecosLibres[huecoElegidoIndex];
-            if (!state.shifts[hueco.dk]) state.shifts[hueco.dk] = {};
-            state.shifts[hueco.dk][residente] = hueco.svc;
-            
-            huecosLibres.splice(huecoElegidoIndex, 1);
-            asignacionesLog.push(`${residente} -> ${hueco.svc} (${formatDK(hueco.dk)})`);
-            huecosAsignados++;
-            
-            // To be totally fair and sequentially re-evaluate, we break immediately after ONE assignment
-            // The Admin will click the button again, which triggers full recalculation.
-            break;
-        } else {
-            saltadosLog.push(residente);
+
+        if (!asignado) {
+            huecosImpossibles.push(`${hueco.svc} (${formatDK(hueco.dk)})`);
         }
     }
-    
+
     await saveState();
     renderAll();
-    
-    let mensajeFinal = `Inyección Forzosa procesada.\n\nSe asignaron ${huecosAsignados} guardias:\n${asignacionesLog.join('\\n')}`;
-    if (saltadosLog.length > 0) {
-        mensajeFinal += `\n\n⚠️ Los nominados originales no podían cubrir por incompatibilidad con salientes. Quedan huecos, pulsa otra vez para calcular nuevos nominados.`;
+
+    // Nominados que no recibieron ninguna asignación por restricción de descanso
+    const salvados = [...nominadosBloqueados].filter(r => !nominadosAsignados.has(r));
+
+    let mensajeFinal = `Inyección Forzosa procesada.\n\nSe asignaron ${huecosAsignados} guardia(s):\n${asignacionesLog.join('\n')}`;
+    if (salvados.length > 0) {
+        mensajeFinal += `\n\n🍀 Salvados por restricción de descanso (saliente/entrante):\n${salvados.join(', ')} — estaban nominados pero ningún hueco disponible era legal para ellos.`;
     }
-    
+    if (huecosImpossibles.length > 0) {
+        mensajeFinal += `\n\n⚠️ ${huecosImpossibles.length} hueco(s) imposibles de cubrir sin violar descansos:\n${huecosImpossibles.join('\n')}`;
+    }
+
     alert(mensajeFinal);
 }
 
@@ -3804,10 +3836,14 @@ function getAnalisisFestivos(y, m) {
     const monthHasAnyShifts = Object.keys(state.shifts || {}).some(dk => dk.startsWith(monthPrefix));
 
     let rondaTerminada = false;
-    if (monthHasAnyShifts && state.configMes && state.configMes[mk] && getCurrentTurn(y, m) === null) {
-        rondaTerminada = true;
+    if (state.configMes && state.configMes[mk] && getCurrentTurn(y, m) === null) {
+        const allSkipped = (state.configMes[mk].ordenSeleccion?.length > 0) &&
+            state.configMes[mk].ordenSeleccion.every(r =>
+                (state.skippedTurns?.[mk] || []).includes(r) || state.configMes[mk].pausados?.[r]
+            );
+        if (monthHasAnyShifts || allSkipped) rondaTerminada = true;
     }
-    
+
     if (!rondaTerminada) {
         return { estado: 'libre', exceso: 0, nominados: [], svcNombre: null };
     }
@@ -3854,7 +3890,7 @@ function getAnalisisFestivos(y, m) {
             if (svc.subastaTrigger.includes(tag)) {
                 if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk)) continue;
                 
-                const needed = (svc.plazasPorDia > 0 ? svc.plazasPorDia : 0);
+                const needed = getPlazasForDay(svc, dk);
                 huecosObligatoriosSvc += needed;
                 
                 if (state.shifts[dk]) {
@@ -3875,11 +3911,11 @@ function getAnalisisFestivos(y, m) {
                 if (crit === 'historico_laborables') return getHistoricoFestivosResidentes(y, m, ['laborable']);
                 if (crit === 'historico_intersemanales') return getHistoricoFestivosResidentes(y, m, ['festivo_intersemanal']);
                 if (crit === 'historico_total') return getHistoricoFestivosResidentes(y, m, ['laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal']);
-                if (crit === 'historico_servicio') return getHistoricoFestivosResidentes(y, m, ['laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal'], svc.nombre);
+                if (crit === 'historico_servicio') return getHistoricoFestivosResidentes(y, m, ['laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal'], svc.nombre, true);
                 if (crit === 'historico_servicio_dinamico') {
                     const exists = miPlan.servicios.some(s => s.nombre === targetSvc);
                     if (!exists) return null; // fallback signal
-                    return getHistoricoFestivosResidentes(y, m, ['laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal'], targetSvc);
+                    return getHistoricoFestivosResidentes(y, m, ['laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal'], targetSvc, true);
                 }
                 return null;
             };
@@ -3895,22 +3931,60 @@ function getAnalisisFestivos(y, m) {
                 if (!historicoDesempate) fallbackDes = true;
             }
             
+            // Nominados: se calculan una sola vez y se persisten en state para que todos los
+            // usuarios vean el mismo resultado (el sorteo aleatorio por empate solo ocurre una vez).
+            // La clave incluye criterio+desempate: si el admin los cambia, el cache se invalida automáticamente.
+            const criterioSuffix = `${svc.subastaCriterio || 'aleatorio'}_${svc.subastaCriterioServicio || ''}_${svc.subastaDesempate || 'none'}_${svc.subastaDesempateServicio || ''}`;
+            const nominadosKey = `${y}_${m}_${svc.nombre}_${criterioSuffix}`;
             let nominados = [];
-            let residentesAleatorios = [...residentes].sort(() => Math.random() - 0.5);
-            
-            if (svc.subastaCriterio === 'aleatorio' || fallbackPri) {
-                nominados = residentesAleatorios.slice(0, excesoSvc);
+
+            const storedNominados = state.subastaNominados?.[nominadosKey];
+            if (storedNominados && storedNominados.length >= excesoSvc) {
+                // Cache válido y suficiente; slice por si alguien tomó slots voluntariamente
+                nominados = storedNominados.slice(0, excesoSvc);
             } else {
-                const residentesOrdenados = residentesAleatorios.sort((a, b) => {
-                    const diff = (historico[a] || 0) - (historico[b] || 0);
-                    if (diff !== 0) return diff;
-                    
-                    if (historicoDesempate && !fallbackDes) {
-                        return (historicoDesempate[a] || 0) - (historicoDesempate[b] || 0);
+                // Cache ausente o insuficiente (p.ej. excesoSvc creció por fix de plazas) → recomputar
+                if (svc.subastaCriterio === 'aleatorio' || fallbackPri) {
+                    nominados = [...residentes].sort(() => Math.random() - 0.5).slice(0, excesoSvc);
+                } else {
+                    // Sort determinista: Math.random() en el comparador corrompe el orden primario
+                    const residentesOrdenados = [...residentes].sort((a, b) => {
+                        const diff = (historico[a] || 0) - (historico[b] || 0);
+                        if (diff !== 0) return diff;
+                        if (historicoDesempate && !fallbackDes) {
+                            const diffDes = (historicoDesempate[a] || 0) - (historicoDesempate[b] || 0);
+                            if (diffDes !== 0) return diffDes;
+                        }
+                        return 0; // empate real: se resuelve por tramos abajo
+                    });
+                    // Selección por tramos: nunca mezcla conteos distintos si hay suficientes empatados
+                    nominados = [];
+                    let _idx = 0;
+                    while (nominados.length < excesoSvc && _idx < residentesOrdenados.length) {
+                        const _r0 = residentesOrdenados[_idx];
+                        const _pri0 = (historico[_r0] || 0);
+                        const _des0 = (historicoDesempate && !fallbackDes) ? (historicoDesempate[_r0] || 0) : null;
+                        const tramo = [];
+                        while (_idx < residentesOrdenados.length) {
+                            const _r = residentesOrdenados[_idx];
+                            if ((historico[_r] || 0) !== _pri0) break;
+                            if (_des0 !== null && (historicoDesempate[_r] || 0) !== _des0) break;
+                            tramo.push(_r);
+                            _idx++;
+                        }
+                        const _needed = excesoSvc - nominados.length;
+                        if (tramo.length <= _needed) {
+                            nominados.push(...tramo);
+                        } else {
+                            // Sorteo ciego solo dentro del tramo empatado
+                            nominados.push(...[...tramo].sort(() => Math.random() - 0.5).slice(0, _needed));
+                        }
                     }
-                    return 0;
-                });
-                nominados = residentesOrdenados.slice(0, excesoSvc);
+                }
+                // Persistir para que todos los usuarios vean el mismo sorteo
+                if (!state.subastaNominados) state.subastaNominados = {};
+                state.subastaNominados[nominadosKey] = nominados;
+                saveState(); // fire-and-forget: no bloqueamos el render
             }
             
             const inicioRonda = state.fechaFinRonda[keyMes];

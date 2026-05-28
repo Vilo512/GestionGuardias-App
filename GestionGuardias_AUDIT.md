@@ -1,8 +1,8 @@
 # GestionGuardias App — Auditoría de Implementación
 **Versión PRD auditada:** 1.2  
-**Codebase auditado:** `app.js` (4 447 líneas, monolítico vanilla JS + Supabase)  
+**Codebase auditado:** `app.js` (4 600+ líneas, monolítico vanilla JS + Supabase)  
 **Fecha de última revisión:** Mayo 2026  
-**Estado general:** 3 divergencias activas, 5 funciones no implementadas. 14 ítems resueltos o alineados con PRD v1.2. 1 ítem nuevo (W4-B) pendiente de implementación futura.
+**Estado general:** 2 divergencias activas, 5 funciones no implementadas. 15 ítems resueltos o alineados con PRD v1.2. 1 ítem nuevo (W4-B) pendiente de implementación futura.
 
 ---
 
@@ -28,7 +28,7 @@ Este archivo es la **memoria de trabajo persistente** del Engineering Lead entre
 | W4-B | 🔮 Futuro | §9.6 | Identidad de grupo con memoria de slots inter-plan | `pendiente` |
 | W5 | ⚠️ Diverge | §14 / §13.1 | Recuento de horas sin selector de mes ni visibilidad admin | `resuelto` |
 | W6 | ⚠️ Diverge | §13.1 | Vista de Rotación con navegador de mes propio, desacoplado de `curDate` | `resuelto` |
-| W7 | ⚠️ Diverge | §8 | Reset de mes no limpia `subastasCerradasForzosas` — impide re-forzar subasta | `pendiente` |
+| W7 | ⚠️ Diverge | §8 | Reset de mes no limpia `subastasCerradasForzosas` — impide re-forzar subasta | `resuelto` |
 | W8 | ⚠️ Diverge | §8.3 | Calendario bloqueado durante ventana voluntaria — `isMyTurn` impide auto-asignación libre | `pendiente` |
 | W9 | ⚠️ Diverge | §8 | Panel de turno muestra "Turno de Nadie" en meses pasados para admin/delegado | `pendiente` |
 | N1 | ❌ Falta | §12 | Sistema de notificaciones in-app completo | `pendiente` |
@@ -384,10 +384,19 @@ const isForzada = state.subastasCerradasForzosas?.[`${y}_${m}_${svc.nombre}`];
 **Dependencias posteriores:** N5 (el override "Activar subasta ya" también necesita este fix para poder re-ejecutarse tras un reset)
 
 ### Resultado
-**Estado final:** `pendiente`  
-**Decisiones tomadas:** —  
-**Efectos secundarios detectados:** —  
-**Archivos modificados:** —
+**Estado final:** `resuelto` — PR #6 mergeado  
+**Decisiones tomadas:**
+- `adminResetMonth` limpia `subastasCerradasForzosas` y `subastaNominados` del mes
+- `adminVaciarGeneracion` limpia ambas colecciones al vaciar generación
+- Subasta aparece correctamente cuando todos saltan sin asignar (`allSkipped`)
+- Banner no persiste tras reset (`container.innerHTML = ''` siempre al inicio)
+- `ejecutarAsignacionForzosa` cubre todos los huecos en una pasada; pool expandido al resto de residentes para días multihueco; rastrea nominados salvados por restricción de descanso
+- `subastaNominados` cacheado en Supabase con clave `y_m_svc_criterio_desempate`; sorteo aleatorio ocurre una sola vez para todos los usuarios; selección por tramos garantiza que nunca se mezcla residentes de distinto nivel histórico
+- `getHistoricoFestivosResidentes` añade flag `includeCurrentMonth=true` para criterios `historico_servicio` e `historico_servicio_dinamico`
+- `huecosCount` y `excesoSvc` usan `getPlazasForDay` respetando habilitaciones en multihueco
+
+**Efectos secundarios detectados:** Usuarios deben hacer Ctrl+Shift+R + Reset Mes si el cache de nominados fue computado con JS antiguo  
+**Archivos modificados:** `app.js`
 
 ---
 
@@ -665,3 +674,4 @@ Para referencia del agente: estas secciones son conformes al PRD v0.7. No requie
 | v1.6 | Mayo 2026 | W6 nuevo y resuelto (navegador de mes duplicado en vista Rotación eliminado; `rotDate`/`changeRotMonth` reemplazados por `curDate`). PRD actualizado a v1.0. |
 | v1.7 | Mayo 2026 | N5 nuevo (botón admin "Activar subasta ya" — asignación forzosa global inmediata, independiente de N1-N4). |
 | v1.8 | Mayo 2026 | W7/W8/W9 nuevos (reset no limpia subastasCerradasForzosas; calendario bloqueado en ventana voluntaria; "Turno de Nadie" en meses pasados). PRD actualizado a v1.2. |
+| v1.9 | Mayo 2026 | W7 resuelto (PR #6): reset limpia subasta, nominados deterministas por tramos, asignación forzosa multihueco completa, criterios de servicio cuentan mes actual. |
