@@ -569,12 +569,24 @@ function getUserLevelOnDate(userProfile, dateKey) {
 
 function getPlanForUserOnDate(userProfile, dateKey) {
     if (!promoConfig.planes || promoConfig.planes.length === 0) return { nombre: "Plan Base", servicios: promoConfig.servicios || [] };
-    
+
     const level = getUserLevelOnDate(userProfile, dateKey);
-    if (level === 0) return null; 
-    
+    if (level === 0) return null;
+
     const planIndex = Math.min(level - 1, promoConfig.planes.length - 1);
     return promoConfig.planes[planIndex];
+}
+
+// Lookup canónico de config de servicio por plan
+function getSvcConfig(svcName, planName) {
+    const plan = (promoConfig.planes || []).find(p => p.nombre === planName);
+    return plan?.servicios.find(s => s.nombre === svcName) || null;
+}
+
+// Lookup con resolución automática de plan por usuario+fecha
+function getSvcConfigForUser(svcName, userProfile, dateKey) {
+    const plan = getPlanForUserOnDate(userProfile, dateKey);
+    return plan ? getSvcConfig(svcName, plan.nombre) : null;
 }
 
 // VALIDADOR CRUZADO PARA EL MERCADILLO
@@ -612,8 +624,9 @@ function getSalienteDaysForShift(dateKey, svcName, user) {
         return [];
     }
 
-    const svcConfig = promoConfig.servicios.find(s => s.nombre === svcName);
-    if (!svcConfig) return []; 
+    const uProfile = globalProfiles.find(p => p.nombre_mostrar === user) || currentUserProfile;
+    const svcConfig = getSvcConfigForUser(svcName, uProfile, dateKey);
+    if (!svcConfig) return [];
     
     const matriz = svcConfig.pernocta || svcConfig.generaSaliente;
     if (!matriz) return [];
@@ -640,7 +653,8 @@ function getSalienteDaysForShift(dateKey, svcName, user) {
 
 // ⏱️ CALCULADORA DE HORAS DE GUARDIA INDIVIDUAL
 function getShiftHours(dateKey, svcName, user) {
-    const svcConfig = promoConfig.servicios.find(s => s.nombre === svcName);
+    const uProfile = globalProfiles.find(p => p.nombre_mostrar === user) || currentUserProfile;
+    const svcConfig = getSvcConfigForUser(svcName, uProfile, dateKey);
     if (!svcConfig) return 0;
 
     const [yStr, mStr, dStr] = dateKey.split('_');
@@ -856,16 +870,16 @@ function getAllResidents() {
 
 
 // Escáner de Válvula de Escape: Busca si queda AL MENOS UN hueco legal en el mes
-function hasAvailableLegalSlots(user, y, m, svc, rule) {
+function hasAvailableLegalSlots(user, y, m, svc, rule, planName = null) {
     for (let d = 1; d <= getDaysInMonth(y, m); d++) {
         const dk = formatDateKey(y, m, d);
         const tag = getDayTag(y, m, d);
-        
+
         // 1. ¿El día encaja con las etiquetas de la regla?
-        if (!rule.etiquetas.includes(tag)) continue; 
-        
+        if (!rule.etiquetas.includes(tag)) continue;
+
         // 2. ¿El día está habilitado si el candado está activo?
-        if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk)) continue; 
+        if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk, planName)) continue;
         
         const dayShifts = state.shifts[dk] || {};
         
@@ -892,11 +906,11 @@ function hasAvailableLegalSlots(user, y, m, svc, rule) {
     return false;
 }
 
-function hasAvailableLegalSlotsForService(user, y, m, svc) {
+function hasAvailableLegalSlotsForService(user, y, m, svc, planName = null) {
     for (let d = 1; d <= getDaysInMonth(y, m); d++) {
         const dk = formatDateKey(y, m, d);
-        
-        if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk)) continue;
+
+        if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk, planName)) continue;
         
         const dayShifts = state.shifts[dk] || {};
         if (dayShifts[user] === svc.nombre) continue;
@@ -970,7 +984,7 @@ function getUserProgress(user, y, m) {
         if (missingTotal > 0) {
             if (isSecretaria) {
                 totalForgiven = true;
-            } else if (!hasAvailableLegalSlotsForService(user, y, m, svc)) {
+            } else if (!hasAvailableLegalSlotsForService(user, y, m, svc, activePlan?.nombre)) {
                 totalForgiven = true;
             }
         }
@@ -984,7 +998,7 @@ function getUserProgress(user, y, m) {
             let missingForRule = Math.max(0, rule.minimo - matchingShifts);
             
             if (missingForRule > 0) {
-                if (hasAvailableLegalSlots(user, y, m, svc, rule)) {
+                if (hasAvailableLegalSlots(user, y, m, svc, rule, activePlan?.nombre)) {
                     missingRules.push(rule);
                     rulesOk = false;
                 } else {
@@ -1496,25 +1510,22 @@ function getServiceColor(svcName) {
 }
 
 // Ayudante para verificar habilitaciones dinámicas
+// planName requerido para lookup correcto cuando el mismo servicio existe en varios planes
 function isServiceEnabledOnDate(svcName, dk, planName = null) {
-    let pData;
+    let svc;
     if (planName) {
-        pData = (promoConfig.planes || []).find(p => p.nombre === planName);
+        svc = getSvcConfig(svcName, planName);
     } else {
-        pData = (promoConfig.planes || []).find(p => p.servicios.some(s => s.nombre === svcName));
+        // Fallback legacy: encuentra el primer plan que contenga el servicio.
+        // Puede devolver el plan equivocado si el nombre es compartido entre planes.
+        // Pasar siempre planName en código nuevo.
+        const pData = (promoConfig.planes || []).find(p => p.servicios.some(s => s.nombre === svcName));
+        svc = pData?.servicios.find(s => s.nombre === svcName);
     }
-    if (!pData) return false;
-    const svc = pData.servicios.find(s => s.nombre === svcName);
     if (!svc) return false;
-    
     if (!svc.requiereHabilitacion) return true;
-    
-    if (state.habilitaciones && state.habilitaciones[dk] && state.habilitaciones[dk][svcName] !== false && state.habilitaciones[dk][svcName] !== undefined) {
-        return true;
-    }
-    if (svcName === 'Pediatría' && state.pedWhitelist && state.pedWhitelist[dk] !== false && state.pedWhitelist[dk] !== undefined) {
-        return true;
-    }
+    if (state.habilitaciones?.[dk]?.[svcName] !== false && state.habilitaciones?.[dk]?.[svcName] !== undefined) return true;
+    if (svcName === 'Pediatría' && state.pedWhitelist?.[dk] !== false && state.pedWhitelist?.[dk] !== undefined) return true;
     return false;
 }
 
@@ -3629,27 +3640,30 @@ function renderAlertaCargaMensual() {
     else if (analisis.criterio === 'historico_laborables') criterioTexto = "tienen el menor histórico de Laborables";
     else if (analisis.criterio === 'historico_intersemanales') criterioTexto = "tienen el menor histórico de Fest. Intersemanales";
     else if (analisis.criterio === 'historico_total') criterioTexto = "tienen el menor histórico de Guardias en Total";
-    else if (analisis.criterio === 'historico_servicio') criterioTexto = `tienen el menor histórico de guardias en ${analisis.servicio}`;
+    else if (analisis.criterio === 'historico_servicio') criterioTexto = `tienen el menor histórico de guardias en ${analisis.svcNombre}`;
+    else if (analisis.criterio === 'historico_servicio_dinamico') criterioTexto = `tienen el menor histórico de guardias en ${analisis.servicioCriterio || analisis.svcNombre}`;
 
     const nombresImplicados = analisis.nominados.map(r => `<b>${r}</b> ${analisis.criterio !== 'aleatorio' ? `(${analisis.historico[r]||0} contados)` : ''}`).join(', ');
 
-    // Contar huecos vacíos reales del calendario (slots, no residentes en exceso)
-    const referenceDk2 = formatDateKey(y, m, 15);
-    const planRef = getPlanForUserOnDate(currentUserProfile, referenceDk2) || promoConfig.planes?.[0];
+    // Contar huecos vacíos reales del calendario (slots, no residentes en exceso).
+    // Usar el mismo plan que resolvió getAnalisisFestivos (via planNombre) para garantizar consistencia.
+    const planRef = (promoConfig.planes || []).find(p => p.nombre === analisis.planNombre) || promoConfig.planes?.[0];
     const svcRef = planRef?.servicios?.find(s => s.nombre === analisis.svcNombre);
     let huecosCount = Math.ceil(analisis.exceso); // fallback si no se puede calcular
     if (svcRef) {
         huecosCount = 0;
         const totalDiasRef = getDaysInMonth(y, m);
+        const planResidentSet = new Set(analisis.planResidentes || []);
         for (let d = 1; d <= totalDiasRef; d++) {
             const tag = getDayTag(y, m, d);
             if ((svcRef.subastaTrigger || []).includes(tag)) {
                 const dk = formatDateKey(y, m, d);
-                if (svcRef.requiereHabilitacion && !isServiceEnabledOnDate(svcRef.nombre, dk)) continue;
+                if (svcRef.requiereHabilitacion && !isServiceEnabledOnDate(svcRef.nombre, dk, planRef?.nombre)) continue;
                 let assigned = 0;
                 if (state.shifts[dk]) {
                     for (const u in state.shifts[dk]) {
-                        if (state.shifts[dk][u] === svcRef.nombre && !u.startsWith('VRE')) assigned++;
+                        if (state.shifts[dk][u] === svcRef.nombre && !u.startsWith('VRE')
+                            && (!planResidentSet.size || planResidentSet.has(u))) assigned++;
                     }
                 }
                 const needed = getPlazasForDay(svcRef, dk);
@@ -3690,7 +3704,10 @@ function renderAlertaCargaMensual() {
 async function forzarCierreSubasta(y, m, svcNombre) {
     if (!confirm(`¿Seguro que quieres cerrar la subasta de ${svcNombre} inmediatamente? Se requerirá la inyección forzosa para cubrir los huecos restantes.`)) return;
     if (!state.subastasCerradasForzosas) state.subastasCerradasForzosas = {};
-    state.subastasCerradasForzosas[`${y}_${m}_${svcNombre}`] = true;
+    // La clave incluye el plan para no mezclar cierres entre planes distintos
+    const analisisCierre = getAnalisisFestivos(y, m);
+    const planKey = analisisCierre?.planNombre || '';
+    state.subastasCerradasForzosas[`${y}_${m}_${planKey}_${svcNombre}`] = true;
     await saveState();
     renderAll();
 }
@@ -3704,24 +3721,28 @@ async function ejecutarAsignacionForzosa(y, m, targetSvcNombre) {
     const totalDias = getDaysInMonth(y, m);
     let huecosLibres = []; 
     
-    const uProfile = currentUserProfile; 
-    const referenceDk = formatDateKey(y, m, 15);
-    const miPlan = getPlanForUserOnDate(uProfile, referenceDk) || promoConfig.planes?.[0];
-    if (!miPlan) return;
-    
-    const svc = miPlan.servicios.find(s => s.nombre === targetSvcNombre);
+    const planRef = (promoConfig.planes || []).find(p => p.nombre === analisis.planNombre) || promoConfig.planes?.[0];
+    if (!planRef) return;
+    const svc = planRef.servicios.find(s => s.nombre === targetSvcNombre);
     if (!svc) return;
     
     for (let d = 1; d <= totalDias; d++) {
         const tag = getDayTag(y, m, d);
         if ((svc.subastaTrigger || []).includes(tag)) {
             const dk = formatDateKey(y, m, d);
-            if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk)) continue;
-            
+            if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk, planRef.nombre)) continue;
+
             let assignedCount = 0;
             if (state.shifts[dk]) {
                 for (let u in state.shifts[dk]) {
-                    if (state.shifts[dk][u] === svc.nombre && !u.startsWith('VRE')) assignedCount++;
+                    if (state.shifts[dk][u] === svc.nombre && !u.startsWith('VRE')) {
+                        // Solo contar shifts del mismo plan (consistente con getAnalisisFestivos)
+                        const uProfile = globalProfiles.find(p => p.nombre_mostrar === u);
+                        const referenceDkE = formatDateKey(y, m, 15);
+                        if (!uProfile || getPlanForUserOnDate(uProfile, referenceDkE)?.nombre === planRef.nombre) {
+                            assignedCount++;
+                        }
+                    }
                 }
             }
             const needed = getPlazasForDay(svc, dk);
@@ -3735,12 +3756,13 @@ async function ejecutarAsignacionForzosa(y, m, targetSvcNombre) {
 
     if (huecosLibres.length === 0) return alert("No se han detectado huecos libres de este servicio en el calendario.");
 
-    // Nominados primero (obligados); el resto del mes como fallback para días multihueco
-    const mk = getRotationKey(y, m);
-    const todosResidentes = state.configMes?.[mk]?.ordenSeleccion || [];
+    // Nominados primero; fallback limitado a residentes del mismo plan (no pool global)
+    const planResidentes = analisis.planResidentes?.length > 0
+        ? analisis.planResidentes
+        : (state.configMes?.[getRotationKey(y, m)]?.ordenSeleccion || []);
     const candidatos = [
         ...analisis.nominados,
-        ...todosResidentes.filter(r => !analisis.nominados.includes(r))
+        ...planResidentes.filter(r => !analisis.nominados.includes(r))
     ];
     const nominadosSet = new Set(analisis.nominados);
     const nominadosBloqueados = new Set(); // nominados rechazados por descanso en ≥1 hueco
@@ -3829,39 +3851,65 @@ async function guardarNombrePerfil() {
 // CALCULADORA DE FASES Y SUBASTAS (JUSTICIA)
 // ==========================================
 function getAnalisisFestivos(y, m) {
+    if (_computingAnalisis) return { estado: 'libre', exceso: 0, nominados: [], svcNombre: null };
+    _computingAnalisis = true;
+    try {
+    return _getAnalisisFestivosImpl(y, m);
+    } finally {
+    _computingAnalisis = false;
+    }
+}
+function _getAnalisisFestivosImpl(y, m) {
     const mk = getRotationKey(y, m);
     // Salvaguarda: solo consideramos la ronda terminada si al menos alguien ha asignado una guardia este mes.
     // Evita que la subasta salte en un mes completamente vacío antes de que nadie haya elegido.
     const monthPrefix = `${y}_${String(m + 1).padStart(2, '0')}_`;
     const monthHasAnyShifts = Object.keys(state.shifts || {}).some(dk => dk.startsWith(monthPrefix));
 
+    const referenceDk = formatDateKey(y, m, 15);
+    const miPlan = getPlanForUserOnDate(currentUserProfile, referenceDk) || promoConfig.planes?.[0];
+    if (!miPlan) return { estado: 'libre', exceso: 0, nominados: [], svcNombre: null };
+
+    // Ronda terminada solo cuando todos los residentes del plan del usuario han completado el turno.
+    // Esto vincula la subasta al plan específico que terminó de elegir, no a la rotación global.
     let rondaTerminada = false;
-    if (state.configMes && state.configMes[mk] && getCurrentTurn(y, m) === null) {
-        const allSkipped = (state.configMes[mk].ordenSeleccion?.length > 0) &&
-            state.configMes[mk].ordenSeleccion.every(r =>
+    if (state.configMes && state.configMes[mk]) {
+        const ordenSeleccion = state.configMes[mk].ordenSeleccion || [];
+        const activosMes = getResidentesActivosEnMes(y, m);
+        const residentsOnMyPlan = ordenSeleccion.filter(r => {
+            const rProfile = globalProfiles.find(p => p.nombre_mostrar === r);
+            if (!rProfile) return false;
+            return getPlanForUserOnDate(rProfile, referenceDk)?.nombre === miPlan.nombre;
+        });
+        if (residentsOnMyPlan.length > 0) {
+            const allDone = residentsOnMyPlan.every(r => {
+                if (!activosMes.some(a => a.toLowerCase() === r.toLowerCase())) return true;
+                if (state.configMes[mk].pausados?.[r]) return true;
+                if ((state.skippedTurns?.[mk] || []).includes(r)) return true;
+                return getUserProgress(r, y, m).isFinished;
+            });
+            const allSkipped = residentsOnMyPlan.every(r =>
                 (state.skippedTurns?.[mk] || []).includes(r) || state.configMes[mk].pausados?.[r]
             );
-        if (monthHasAnyShifts || allSkipped) rondaTerminada = true;
+            if (allDone && (monthHasAnyShifts || allSkipped)) rondaTerminada = true;
+        }
     }
 
     if (!rondaTerminada) {
         return { estado: 'libre', exceso: 0, nominados: [], svcNombre: null };
     }
-    
-    const keyMes = `${y}_${m}`;
+
+    // keyMes incluye el plan para que cada plan tenga su propia marca de inicio de ventana voluntaria
+    const keyMes = `${y}_${m}_${miPlan.nombre}`;
     if (!state.fechaFinRonda) state.fechaFinRonda = {};
     if (!state.fechaFinRonda[keyMes]) {
         state.fechaFinRonda[keyMes] = Date.now();
         saveState(); // Fire and forget
     }
-    
-    const uProfile = currentUserProfile;
-    const referenceDk = formatDateKey(y, m, 15);
-    const miPlan = getPlanForUserOnDate(uProfile, referenceDk) || promoConfig.planes?.[0];
-    if (!miPlan) return { estado: 'libre', exceso: 0, nominados: [], svcNombre: null };
-    
+
     const totalDias = getDaysInMonth(y, m);
-    
+
+    // Candidatos y nominados son únicamente los residentes del plan del usuario
     const residentes = getAllResidents().filter(residente => {
         if (state.excluidosSubastas && state.excluidosSubastas.includes(residente)) return false;
         const tieneBaja = (state.bajasLargas||[]).some(baja => {
@@ -3870,25 +3918,29 @@ function getAnalisisFestivos(y, m) {
             const bFin = new Date(baja.fechaFin);
             return (bInicio <= new Date(y, m, totalDias) && bFin >= new Date(y, m, 1));
         });
-        return !tieneBaja;
+        if (tieneBaja) return false;
+        const rProfile = globalProfiles.find(p => p.nombre_mostrar === residente);
+        if (!rProfile) return false;
+        return getPlanForUserOnDate(rProfile, referenceDk)?.nombre === miPlan.nombre;
     });
     
     if (residentes.length === 0) return { estado: 'libre', exceso: 0, nominados: [], svcNombre: null };
 
-    for (let i = 0; i < miPlan.servicios.length; i++) {
-        const svc = miPlan.servicios[i];
-        
+    const serviciosOrdenados = [...miPlan.servicios].sort((a, b) => (a.ordenSubasta || 999) - (b.ordenSubasta || 999));
+    for (let i = 0; i < serviciosOrdenados.length; i++) {
+        const svc = serviciosOrdenados[i];
+
         if (!svc.subastaTrigger || svc.subastaTrigger.length === 0) continue;
-        
+
         let huecosObligatoriosSvc = 0;
         let huecosAsignadosSvc = 0;
-        
+
         for (let d = 1; d <= totalDias; d++) {
             const dk = formatDateKey(y, m, d);
             const tag = getDayTag(y, m, d);
-            
+
             if (svc.subastaTrigger.includes(tag)) {
-                if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk)) continue;
+                if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk, miPlan.nombre)) continue;
                 
                 const needed = getPlazasForDay(svc, dk);
                 huecosObligatoriosSvc += needed;
@@ -3896,21 +3948,27 @@ function getAnalisisFestivos(y, m) {
                 if (state.shifts[dk]) {
                     for (let u in state.shifts[dk]) {
                         if (state.shifts[dk][u] === svc.nombre && !u.startsWith('VRE')) {
-                            huecosAsignadosSvc++;
+                            // Solo contar shifts de residentes del mismo plan
+                            const uProfile = globalProfiles.find(p => p.nombre_mostrar === u);
+                            if (!uProfile || getPlanForUserOnDate(uProfile, referenceDk)?.nombre === miPlan.nombre) {
+                                huecosAsignadosSvc++;
+                            }
                         }
                     }
                 }
             }
         }
-        
+
         const excesoSvc = huecosObligatoriosSvc - huecosAsignadosSvc;
         
         if (excesoSvc > 0) {
             const _getHist = (crit, targetSvc) => {
-                if (crit === 'historico_festivos') return getHistoricoFestivosResidentes(y, m, ['fin_de_semana', 'festivo_intersemanal']);
-                if (crit === 'historico_laborables') return getHistoricoFestivosResidentes(y, m, ['laborable']);
-                if (crit === 'historico_intersemanales') return getHistoricoFestivosResidentes(y, m, ['festivo_intersemanal']);
-                if (crit === 'historico_total') return getHistoricoFestivosResidentes(y, m, ['laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal']);
+                // includeCurrentMonth=true en todos los criterios: la subasta debe contar
+                // el año completo de residencia incluyendo el mes en curso
+                if (crit === 'historico_festivos') return getHistoricoFestivosResidentes(y, m, ['fin_de_semana', 'festivo_intersemanal'], null, true);
+                if (crit === 'historico_laborables') return getHistoricoFestivosResidentes(y, m, ['laborable'], null, true);
+                if (crit === 'historico_intersemanales') return getHistoricoFestivosResidentes(y, m, ['festivo_intersemanal'], null, true);
+                if (crit === 'historico_total') return getHistoricoFestivosResidentes(y, m, ['laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal'], null, true);
                 if (crit === 'historico_servicio') return getHistoricoFestivosResidentes(y, m, ['laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal'], svc.nombre, true);
                 if (crit === 'historico_servicio_dinamico') {
                     const exists = miPlan.servicios.some(s => s.nombre === targetSvc);
@@ -3935,7 +3993,8 @@ function getAnalisisFestivos(y, m) {
             // usuarios vean el mismo resultado (el sorteo aleatorio por empate solo ocurre una vez).
             // La clave incluye criterio+desempate: si el admin los cambia, el cache se invalida automáticamente.
             const criterioSuffix = `${svc.subastaCriterio || 'aleatorio'}_${svc.subastaCriterioServicio || ''}_${svc.subastaDesempate || 'none'}_${svc.subastaDesempateServicio || ''}`;
-            const nominadosKey = `${y}_${m}_${svc.nombre}_${criterioSuffix}`;
+            // Incluir plan en la clave: R1 y R2 tienen "Urgencias HUAV" separados
+            const nominadosKey = `${y}_${m}_${miPlan.nombre}_${svc.nombre}_${criterioSuffix}`;
             let nominados = [];
 
             const storedNominados = state.subastaNominados?.[nominadosKey];
@@ -3991,7 +4050,8 @@ function getAnalisisFestivos(y, m) {
             const horasTranscurridas = (Date.now() - inicioRonda) / (1000 * 60 * 60);
             
             let estado = 'subasta_abierta';
-            const isForzada = state.subastasCerradasForzosas && state.subastasCerradasForzosas[`${y}_${m}_${svc.nombre}`];
+            // Clave incluye plan para distinguir cierre forzoso por plan
+            const isForzada = state.subastasCerradasForzosas && state.subastasCerradasForzosas[`${y}_${m}_${miPlan.nombre}_${svc.nombre}`];
             
             const ventanaHoras = promoConfig.ventana_voluntaria_horas || 48;
             if (horasTranscurridas >= ventanaHoras || isForzada) {
@@ -4000,11 +4060,14 @@ function getAnalisisFestivos(y, m) {
 
             const horasRestantes = Math.max(0, ventanaHoras - horasTranscurridas);
             
-            return { 
-                estado, 
-                exceso: excesoSvc, 
-                nominados, 
+            return {
+                estado,
+                exceso: excesoSvc,
+                nominados,
+                planResidentes: residentes,
                 svcNombre: svc.nombre,
+                planNombre: miPlan.nombre,
+                servicioCriterio: svc.subastaCriterioServicio || svc.nombre,
                 horasRestantes: Math.floor(horasRestantes),
                 criterio: svc.subastaCriterio,
                 historico
@@ -4017,6 +4080,7 @@ function getAnalisisFestivos(y, m) {
 
 // Guard para evitar recursión: getCurrentTurn → getUserProgress → getAnalisisFestivos → getCurrentTurn
 let _computingTurn = false;
+let _computingAnalisis = false;
 
 // 🔧 DEBUG TEMPORAL – ejecutar en consola: debugTurn()
 window.debugTurn = function() {
