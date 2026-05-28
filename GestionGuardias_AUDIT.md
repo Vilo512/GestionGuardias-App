@@ -2,7 +2,7 @@
 **Versión PRD auditada:** 1.2  
 **Codebase auditado:** `app.js` (4 600+ líneas, monolítico vanilla JS + Supabase)  
 **Fecha de última revisión:** Mayo 2026  
-**Estado general:** 2 divergencias activas, 5 funciones no implementadas. 15 ítems resueltos o alineados con PRD v1.2. 1 ítem nuevo (W4-B) pendiente de implementación futura.
+**Estado general:** 2 divergencias activas, 5 funciones no implementadas. 16 ítems resueltos o alineados con PRD v1.2. 1 ítem nuevo (W4-B) pendiente de implementación futura.
 
 ---
 
@@ -29,8 +29,9 @@ Este archivo es la **memoria de trabajo persistente** del Engineering Lead entre
 | W5 | ⚠️ Diverge | §14 / §13.1 | Recuento de horas sin selector de mes ni visibilidad admin | `resuelto` |
 | W6 | ⚠️ Diverge | §13.1 | Vista de Rotación con navegador de mes propio, desacoplado de `curDate` | `resuelto` |
 | W7 | ⚠️ Diverge | §8 | Reset de mes no limpia `subastasCerradasForzosas` — impide re-forzar subasta | `resuelto` |
-| W8 | ⚠️ Diverge | §8.3 | Calendario bloqueado durante ventana voluntaria — `isMyTurn` impide auto-asignación libre | `pendiente` |
-| W9 | ⚠️ Diverge | §8 | Panel de turno muestra "Turno de Nadie" en meses pasados para admin/delegado | `pendiente` |
+| W8 | ⚠️ Diverge | §8.3 | Calendario bloqueado durante ventana voluntaria — `isMyTurn` impide auto-asignación libre | `resuelto` |
+| W9 | ⚠️ Diverge | §8 | Panel de turno muestra "Turno de Nadie" en meses pasados para admin/delegado | `resuelto` |
+| W10 | ⚠️ Diverge | §8 / §9 | Subasta no aislada por plan — mezcla residentes, huecos y caché entre R1/R2/R3 | `resuelto` |
 | N1 | ❌ Falta | §12 | Sistema de notificaciones in-app completo | `pendiente` |
 | N2 | ❌ Falta | §15 / §8.4 | Registro persistente de huecos sin candidato válido | `pendiente` |
 | N3 | ❌ Falta | §5.1 | Calendario automático de huecos desde patrón configurable | `pendiente` |
@@ -420,10 +421,16 @@ Cuando `getAnalisisFestivos` devuelve `estado: 'subasta_abierta'`, `getCurrentTu
 **Dependencias posteriores:** N5 (el override de emergencia sería menos necesario si W8 permite la auto-asignación libre)
 
 ### Resultado
-**Estado final:** `pendiente`  
-**Decisiones tomadas:** —  
-**Efectos secundarios detectados:** —  
-**Archivos modificados:** —
+**Estado final:** `resuelto`  
+**Decisiones tomadas:**
+- `getAnalisisFestivos(y, m)` se calcula una vez al inicio de `openShiftModal` (`_analisisModal`).
+- La guarda `!isMyTurn && !isMine` añade una tercera condición: se salta cuando `isSubastaAbierta && svc.nombre === _analisisModal.svcNombre`.
+- Solo el servicio en subasta queda desbloqueado; el resto de servicios sigue requiriendo turno.
+- `toggleShift` no necesita cambios: no tiene guard de turno propio; el botón ya estaba deshabilitado en `openShiftModal`.
+- Restricciones que siguen activas durante subasta: saliente/entrante (`isIllegal`), día ocupado (`isUserBusyOnDay`), habilitación manual (`requiereHabilitacion`) y capacidad del slot (`pd`).
+
+**Efectos secundarios detectados:** Ninguno.  
+**Archivos modificados:** `app.js` (3 líneas en `openShiftModal`).
 
 ---
 
@@ -431,31 +438,70 @@ Cuando `getAnalisisFestivos` devuelve `estado: 'subasta_abierta'`, `getCurrentTu
 **Sección PRD:** §8  
 **Impacto:** Bajo — ruido visual y confusión para admin/delegado al revisar meses anteriores  
 **Archivos:** `app.js` líneas 1548–1584 (`renderAlertaCargaMensual`, branch `isDelegado`)  
-**Estado:** `pendiente`
+**Estado:** `resuelto`
 
 **Diagnóstico:**
 PRD §8: "El indicador de turno activo solo debe mostrarse para el mes activo o meses futuros."
 
-En el branch `isDelegado && simulatedViewUser === null` (línea 1548), el banner se renderiza siempre independientemente del mes. Cuando `getCurrentTurn(y, m)` devuelve `null` en un mes ya finalizado, la plantilla interpolada produce `Turno de: <b>Nadie</b>`, lo que no tiene significado operativo en un mes pasado.
+En el branch `isDelegado && simulatedViewUser === null` (línea 1559), el banner se renderiza siempre independientemente del mes. Cuando `getCurrentTurn(y, m)` devuelve `null` en un mes ya finalizado, la plantilla interpolada produce `Turno de: <b>Nadie</b>`, lo que no tiene significado operativo en un mes pasado.
 
-```js
-// línea 1554 — muestra "Nadie" sin comprobar si el mes ya pasó
-`${isAdmin ? '👑 Modo Admin' : '⭐ Modo Delegado'}. Turno de: <b>${turnUser || 'Nadie'}</b>`
-```
+Además, los banners de estado de subasta con contexto de plan (`subasta_abierta`, `subasta_cerrada`, completado) que existían en el bloque `else { // turnUser === null }` (líneas 1630/1645/1662) eran **código muerto** para el admin directo: el bloque `if (isDelegado && simulatedViewUser === null)` en línea 1559 siempre se ejecuta primero, impidiendo que el flujo llegue al `else`.
 
 **Acción requerida:**
-- Al inicio del branch `isDelegado`, calcular si el mes visualizado (`y`, `m`) es anterior al mes actual real (`new Date()`)
-- Si el mes es pasado y `turnUser === null`: sustituir el banner de turno por un mensaje neutro (ej. "Mes archivado. Usa el mercadillo para correcciones.") o simplemente no renderizar el bloque de turno
-- El botón "Reset Mes" puede mantenerse visible para meses pasados si es útil
+- Dentro del branch admin, cuando `turnUser === null`, calcular `getAnalisisFestivos(y, m)` y mostrar el estado real: subasta_abierta / subasta_cerrada / completado
+- Recuperar el botón "⚡ Forzosa" (antes en código muerto) y mostrarlo en el panel admin cuando `af.estado === 'subasta_cerrada'`
 
 **Dependencias previas:** Ninguna  
 **Dependencias posteriores:** Ninguna
 
 ### Resultado
-**Estado final:** `pendiente`  
-**Decisiones tomadas:** —  
-**Efectos secundarios detectados:** —  
-**Archivos modificados:** —
+**Estado final:** `resuelto`  
+**Decisiones tomadas:** En lugar de comprobar si el mes es pasado (acción descartada — innecesaria: el estado real ya comunica lo correcto), se reemplazó la interpolación `turnUser || 'Nadie'` con un bloque condicional que computa `getAnalisisFestivos` cuando `turnUser === null` y muestra el label apropiado según el estado de la subasta. El botón "Asignación Forzosa" (antes en código muerto) se rescató e integrado en el panel admin.  
+**Efectos secundarios detectados:** Ninguno.  
+**Archivos modificados:** `app.js` (~15 líneas en `renderMainCalendar`, branch `isDelegado && simulatedViewUser === null`, líneas 1563–1583).
+
+---
+
+### W10 — Subasta no aislada por plan
+**Sección PRD:** §8 / §9  
+**Impacto:** Alto — la subasta mostraba huecos incorrectos, nominados del plan equivocado e historial contaminado entre planes  
+**Archivos:** `app.js` — `getAnalisisFestivos` / `_getAnalisisFestivosImpl`, `renderAlertaCargaMensual`, `ejecutarAsignacionForzosa`, `forzarCierreSubasta`  
+**Estado:** `resuelto`
+
+**Diagnóstico:**
+Después de C22 (lookup canónico de config de servicio por plan), `getAnalisisFestivos` seguía usando el plan personal del usuario visualizando la app para cuatro decisiones clave:
+
+1. **`rondaTerminada`** — si el admin era R1 leía la rotación R1 aunque la ronda que terminó fuera R2; cada plan disparaba (o no) la subasta en función del plan del admin en sesión
+2. **Candidatos** (`residentes`) — se mezclaban residentes de todos los planes en la lista de nominados
+3. **Huecos sin cubrir** (`huecosAsignadosSvc`) — contabilizaba guardias de R1 cuando la subasta correspondía a R2, produciendo un recuento incorrecto (p. ej. 19 huecos en lugar de 13)
+4. **Claves de caché** (`nominadosKey`, `fechaFinRonda`, `subastasCerradasForzosas`) — sin `planNombre` en la clave, un cierre forzado de la subasta R1 bloqueaba también la subasta R2
+
+Síntomas adicionales detectados:
+- `criterioTexto` mostraba "undefined": se usaba `analisis.servicio` (campo inexistente) en lugar de `analisis.svcNombre`
+- El criterio `historico_servicio_dinamico` no tenía case en el bloque de texto del criterio
+- Stack overflow (`Maximum call stack size exceeded`): `getAnalisisFestivos` llamaba `getUserProgress` que internamente llama `getAnalisisFestivos` — recursión infinita sin guard
+- El histórico de guardias solo contaba el mes activo en lugar de acumular desde el inicio del año de residencia
+
+**Dependencias previas:** C22 (lookup canónico de servicio por plan)  
+**Dependencias posteriores:** W8 (la auto-asignación libre durante la ventana voluntaria se beneficia del aislamiento correcto por plan)
+
+### Resultado
+**Estado final:** `resuelto` — PR #8 mergeado a main  
+**Decisiones tomadas:**
+- `getAnalisisFestivos` envuelto con guard `_computingAnalisis` para prevenir recursión infinita; la lógica real se extrae a `_getAnalisisFestivosImpl`.
+- `rondaTerminada` filtra `ordenSeleccion` únicamente a los residentes del plan propio del usuario (`miPlan = getPlanForUserOnDate(currentUserProfile, referenceDk)`). Cada plan dispara su subasta de forma independiente.
+- `residentes` (candidatos) filtrado al plan: solo residentes cuyo `getPlanForUserOnDate` coincide con `miPlan.nombre`.
+- `huecosAsignadosSvc` y `huecosCount` en `renderAlertaCargaMensual` solo contabilizan guardias de residentes del mismo plan.
+- Claves de caché ampliadas con `planNombre`: `nominadosKey = y_m_plan_svc_criterio`, `subastasCerradasForzosas[y_m_plan_svc]`.
+- Nuevos campos en el retorno de `getAnalisisFestivos`: `planNombre`, `servicioCriterio`, `planResidentes`.
+- `_getHist` pasa `includeCurrentMonth=true` en todos los criterios: el histórico acumula desde el inicio del año de residencia hasta el mes de la subasta inclusive, no solo el mes activo.
+- `criterioTexto` corregido: `analisis.servicio` → `analisis.svcNombre`; añadido case `historico_servicio_dinamico` usando `analisis.servicioCriterio`.
+- `ejecutarAsignacionForzosa` usa `analisis.planNombre` para resolver el plan y construye la lista de candidatos exclusivamente con residentes del plan correcto.
+- `forzarCierreSubasta` usa clave `y_m_planKey_svc` para no bloquear subastas de otros planes al cerrar la del propio.
+
+**Efectos secundarios detectados:** Los contenedores con un único plan (mayoría de despliegues) no se ven afectados: el filtro por plan devuelve la lista completa de residentes activos, comportamiento idéntico al anterior.
+
+**Archivos modificados:** `app.js` (~80 líneas modificadas/añadidas en `getAnalisisFestivos`, `_getAnalisisFestivosImpl`, `renderAlertaCargaMensual`, `ejecutarAsignacionForzosa`, `forzarCierreSubasta`).
 
 ---
 
@@ -677,3 +723,5 @@ Para referencia del agente: estas secciones son conformes al PRD v0.7. No requie
 | v1.8 | Mayo 2026 | W7/W8/W9 nuevos (reset no limpia subastasCerradasForzosas; calendario bloqueado en ventana voluntaria; "Turno de Nadie" en meses pasados). PRD actualizado a v1.2. |
 | v1.9 | Mayo 2026 | W7 resuelto (PR #6): reset limpia subasta, nominados deterministas por tramos, asignación forzosa multihueco completa, criterios de servicio cuentan mes actual. |
 | v2.0 | Mayo 2026 | C22 nuevo y resuelto: bug sistémico de lookup de servicio por nombre sin contexto de plan. Introducidos `getSvcConfig`/`getSvcConfigForUser`; `isServiceEnabledOnDate` refactorizado; sort por `ordenSubasta` en `getAnalisisFestivos`; `getSalienteDaysForShift`/`getShiftHours` usan plan real del residente en lugar de Plan R1 fijo. |
+| v2.1 | Mayo 2026 | W10 nuevo y resuelto (PR #8): subasta completamente aislada por plan. Guard `_computingAnalisis` + extracción a `_getAnalisisFestivosImpl` (previene stack overflow). `rondaTerminada`, candidatos, conteo de huecos y claves de caché filtrados al plan propio. `includeCurrentMonth=true` para todos los criterios históricos (acumula desde inicio del año de residencia). `criterioTexto` corregido; case `historico_servicio_dinamico` añadido. |
+| v2.2 | Mayo 2026 | W8 resuelto: ventana voluntaria exenta del guard de turno solo para el servicio en subasta. W9 resuelto: banner admin muestra estado real (subasta/completado) cuando `turnUser === null`; botón "Forzosa" recuperado del código muerto e integrado en el panel admin. |
