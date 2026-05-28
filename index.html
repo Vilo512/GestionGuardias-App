@@ -19,11 +19,6 @@
   </div>
 </div>
 
-<div id="simulation-banner" class="simulation-banner" role="alert">
-  <span class="simulation-banner__label">Vista como: <strong id="simulation-banner-name"></strong></span>
-  <button class="simulation-banner__exit" onclick="exitSimulationMode()">Salir de simulación</button>
-</div>
-
 <div class="tabs" style="display:none;">
     <button class="tab active" onclick="nav('cal')" id="tab-cal">Asignar guardias 🗓️</button>
     <button class="tab" onclick="nav('merc')" id="tab-merc">Mercadillo 🛒</button>
@@ -206,21 +201,19 @@
           <button class="tab" onclick="navAdmin('excepciones')" id="atab-excepciones">Excepciones</button>
           <button class="tab" onclick="navAdmin('export')" id="atab-export" style="color:var(--merc);">Exportar ⬇️</button>
           <button class="tab" onclick="navAdmin('cuentas')" id="atab-cuentas">Cuentas</button>
-          <button class="tab" onclick="navAdmin('horas')" id="atab-horas">Horas ⏱️</button>
           <button class="tab" onclick="navAdmin('ajustes')" id="atab-ajustes">Planes de guardias ⚙️</button>
           <button class="tab" onclick="navAdmin('seguridad')" id="atab-seguridad">Ajustes ⚙️</button>
         </div>
       </div>
 
       <div class="card">
-        <div id="admin-nav-header" style="display:none;">
+        <div id="admin-cal-views">
           <div class="cal-header-nav">
             <button onclick="changeMonth(-1)">◀ Ant</button>
             <h3 id="admin-cal-title" style="margin:0; font-size:1.1rem;">Mes Año</h3>
             <button onclick="changeMonth(1)">Sig ▶</button>
           </div>
-        </div>
-        <div id="admin-cal-views" style="display:none;">
+			
 			<div id="aview-calendario" style="margin-bottom:1rem; background:#f8fafc; padding:10px; border-radius:8px; border:1px solid #cbd5e1; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
               <label style="font-weight:bold; font-size:0.9rem;">🖌️ Pincel activo:</label>
               <select id="admin-paint-tool" onchange="renderAdminCalendar()" style="margin:0; max-width:300px; padding:6px; font-size:0.9rem;"></select>
@@ -323,8 +316,6 @@
             <button class="danger" style="background: #ef4444; color: white;" onclick="adminDeletePromotion()">🗑️ Borrar Promoción y Calendarios</button>
           </div>
         </div>
-
-        <div id="aview-horas" style="display:none;"></div>
       </div>
     </div>
   </div>
