@@ -1756,6 +1756,8 @@ function openShiftModal(y, m, d, dateKey) {
   const turnUser = getCurrentTurn(y, m);
   const isMyTurn = turnUser === viewUser;
   const isUserPending = !!(state.pendingExceptions && state.pendingExceptions[monthKey] && state.pendingExceptions[monthKey][viewUser]);
+  const _analisisModal = getAnalisisFestivos(y, m);
+  const isSubastaAbierta = _analisisModal.estado === 'subasta_abierta';
 
   // DETERMINACIÓN DIARIA: ¿Qué plan tengo yo HOY en el calendario?
   const myPlanOnDate = getPlanForUserOnDate(currentUserProfile, dateKey);
@@ -1807,7 +1809,7 @@ holders.forEach(h => {
         else if (isIllegal && !isMine) { disabled = true; reason = "Ilegal: Choca con Saliente"; }
         else if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dateKey, myPlanOnDate ? myPlanOnDate.nombre : null) && !isMine) { disabled = true; reason = "Día no habilitado."; }
         else if (isUserBusyOnDay(viewUser, dateKey) && !isMine) { disabled = true; reason = "Ya tienes guardia hoy."; }
-        else if (!isMyTurn && !isMine) { disabled = true; reason = `Bloqueado (Toca a ${turnUser}).`; }
+        else if (!isMyTurn && !isMine && !(isSubastaAbierta && svc.nombre === _analisisModal.svcNombre)) { disabled = true; reason = `Bloqueado (Toca a ${turnUser}).`; }
         else if (pd > 0 && holders.length >= pd && !isMine) { disabled = true; reason = `Completo (${holders.length}/${pd}).`; }
         else if (isMyTurn && !isMine && !isUserPending) {
             if (pData && pData.countTotal >= svc.cupoMensualTotal) { disabled = true; reason = "Cupo mensual completado."; }
