@@ -3936,7 +3936,11 @@ function _getAnalisisFestivosImpl(y, m) {
         });
         if (tieneBaja) return false;
         const rProfile = globalProfiles.find(p => p.nombre_mostrar === residente);
-        if (!rProfile) return false;
+        if (!rProfile) {
+            // Residente virtual: incluir si pertenece a este plan por baseGroups
+            const vPlan = state.planRotations?.[miPlan.nombre];
+            return (vPlan?.baseGroups || []).flat().includes(residente);
+        }
         return getPlanForUserOnDate(rProfile, referenceDk)?.nombre === miPlan.nombre;
     });
     
