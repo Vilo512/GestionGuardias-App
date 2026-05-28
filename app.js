@@ -3851,6 +3851,15 @@ async function guardarNombrePerfil() {
 // CALCULADORA DE FASES Y SUBASTAS (JUSTICIA)
 // ==========================================
 function getAnalisisFestivos(y, m) {
+    if (_computingAnalisis) return { estado: 'libre', exceso: 0, nominados: [], svcNombre: null };
+    _computingAnalisis = true;
+    try {
+    return _getAnalisisFestivosImpl(y, m);
+    } finally {
+    _computingAnalisis = false;
+    }
+}
+function _getAnalisisFestivosImpl(y, m) {
     const mk = getRotationKey(y, m);
     // Salvaguarda: solo consideramos la ronda terminada si al menos alguien ha asignado una guardia este mes.
     // Evita que la subasta salte en un mes completamente vacío antes de que nadie haya elegido.
@@ -4069,6 +4078,7 @@ function getAnalisisFestivos(y, m) {
 
 // Guard para evitar recursión: getCurrentTurn → getUserProgress → getAnalisisFestivos → getCurrentTurn
 let _computingTurn = false;
+let _computingAnalisis = false;
 
 // 🔧 DEBUG TEMPORAL – ejecutar en consola: debugTurn()
 window.debugTurn = function() {
