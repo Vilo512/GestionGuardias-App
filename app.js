@@ -569,12 +569,24 @@ function getUserLevelOnDate(userProfile, dateKey) {
 
 function getPlanForUserOnDate(userProfile, dateKey) {
     if (!promoConfig.planes || promoConfig.planes.length === 0) return { nombre: "Plan Base", servicios: promoConfig.servicios || [] };
-    
+
     const level = getUserLevelOnDate(userProfile, dateKey);
-    if (level === 0) return null; 
-    
+    if (level === 0) return null;
+
     const planIndex = Math.min(level - 1, promoConfig.planes.length - 1);
     return promoConfig.planes[planIndex];
+}
+
+// Lookup canónico de config de servicio por plan
+function getSvcConfig(svcName, planName) {
+    const plan = (promoConfig.planes || []).find(p => p.nombre === planName);
+    return plan?.servicios.find(s => s.nombre === svcName) || null;
+}
+
+// Lookup con resolución automática de plan por usuario+fecha
+function getSvcConfigForUser(svcName, userProfile, dateKey) {
+    const plan = getPlanForUserOnDate(userProfile, dateKey);
+    return plan ? getSvcConfig(svcName, plan.nombre) : null;
 }
 
 // VALIDADOR CRUZADO PARA EL MERCADILLO
@@ -612,8 +624,9 @@ function getSalienteDaysForShift(dateKey, svcName, user) {
         return [];
     }
 
-    const svcConfig = promoConfig.servicios.find(s => s.nombre === svcName);
-    if (!svcConfig) return []; 
+    const uProfile = globalProfiles.find(p => p.nombre_mostrar === user) || currentUserProfile;
+    const svcConfig = getSvcConfigForUser(svcName, uProfile, dateKey);
+    if (!svcConfig) return [];
     
     const matriz = svcConfig.pernocta || svcConfig.generaSaliente;
     if (!matriz) return [];
@@ -640,7 +653,8 @@ function getSalienteDaysForShift(dateKey, svcName, user) {
 
 // ⏱️ CALCULADORA DE HORAS DE GUARDIA INDIVIDUAL
 function getShiftHours(dateKey, svcName, user) {
-    const svcConfig = promoConfig.servicios.find(s => s.nombre === svcName);
+    const uProfile = globalProfiles.find(p => p.nombre_mostrar === user) || currentUserProfile;
+    const svcConfig = getSvcConfigForUser(svcName, uProfile, dateKey);
     if (!svcConfig) return 0;
 
     const [yStr, mStr, dStr] = dateKey.split('_');
@@ -856,16 +870,16 @@ function getAllResidents() {
 
 
 // Escáner de Válvula de Escape: Busca si queda AL MENOS UN hueco legal en el mes
-function hasAvailableLegalSlots(user, y, m, svc, rule) {
+function hasAvailableLegalSlots(user, y, m, svc, rule, planName = null) {
     for (let d = 1; d <= getDaysInMonth(y, m); d++) {
         const dk = formatDateKey(y, m, d);
         const tag = getDayTag(y, m, d);
-        
+
         // 1. ¿El día encaja con las etiquetas de la regla?
-        if (!rule.etiquetas.includes(tag)) continue; 
-        
+        if (!rule.etiquetas.includes(tag)) continue;
+
         // 2. ¿El día está habilitado si el candado está activo?
-        if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk)) continue; 
+        if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk, planName)) continue;
         
         const dayShifts = state.shifts[dk] || {};
         
@@ -892,11 +906,11 @@ function hasAvailableLegalSlots(user, y, m, svc, rule) {
     return false;
 }
 
-function hasAvailableLegalSlotsForService(user, y, m, svc) {
+function hasAvailableLegalSlotsForService(user, y, m, svc, planName = null) {
     for (let d = 1; d <= getDaysInMonth(y, m); d++) {
         const dk = formatDateKey(y, m, d);
-        
-        if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk)) continue;
+
+        if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk, planName)) continue;
         
         const dayShifts = state.shifts[dk] || {};
         if (dayShifts[user] === svc.nombre) continue;
@@ -970,7 +984,7 @@ function getUserProgress(user, y, m) {
         if (missingTotal > 0) {
             if (isSecretaria) {
                 totalForgiven = true;
-            } else if (!hasAvailableLegalSlotsForService(user, y, m, svc)) {
+            } else if (!hasAvailableLegalSlotsForService(user, y, m, svc, activePlan?.nombre)) {
                 totalForgiven = true;
             }
         }
@@ -984,7 +998,7 @@ function getUserProgress(user, y, m) {
             let missingForRule = Math.max(0, rule.minimo - matchingShifts);
             
             if (missingForRule > 0) {
-                if (hasAvailableLegalSlots(user, y, m, svc, rule)) {
+                if (hasAvailableLegalSlots(user, y, m, svc, rule, activePlan?.nombre)) {
                     missingRules.push(rule);
                     rulesOk = false;
                 } else {
@@ -1496,25 +1510,22 @@ function getServiceColor(svcName) {
 }
 
 // Ayudante para verificar habilitaciones dinámicas
+// planName requerido para lookup correcto cuando el mismo servicio existe en varios planes
 function isServiceEnabledOnDate(svcName, dk, planName = null) {
-    let pData;
+    let svc;
     if (planName) {
-        pData = (promoConfig.planes || []).find(p => p.nombre === planName);
+        svc = getSvcConfig(svcName, planName);
     } else {
-        pData = (promoConfig.planes || []).find(p => p.servicios.some(s => s.nombre === svcName));
+        // Fallback legacy: encuentra el primer plan que contenga el servicio.
+        // Puede devolver el plan equivocado si el nombre es compartido entre planes.
+        // Pasar siempre planName en código nuevo.
+        const pData = (promoConfig.planes || []).find(p => p.servicios.some(s => s.nombre === svcName));
+        svc = pData?.servicios.find(s => s.nombre === svcName);
     }
-    if (!pData) return false;
-    const svc = pData.servicios.find(s => s.nombre === svcName);
     if (!svc) return false;
-    
     if (!svc.requiereHabilitacion) return true;
-    
-    if (state.habilitaciones && state.habilitaciones[dk] && state.habilitaciones[dk][svcName] !== false && state.habilitaciones[dk][svcName] !== undefined) {
-        return true;
-    }
-    if (svcName === 'Pediatría' && state.pedWhitelist && state.pedWhitelist[dk] !== false && state.pedWhitelist[dk] !== undefined) {
-        return true;
-    }
+    if (state.habilitaciones?.[dk]?.[svcName] !== false && state.habilitaciones?.[dk]?.[svcName] !== undefined) return true;
+    if (svcName === 'Pediatría' && state.pedWhitelist?.[dk] !== false && state.pedWhitelist?.[dk] !== undefined) return true;
     return false;
 }
 
@@ -3645,7 +3656,7 @@ function renderAlertaCargaMensual() {
             const tag = getDayTag(y, m, d);
             if ((svcRef.subastaTrigger || []).includes(tag)) {
                 const dk = formatDateKey(y, m, d);
-                if (svcRef.requiereHabilitacion && !isServiceEnabledOnDate(svcRef.nombre, dk)) continue;
+                if (svcRef.requiereHabilitacion && !isServiceEnabledOnDate(svcRef.nombre, dk, planRef?.nombre)) continue;
                 let assigned = 0;
                 if (state.shifts[dk]) {
                     for (const u in state.shifts[dk]) {
@@ -3716,8 +3727,8 @@ async function ejecutarAsignacionForzosa(y, m, targetSvcNombre) {
         const tag = getDayTag(y, m, d);
         if ((svc.subastaTrigger || []).includes(tag)) {
             const dk = formatDateKey(y, m, d);
-            if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk)) continue;
-            
+            if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk, miPlan.nombre)) continue;
+
             let assignedCount = 0;
             if (state.shifts[dk]) {
                 for (let u in state.shifts[dk]) {
@@ -3875,20 +3886,21 @@ function getAnalisisFestivos(y, m) {
     
     if (residentes.length === 0) return { estado: 'libre', exceso: 0, nominados: [], svcNombre: null };
 
-    for (let i = 0; i < miPlan.servicios.length; i++) {
-        const svc = miPlan.servicios[i];
-        
+    const serviciosOrdenados = [...miPlan.servicios].sort((a, b) => (a.ordenSubasta || 999) - (b.ordenSubasta || 999));
+    for (let i = 0; i < serviciosOrdenados.length; i++) {
+        const svc = serviciosOrdenados[i];
+
         if (!svc.subastaTrigger || svc.subastaTrigger.length === 0) continue;
-        
+
         let huecosObligatoriosSvc = 0;
         let huecosAsignadosSvc = 0;
-        
+
         for (let d = 1; d <= totalDias; d++) {
             const dk = formatDateKey(y, m, d);
             const tag = getDayTag(y, m, d);
-            
+
             if (svc.subastaTrigger.includes(tag)) {
-                if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk)) continue;
+                if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk, miPlan.nombre)) continue;
                 
                 const needed = getPlazasForDay(svc, dk);
                 huecosObligatoriosSvc += needed;
