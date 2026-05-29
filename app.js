@@ -75,6 +75,11 @@ let state = {
   grantedTurn: {}, // 💡 Turno otorgado por admin: { [mk]: residentName }
 };
 
+// Guards anti-recursión: deben declararse antes de cualquier función que los use
+// para evitar la Temporal Dead Zone (TDZ) de `let`.
+let _computingTurn = false;
+let _computingAnalisis = false;
+
 /** Formatea año y mes a string "YYYY-MM" para claves de Supabase. */
 function monthString(y, m) {
     return `${y}-${String(m + 1).padStart(2, '0')}`;
@@ -4891,8 +4896,7 @@ function _getAnalisisFestivosImpl(y, m) {
 // ============================================================
 
 // Guard para evitar recursión: getCurrentTurn → getUserProgress → getAnalisisFestivos → getCurrentTurn
-let _computingTurn = false;
-let _computingAnalisis = false;
+// (_computingTurn y _computingAnalisis declarados al inicio del archivo para evitar TDZ)
 
 // 🔧 DEBUG TEMPORAL – ejecutar en consola: debugTurn()
 window.debugTurn = function() {
