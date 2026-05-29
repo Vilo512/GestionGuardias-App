@@ -75,10 +75,15 @@ let state = {
   grantedTurn: {}, // 💡 Turno otorgado por admin: { [mk]: residentName }
 };
 
+/** Formatea año y mes a string "YYYY-MM" para claves de Supabase. */
 function monthString(y, m) {
     return `${y}-${String(m + 1).padStart(2, '0')}`;
 }
 
+/**
+ * Elimina las customRotations almacenadas para meses posteriores al dado en el plan activo.
+ * Útil al reconfigurar el mes base para que los cálculos futuros partan desde cero.
+ */
 async function limpiarFuturos(y, m) {
     const planName = getCurrentRotPlan(formatDateKey(y, m, 1));
     const pr = state.planRotations?.[planName];
@@ -99,6 +104,12 @@ async function limpiarFuturos(y, m) {
 
 let curDate = new Date(2026, 0, 1);
 let selectedRotPlan = null;
+/**
+ * Devuelve el nombre del plan de rotación activo para una dateKey dada.
+ * Si el delegado tiene un plan seleccionado manualmente, tiene prioridad sobre el calculado.
+ * @param {string} dk - dateKey "YYYY_MM_DD"
+ * @returns {string} nombre del plan
+ */
 function getCurrentRotPlan(dk) {
     if (isDelegado && selectedRotPlan && selectedRotPlan !== "AUTO") return selectedRotPlan;
     const p = getPlanForUserOnDate(currentUserProfile, dk);
@@ -123,11 +134,17 @@ let globalProfiles = []; // Almacena las fechas de inicio/cambio de todos los re
 // Dependencias externas: state.festivos
 // Helpers que usa: formatDateKey
 // ============================================================
+/** Devuelve hasta 3 iniciales en mayúscula del nombre dado. */
 function getInitials(name) {
   if (!name) return "";
   return name.trim().split(/\s+/).map(word => word[0].toUpperCase()).join('').substring(0, 3);
 }
 
+/**
+ * Actualiza el badge de estado con un mensaje; muestra advertencia visual si tarda >10 min.
+ * @param {string} msg
+ * @param {boolean} [isError=false]
+ */
 function setStatus(msg, isError = false) {
   const b = document.getElementById('status-badge');
   b.textContent = msg;
@@ -145,13 +162,16 @@ function setStatus(msg, isError = false) {
   }
 }
 
+/** Muestra u oculta el campo libre de razón cuando el select tiene valor "Otros". */
 function toggleOtherReasonInput() {
   const sel = document.getElementById('user-skip-reason');
   const inpBlock = document.getElementById('user-skip-reason-other-block');
   if (sel && inpBlock) inpBlock.style.display = sel.value === 'Otros' ? 'block' : 'none';
 }
 
+/** Convierte dateKey "YYYY_MM_DD" a string legible "D/M/YYYY". */
 function formatDK(dk) { const parts = dk.split('_'); return `${parseInt(parts[2])}/${parseInt(parts[1])}/${parts[0]}`; }
+/** Devuelve true si la dateKey es anterior a hoy (medianoche local). */
 function isPastDate(dk) {
   const parts = dk.split('_');
   const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
@@ -159,12 +179,23 @@ function isPastDate(dk) {
   return d < today;
 }
 
+/** @returns {number} número de días del mes (considera años bisiestos). */
 function getDaysInMonth(y, m) { return new Date(y, m + 1, 0).getDate(); }
+/** @returns {number} desplazamiento del primer día (0=lunes … 6=domingo, estilo ISO). */
 function getFirstDayOffset(y, m) { const d = new Date(y, m, 1).getDay(); return d === 0 ? 6 : d - 1; }
+/** Construye la clave canónica de fecha "YYYY_MM_DD" con ceros de relleno. */
 function formatDateKey(y, m, d) { return `${y}_${String(m+1).padStart(2,'0')}_${String(d).padStart(2,'0')}`; }
+/** Devuelve true si el usuario tiene alguna guardia asignada en state.shifts ese día. */
 function isUserBusyOnDay(user, dateKey) { return !!(state.shifts[dateKey] && state.shifts[dateKey][user]); }
 
 // NÚCLEO ICS: Clasificador Inteligente de Días
+/**
+ * Clasifica un día según el sistema ICS: 'fin_de_semana', 'festivo_intersemanal', 'vispera' o 'laborable'.
+ * @param {number} y
+ * @param {number} m - 0-indexed
+ * @param {number} d
+ * @returns {'fin_de_semana'|'festivo_intersemanal'|'vispera'|'laborable'}
+ */
 function getDayTag(y, m, d) {
     const dk = formatDateKey(y, m, d);
     const date = new Date(y, m, d);
@@ -190,8 +221,12 @@ function getDayTag(y, m, d) {
 // Dependencias externas: supabaseClient, state, promoConfig, currentUserProfile, authSession
 // Helpers que usa: setStatus, formatDateKey, promoConfig.planes
 // ============================================================
+/**
+ * Persiste state en Supabase (tabla estados_promocion). Incluye un cliente "ninja"
+ * de reserva que bypasea el sistema de locks del SDK si la petición principal supera 3 s.
+ */
 async function saveState() {
-  if (!currentUserProfile || !currentUserProfile.promocion_id) return; 
+  if (!currentUserProfile || !currentUserProfile.promocion_id) return;
   setStatus('Guardando...');
   try {
     const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout de red")), 3000));
@@ -275,6 +310,7 @@ function normalizeConfig(config) {
     return config;
 }
 
+/** Descarga y normaliza la configuración de la promoción desde Supabase; rellena promoConfig. */
 async function loadPromoConfig() {
   if (!currentUserProfile?.promocion_id) return;
   try {
@@ -284,6 +320,10 @@ async function loadPromoConfig() {
   } catch (e) { console.error("Error cargando config", e); promoConfig = normalizeConfig({}); }
 }
 	
+/**
+ * Descarga globalProfiles y state desde Supabase; inicializa defaults si no existe estado previo.
+ * Ejecuta checkAutomaticGraduation() y renderAll() al finalizar.
+ */
 async function loadState() {
   if (!currentUserProfile || !currentUserProfile.promocion_id) return;
   setStatus('Cargando calendario...');
@@ -341,6 +381,10 @@ async function loadState() {
 let authSession = null;
 let currentUserProfile = null; 
 
+/**
+ * Punto de entrada de la aplicación: recupera la sesión activa, suscribe al canal de auth
+ * y registra el destructor de bloqueos al volver a la pestaña.
+ */
 async function initApp() {
     try {
         const { data: { session } } = await supabaseClient.auth.getSession();
@@ -378,6 +422,11 @@ async function initApp() {
     });
 }
 
+/**
+ * Procesa un cambio de sesión OAuth: sincroniza loggedInUser / currentUserProfile
+ * y delega el renderizado al evaluador de estado.
+ * @param {Object|null} session - sesión Supabase o null si el usuario cerró sesión
+ */
 async function handleSession(session) {
     authSession = session;
     if (session) {
@@ -391,6 +440,11 @@ async function handleSession(session) {
     renderUserHeader();
 }
 
+/**
+ * Busca el perfil del usuario en Supabase; lo crea si no existe (primer login).
+ * Actualiza currentUserProfile y loggedInUser, luego llama a evaluarEstadoUsuario().
+ * @param {Object} user - objeto usuario de Supabase Auth
+ */
 async function syncUserProfile(user) {
   try {
     // Restauramos el chivato visual para saber cuándo se consulta la base de datos
@@ -415,6 +469,10 @@ async function syncUserProfile(user) {
   }
 }
 
+/**
+ * Muestra el panel correcto según el estado del perfil (sin grupo, pendiente, aprobado).
+ * Carga roles, configuración y estado cuando el perfil está aprobado.
+ */
 async function evaluarEstadoUsuario() {
   try {
       ['cal','merc','rot','help','admin', 'onboarding', 'pending'].forEach(t => {
@@ -460,6 +518,7 @@ initApp();
 // Helpers que usa: setStatus, evaluarEstadoUsuario, ejecutarSalidaFinal, activateSimulationMode, renderAll, nav, getRotationKey, saveState
 // ============================================================
 let todasLasPromociones = []; 
+/** Descarga todas las promociones y rellena el selector de hospitales del formulario de onboarding. */
 async function cargarListaPromociones() {
   const { data, error } = await supabaseClient.from('promociones').select('*');
   const selHosp = document.getElementById('sel-hospital');
@@ -469,6 +528,7 @@ async function cargarListaPromociones() {
   selHosp.innerHTML = '<option value="">-- Selecciona Hospital --</option>' + hospitalesUnicos.map(h => `<option value="${h}">${h}</option>`).join('');
 }
 
+/** Filtra las especialidades disponibles al cambiar el hospital seleccionado en el onboarding. */
 function onHospitalChange() {
   const hospElegido = document.getElementById('sel-hospital').value;
   const selServ = document.getElementById('sel-servicio');
@@ -478,6 +538,7 @@ function onHospitalChange() {
   // TEXTO ACTUALIZADO: Adiós al "Año"
   selServ.innerHTML = '<option value="">-- Elige Especialidad --</option>' + serviciosFiltrados.map(p => `<option value="${p.id}">${p.servicio} (${p.nombre})</option>`).join('');
 }
+/** Valida el formulario de onboarding y delega en ejecutarSalidaFinal para unirse a una promoción. */
 async function solicitarUnirse() {
   const promoId = document.getElementById('sel-servicio').value;
   const fechaInicio = document.getElementById('onb-fecha-inicio').value;
@@ -493,13 +554,19 @@ async function solicitarUnirse() {
   await ejecutarSalidaFinal(promoId);
 }
 
-// En la función abrirCrearPromocion(), quita el prompt del "año/R1" ya que ahora es unificado
+/** Solicita hospital y especialidad mediante prompts y crea una nueva promoción unificada. */
 function abrirCrearPromocion() {
   const hospital = prompt("Nombre del Hospital (ej: Hospital Universitari Arnau de Vilanova, procura poner el nombre completo del hospital con mayúsculas apropiadas):"); if (!hospital) return;
   const servicio = prompt("Especialidad (ej: Medicina Familiar y Comunitaria, Traumatología, procura poner el nombre completo de la especialidad según el BOE):"); if (!servicio) return;
   
   crearNuevaPromocionMaster(hospital, servicio, "Especialidad Completa");
 }
+/**
+ * Inserta la nueva promoción en Supabase y asigna al usuario actual como admin con la fecha de inicio indicada.
+ * @param {string} h - hospital
+ * @param {string} s - especialidad (servicio)
+ * @param {string} n - nombre del contenedor
+ */
 async function crearNuevaPromocionMaster(h, s, n) {
   const fechaInicio = document.getElementById('onb-fecha-inicio').value;
   if (!fechaInicio) return alert("Por favor, establece tu fecha real de inicio de residencia en el formulario antes de crear el grupo.");
@@ -520,10 +587,18 @@ async function crearNuevaPromocionMaster(h, s, n) {
   alert("¡Promoción unificada creada! Eres el Dueño de " + s); window.location.reload(); 
 }
 	
+/** Inicia el flujo OAuth con Google forzando siempre la selección de cuenta. */
 async function loginWithGoogle() { const { error } = await supabaseClient.auth.signInWithOAuth({ provider: 'google', options: { queryParams: { prompt: 'select_account' } } }); if (error) alert("Error: " + error.message); }
+/** Cierra la sesión y recarga la página para limpiar el estado en memoria. */
 async function logoutUser() { setStatus('Cerrando sesión...'); await supabaseClient.auth.signOut(); window.location.reload(); }
+/** Alias para activar el modo simulación desde botones de la UI. */
 function impersonateUser(user) { activateSimulationMode(user); }
 
+/**
+ * Activa el modo de visualización simulada: hace que toda la app se renderice
+ * desde la perspectiva del residente indicado sin alterar datos.
+ * @param {string} nombre - nombre_mostrar del residente a simular
+ */
 function activateSimulationMode(nombre) {
     simulatedViewUser = nombre;
     document.getElementById('simulation-banner-name').textContent = nombre;
@@ -534,12 +609,14 @@ function activateSimulationMode(nombre) {
     renderAll();
 }
 
+/** Desactiva el modo simulación y devuelve la vista al usuario real. */
 function exitSimulationMode() {
     simulatedViewUser = null;
     document.getElementById('simulation-banner').classList.remove('active');
     renderAll();
 }
 
+/** Muestra u oculta el selector de residente según la acción de admin elegida (grant/simulate). */
 function onAdminModeChange() {
     const mode = document.getElementById('sel-admin-mode')?.value;
     const residentRow = document.getElementById('admin-action-resident-row');
@@ -554,6 +631,11 @@ function onAdminModeChange() {
     }
 }
 
+/**
+ * Ejecuta la acción de admin seleccionada: otorga turno (grantedTurn) o activa simulación.
+ * @param {number} y
+ * @param {number} m - 0-indexed
+ */
 function onAdminActionConfirm(y, m) {
     const mode = document.getElementById('sel-admin-mode')?.value;
     const res = document.getElementById('sel-admin-resident')?.value;
@@ -569,6 +651,7 @@ function onAdminActionConfirm(y, m) {
         activateSimulationMode(res);
     }
 }
+/** Actualiza el widget de cabecera con el badge del usuario o el botón de login. */
 function renderUserHeader() {
   const el = document.getElementById('user-display');
   if (authSession) el.innerHTML = `<div class="user-badge">👤 ${getInitials(loggedInUser)} <button onclick="logoutUser()" style="padding:2px 6px; font-size:0.7rem; margin-left:4px; border:none; background:rgba(0,0,0,0.1); color:var(--dark); border-radius:4px;">Salir</button></div>`;
@@ -612,6 +695,12 @@ function getUserLevelOnDate(userProfile, dateKey) {
     return Math.max(1, level);
 }
 
+/**
+ * Devuelve el objeto plan (de promoConfig.planes) que corresponde al nivel del usuario en esa fecha.
+ * @param {Object} userProfile
+ * @param {string} dateKey
+ * @returns {Object|null} plan o null si el usuario aún no ha comenzado la residencia
+ */
 function getPlanForUserOnDate(userProfile, dateKey) {
     if (!promoConfig.planes || promoConfig.planes.length === 0) return { nombre: "Plan Base", servicios: promoConfig.servicios || [] };
 
@@ -622,19 +711,38 @@ function getPlanForUserOnDate(userProfile, dateKey) {
     return promoConfig.planes[planIndex];
 }
 
-// Lookup canónico de config de servicio por plan
+/**
+ * Devuelve la config de un servicio dentro de un plan dado.
+ * @param {string} svcName
+ * @param {string} planName
+ * @returns {Object|null}
+ */
 function getSvcConfig(svcName, planName) {
     const plan = (promoConfig.planes || []).find(p => p.nombre === planName);
     return plan?.servicios.find(s => s.nombre === svcName) || null;
 }
 
-// Lookup con resolución automática de plan por usuario+fecha
+/**
+ * Resuelve automáticamente el plan del usuario en la fecha dada y devuelve la config del servicio.
+ * @param {string} svcName
+ * @param {Object} userProfile
+ * @param {string} dateKey
+ * @returns {Object|null}
+ */
 function getSvcConfigForUser(svcName, userProfile, dateKey) {
     const plan = getPlanForUserOnDate(userProfile, dateKey);
     return plan ? getSvcConfig(svcName, plan.nombre) : null;
 }
 
-// VALIDADOR CRUZADO PARA EL MERCADILLO
+/**
+ * Valida si targetUser puede recibir/tomar la guardia de sourceUser según la reglaIntercambio del servicio.
+ * Los usuarios 'Externo' siempre pasan la validación.
+ * @param {string} targetUserName
+ * @param {string} sourceUserName
+ * @param {string} dateKey
+ * @param {string} svcName
+ * @returns {boolean}
+ */
 function canUserTakeShift(targetUserName, sourceUserName, dateKey, svcName) {
     if (targetUserName === 'Externo' || sourceUserName === 'Externo') return true; 
 
@@ -708,7 +816,13 @@ function getSalienteDaysForShift(dateKey, svcName, user) {
     return salientes;
 }
 
-// ⏱️ CALCULADORA DE HORAS DE GUARDIA INDIVIDUAL
+/**
+ * Calcula las horas de una guardia según tipo de día (ICS) y modalidad (diurna/partida).
+ * @param {string} dateKey
+ * @param {string} svcName
+ * @param {string} user - nombre_mostrar
+ * @returns {number} horas (0 si no hay config)
+ */
 function getShiftHours(dateKey, svcName, user) {
     const uProfile = globalProfiles.find(p => p.nombre_mostrar === user) || currentUserProfile;
     const svcConfig = getSvcConfigForUser(svcName, uProfile, dateKey);
@@ -732,6 +846,12 @@ function getShiftHours(dateKey, svcName, user) {
     return horasBase;
 }
 
+/**
+ * Detecta conflictos de saliente ilegal para un usuario en un mapa de guardias dado.
+ * @param {string} user
+ * @param {Object} shiftsObj - mapa dk → { user: svcNombre } (puede ser computedShifts o proyección)
+ * @returns {string[]} mensajes de conflicto
+ */
 function getIllegalShiftsForUser(user, shiftsObj) {
     let userShifts = [];
     for (let dk in shiftsObj) {
@@ -767,7 +887,15 @@ function getIllegalShiftsForUser(user, shiftsObj) {
 // Dependencias externas: state.planRotations, state.historialEventos, globalProfiles, promoConfig
 // Helpers que usa: formatDateKey, getRotationKey, getPlanForUserOnDate, getUserLevelOnDate, reempaquetarGruposPlan
 // ============================================================
+/** Construye la clave canónica de mes "YYYY_MM" para indexar customRotations. */
 function getRotationKey(y, m) { return `${y}_${String(m).padStart(2,'0')}`; }
+/**
+ * Alias explícito para obtener la rotación de un plan concreto (facilita llamadas desde el editor).
+ * @param {string} planName
+ * @param {number} y
+ * @param {number} m
+ * @returns {string[][]}
+ */
 function getRotationForPlan(planName, y, m) {
     return getRotation(y, m, planName);
 }
@@ -892,6 +1020,13 @@ function getRotation(y, m, forcedPlanName) {
     return currentGroups;
 }
 
+/**
+ * Reagrupa una lista plana de residentes en sub-grupos separando fijos de móviles,
+ * respetando la política residentesFijos del plan.
+ * @param {string[]} lista - array plano de nombres
+ * @param {Object} pr - objeto planRotation (contiene residentesFijos)
+ * @returns {string[][]}
+ */
 function reempaquetarGruposPlan(lista, pr) {
     if (!lista || lista.length === 0) return [[]];
     let fijos = lista.filter(n => (pr.residentesFijos || []).includes(n));
@@ -902,7 +1037,11 @@ function reempaquetarGruposPlan(lista, pr) {
     else return gruposMoviles;
 }
 
-// Obtiene la lista de nombres de residentes virtuales configurados en las rotaciones
+/**
+ * Devuelve los nombres presentes en baseGroups de cualquier plan que no tienen perfil real en globalProfiles.
+ * Estos "residentes virtuales" participan en el motor de rotación pero no tienen cuenta Supabase.
+ * @returns {string[]}
+ */
 function getVirtualResidents() {
     let list = [];
     if (state.planRotations) {
@@ -920,6 +1059,10 @@ function getVirtualResidents() {
     return list;
 }
 
+/**
+ * Devuelve todos los residentes activos (perfiles reales + virtuales) excluyendo graduados.
+ * @returns {string[]} array de nombre_mostrar
+ */
 function getAllResidents() {
     let list = [];
     if (!globalProfiles || globalProfiles.length === 0) return list;
@@ -947,6 +1090,17 @@ function getAllResidents() {
 // ============================================================
 
 // Escáner de Válvula de Escape: Busca si queda AL MENOS UN hueco legal en el mes
+/**
+ * Comprueba si existe al menos un día legal donde el usuario puede cumplir una regla obligatoria específica.
+ * Usado para decidir si una regla incumplida debe "perdonarse" por falta de huecos.
+ * @param {string} user
+ * @param {number} y
+ * @param {number} m
+ * @param {Object} svc - config del servicio
+ * @param {Object} rule - objeto reglasObligatorias
+ * @param {string|null} planName
+ * @returns {boolean}
+ */
 function hasAvailableLegalSlots(user, y, m, svc, rule, planName = null) {
     for (let d = 1; d <= getDaysInMonth(y, m); d++) {
         const dk = formatDateKey(y, m, d);
@@ -983,6 +1137,16 @@ function hasAvailableLegalSlots(user, y, m, svc, rule, planName = null) {
     return false;
 }
 
+/**
+ * Igual que hasAvailableLegalSlots pero sin restricción de etiqueta: verifica si queda algún hueco
+ * legal para el servicio en conjunto (para perdonar el cupoMensualTotal total).
+ * @param {string} user
+ * @param {number} y
+ * @param {number} m
+ * @param {Object} svc
+ * @param {string|null} planName
+ * @returns {boolean}
+ */
 function hasAvailableLegalSlotsForService(user, y, m, svc, planName = null) {
     for (let d = 1; d <= getDaysInMonth(y, m); d++) {
         const dk = formatDateKey(y, m, d);
@@ -1240,6 +1404,7 @@ function checkTradeConflicts(newTrade) {
 // Dependencias externas: supabaseClient, currentUserProfile, state
 // Helpers que usa: setStatus, evaluarEstadoUsuario, saveState, limpiarFuturos, renderGruposView
 // ============================================================
+/** Renderiza el panel de grupos: estado actual del usuario y listado de otros grupos por hospital. */
 async function renderGruposView() {
     const currentContainer = document.getElementById('grupos-current-info');
     const listContainer = document.getElementById('grupos-list-container');
@@ -1315,7 +1480,10 @@ async function renderGruposView() {
     listContainer.innerHTML = html;
 }
 
-// NUEVA FUNCIÓN: Guarda la fecha usando el año inerte 2000
+/**
+ * Persiste el día y mes de cambio de contrato del usuario usando el año 2000 como base inerte
+ * (garantiza soporte de 29-Feb sin depender del año actual).
+ */
 async function guardarFechaGraduacion() {
     const dia = document.getElementById('input-dia-cambio').value;
     const mes = document.getElementById('input-mes-cambio').value;
@@ -1345,17 +1513,27 @@ async function guardarFechaGraduacion() {
 // FASE 1: PROTECCIÓN DE GRUPOS Y SUCESIÓN
 // ==========================================
 
+/** Inicia el flujo de salida del grupo actual (sin destino alternativo). */
 async function abandonarGrupo() {
     if(!confirm("¿Seguro que quieres salir? Perderás el acceso al calendario actual.")) return;
     iniciarProcesoSalida(null); // null significa que solo sale, no cambia a otro
 }
 
+/**
+ * Solicita el cambio a otra promoción: inicia el proceso de salida con destinoId para que
+ * se evalúe si hay sucesión pendiente antes de ejecutar el movimiento.
+ * @param {string} destinoId - id de la promoción destino
+ */
 async function solicitarCambioGrupo(destinoId) {
   if (!confirm("¿Seguro que deseas solicitar el cambio a este grupo? Tu estado volverá a estar pendiente o se evaluará si está vacío.")) return;
   await iniciarProcesoSalida(destinoId);
 }
 
-// EL PUNTO DE CONTROL (La Radiografía)
+/**
+ * Punto de control de salida: determina si el usuario es el dueño del grupo y gestiona
+ * tres caminos — salida libre, hibernación (último miembro) o sucesión automática.
+ * @param {string|null} destinoId - id de la promoción destino, o null para salida simple
+ */
 async function iniciarProcesoSalida(destinoId) {
     if (!currentUserProfile.promocion_id) return ejecutarSalidaFinal(destinoId);
 
@@ -1406,9 +1584,11 @@ async function iniciarProcesoSalida(destinoId) {
     return ejecutarSalidaFinal(destinoId);
 }
 
-// ==========================================
-// PUERTA ÚNICA DE ENTRADA Y SALIDA (Unificada)
-// ==========================================
+/**
+ * Puerta única de entrada/salida de grupo: gestiona el protocolo "primer colono" si el destino
+ * está vacío, o envía la solicitud de acceso si está ocupado. destinoId=null produce salida simple.
+ * @param {string|null} destinoId
+ */
 async function ejecutarSalidaFinal(destinoId) {
     setStatus(destinoId ? 'Procesando entrada...' : 'Saliendo del grupo...');
 
@@ -1476,6 +1656,10 @@ async function ejecutarSalidaFinal(destinoId) {
 // Dependencias externas: isAdmin, isDelegado, currentAdminView, loggedInUser, simulatedViewUser
 // Helpers que usa: renderAll, renderGruposView, renderPerfilUsuario, renderAdminCalendar, renderAdminExceptions, renderAdminAjustes, renderAdminSeguridad, renderAdminHoras, renderAccountsList, checkAutomaticGraduation
 // ============================================================
+/**
+ * Muestra el panel solicitado y oculta el resto; dispara el renderizado específico del panel.
+ * @param {'cal'|'merc'|'rot'|'grupos'|'help'|'admin'|'perfil'} tab
+ */
 function nav(tab) {
   if (tab === 'admin' && !isDelegado) return;
 
@@ -1498,6 +1682,10 @@ function nav(tab) {
     renderAll();
 }
 
+/**
+ * Navega entre las sub-secciones del panel de admin; oculta las pestañas solo-admin si no es admin.
+ * @param {'calendario'|'excepciones'|'export'|'cuentas'|'horas'|'seguridad'|'ajustes'} sub
+ */
 function navAdmin(sub) {
   const adminOnlySubs = ['calendario', 'ajustes', 'seguridad'];
   if (adminOnlySubs.includes(sub) && !isAdmin) sub = 'excepciones';
@@ -1520,6 +1708,7 @@ function navAdmin(sub) {
   if (sub === 'horas') renderAdminHoras();
 }
 
+/** Rellena el formulario de seguridad con los datos actuales de la promoción desde Supabase. */
 async function renderAdminSeguridad() {
     const { data: promo, error } = await supabaseClient.from('promociones').select('servicio').eq('id', currentUserProfile.promocion_id).single();
     if (!error && promo) {
@@ -1527,6 +1716,7 @@ async function renderAdminSeguridad() {
     }
 }
 
+/** Guarda el nuevo nombre de especialidad de la promoción en Supabase y recarga la página. */
 async function adminUpdatePromoDetails() {
     const newServicio = document.getElementById('edit-promo-servicio').value.trim();
     if (!newServicio) return alert("El campo de la especialidad no puede estar vacío.");
@@ -1546,6 +1736,10 @@ async function adminUpdatePromoDetails() {
     }
 }
 
+/**
+ * Avanza o retrocede el mes visible en la aplicación.
+ * @param {1|-1} delta
+ */
 function changeMonth(delta) {
   let m = curDate.getMonth() + delta; let y = curDate.getFullYear();
   if (m > 11) { m = 0; y++; } if (m < 0) { m = 11; y--; }
@@ -1553,6 +1747,7 @@ function changeMonth(delta) {
     renderAll();
 }
 
+/** Re-renderiza todos los paneles activos del mes actual (cabecera, calendarios, rotación, admin). */
 function renderAll() {
   renderUserHeader();
   const y = curDate.getFullYear(), m = curDate.getMonth();
@@ -1580,6 +1775,7 @@ function renderAll() {
   }
 }
 
+/** Alterna el modo "ver solo mis guardias" y actualiza el estilo de los botones de filtro. */
 function toggleFilter() {
   if (!loggedInUser) { alert("⚠️ Identifícate primero arriba a la derecha para poder filtrar tus guardias."); return; }
   showOnlyMine = !showOnlyMine;
@@ -1603,6 +1799,7 @@ function toggleFilter() {
 // Helpers que usa: getSvcConfig
 // NOTA: getCellBackgroundStyle también pertenece aquí (ver línea 2)
 // ============================================================
+/** Devuelve la lista deduplicada de todos los servicios definidos en cualquier plan de promoConfig. */
 function getAllUniqueServices() {
     let unique = []; let names = new Set();
     if (!promoConfig.planes) return [];
@@ -1614,6 +1811,11 @@ function getAllUniqueServices() {
     return unique;
 }
 
+/**
+ * Devuelve el color hex configurado para un servicio; '#3b82f6' como fallback.
+ * @param {string} svcName
+ * @returns {string} color hex
+ */
 function getServiceColor(svcName) {
     if (!promoConfig.planes) return '#3b82f6';
     for (let plan of promoConfig.planes) {
@@ -1623,8 +1825,14 @@ function getServiceColor(svcName) {
     return '#3b82f6';
 }
 
-// Ayudante para verificar habilitaciones dinámicas
-// planName requerido para lookup correcto cuando el mismo servicio existe en varios planes
+/**
+ * Devuelve true si el servicio está habilitado para ese día (consulta state.habilitaciones y pedWhitelist).
+ * Pasar siempre planName para evitar el fallback legacy de búsqueda por nombre.
+ * @param {string} svcName
+ * @param {string} dk - dateKey
+ * @param {string|null} planName
+ * @returns {boolean}
+ */
 function isServiceEnabledOnDate(svcName, dk, planName = null) {
     let svc;
     if (planName) {
@@ -1643,6 +1851,13 @@ function isServiceEnabledOnDate(svcName, dk, planName = null) {
     return false;
 }
 
+/**
+ * Devuelve el número de plazas disponibles para un servicio en un día dado.
+ * Si el servicio tiene habilitación dinámica con un valor numérico, lo usa; si no, usa plazasPorDia.
+ * @param {Object} svc - config del servicio
+ * @param {string} dk - dateKey
+ * @returns {number}
+ */
 function getPlazasForDay(svc, dk) {
     if (svc.requiereHabilitacion && state.habilitaciones && state.habilitaciones[dk] && state.habilitaciones[dk][svc.nombre] !== undefined && state.habilitaciones[dk][svc.nombre] !== false) {
         let val = state.habilitaciones[dk][svc.nombre];
@@ -1658,6 +1873,10 @@ function getPlazasForDay(svc, dk) {
 // Dependencias externas: state, curDate, promoConfig, loggedInUser, simulatedViewUser, isDelegado
 // Helpers que usa: getRotationKey, getCurrentTurn, getAnalisisFestivos, getUserProgress, getAllUniqueServices, getPlazasForDay, getCellBackgroundStyle, getFirstDayOffset, getDaysInMonth, formatDateKey, getInitials, renderAlertaCargaMensual
 // ============================================================
+/**
+ * Renderiza el calendario principal del mes actual: banner de turno/subasta y grid de días con badges.
+ * Adapta el banner según el rol (admin/delegado/residente) y el estado de la subasta.
+ */
 function renderMainCalendar() {
   const y = curDate.getFullYear(), m = curDate.getMonth();
   const banner = document.getElementById('turn-banner');
@@ -1884,6 +2103,14 @@ function renderMainCalendar() {
 // Dependencias externas: state, loggedInUser, simulatedViewUser, isDelegado, isAdmin
 // Helpers que usa: getCurrentTurn, getAnalisisFestivos, getUserProgress, getPlanForUserOnDate, getDayTag, getPlazasForDay, isServiceEnabledOnDate, isUserBusyOnDay, getIllegalShiftsForUser, saveState, renderMainCalendar, renderAll, MONTHS, getAllResidents
 // ============================================================
+/**
+ * Abre el modal de asignación de guardia para un día concreto.
+ * Controla permisos según si es el turno del usuario, si hay subasta abierta, o si es admin.
+ * @param {number} y
+ * @param {number} m - 0-indexed
+ * @param {number} d
+ * @param {string} dateKey
+ */
 function openShiftModal(y, m, d, dateKey) {
   if (!isDelegado && !loggedInUser) { alert("⚠️ Inicia sesión para usar el calendario."); loginWithGoogle(); return; }
   const dayShifts = state.shifts[dateKey] || {};
@@ -1985,6 +2212,11 @@ if (isMine) {
   modal.innerHTML = html; document.body.appendChild(modal);
 }
 
+/**
+ * Añade o quita la guardia del usuario logueado en un día. Persiste y re-renderiza.
+ * @param {string} dateKey
+ * @param {string} svc - nombre del servicio
+ */
 async function toggleShift(dateKey, svc) {
   if (simulatedViewUser !== null) { alert('⚠️ Estás en modo visualización. Sal de la simulación para realizar cambios.'); return; }
   if (!state.shifts[dateKey]) state.shifts[dateKey] = {};
@@ -1993,6 +2225,10 @@ async function toggleShift(dateKey, svc) {
   if (Object.keys(state.shifts[dateKey] || {}).length === 0) delete state.shifts[dateKey];
   document.getElementById('shift-modal').remove(); renderMainCalendar(); await saveState();
 }
+/**
+ * Asigna forzosamente una guardia a un residente seleccionado desde el modal de admin.
+ * Avisa si hay conflictos de saliente y pide confirmación antes de sobrescribir.
+ */
 async function adminForceAssign(dateKey, svc, y, m, d, selectId) {
   if (simulatedViewUser !== null) { alert('⚠️ Estás en modo visualización. Sal de la simulación para realizar cambios.'); return; }
   const res = document.getElementById(selectId).value; if (!res) return;
@@ -2008,11 +2244,18 @@ async function adminForceAssign(dateKey, svc, y, m, d, selectId) {
   if (!state.shifts[dateKey]) state.shifts[dateKey] = {}; state.shifts[dateKey][res] = svc;
   document.getElementById('shift-modal').remove(); renderMainCalendar(); await saveState(); openShiftModal(y, m, d, dateKey);
 }
+/** Elimina la guardia de un residente desde el modal admin y reabre el modal actualizado. */
 async function adminForceRemove(dateKey, resToRemove, y, m, d) {
   if (simulatedViewUser !== null) { alert('⚠️ Estás en modo visualización. Sal de la simulación para realizar cambios.'); return; }
   if (state.shifts[dateKey]) { delete state.shifts[dateKey][resToRemove]; if (Object.keys(state.shifts[dateKey] || {}).length === 0) delete state.shifts[dateKey]; }
   document.getElementById('shift-modal').remove(); renderMainCalendar(); await saveState(); openShiftModal(y, m, d, dateKey);
 }
+/**
+ * Permite al residente autenticado saltar su turno, registrando el motivo.
+ * Si el motivo es "Otros", queda en pendingExceptions para validación del admin.
+ * @param {number} y
+ * @param {number} m
+ */
 async function userSkipTurn(y, m) {
     if (simulatedViewUser !== null) { alert('⚠️ Estás en modo visualización. Sal de la simulación para realizar cambios.'); return; }
     const sel = document.getElementById('user-skip-reason'); const val = sel.value === 'Otros' ? document.getElementById('user-skip-reason-other').value.trim() : sel.value;
@@ -2031,6 +2274,12 @@ async function userSkipTurn(y, m) {
     await saveState(); checkAutomaticGraduation();
     renderAll();
 }
+/**
+ * Fuerza el salto de turno de otro residente desde el panel admin.
+ * @param {string} turnUser - nombre_mostrar del residente a saltar
+ * @param {number} y
+ * @param {number} m
+ */
 async function adminSkipTurn(turnUser, y, m) {
    if (simulatedViewUser !== null) { alert('⚠️ Estás en modo visualización. Sal de la simulación para realizar cambios.'); return; }
    if(!confirm(`¿Saltar forzosamente el turno de ${turnUser}?`)) return;
@@ -2050,6 +2299,11 @@ async function adminSkipTurn(turnUser, y, m) {
 // Dependencias externas: state.grantedTurn, simulatedViewUser
 // Helpers que usa: getRotationKey, saveState, renderAll, MONTHS
 // ============================================================
+/**
+ * Otorga manualmente el turno de elección a un residente específico este mes (grantedTurn).
+ * @param {number} y
+ * @param {number} m
+ */
 async function adminGrantTurn(y, m) {
     if (simulatedViewUser !== null) { alert('⚠️ Estás en modo visualización. Sal de la simulación para realizar cambios.'); return; }
     const sel = document.getElementById('sel-grant-turn');
@@ -2068,6 +2322,7 @@ async function adminGrantTurn(y, m) {
     renderAll();
 }
 
+/** Cancela el turno especial otorgado para este mes, volviendo al turno natural. */
 async function adminClearGrantedTurn(y, m) {
     const monthKey = getRotationKey(y, m);
     if (state.grantedTurn) delete state.grantedTurn[monthKey];
@@ -2082,6 +2337,7 @@ async function adminClearGrantedTurn(y, m) {
 // Dependencias externas: state.trades, loggedInUser, simulatedViewUser, promoConfig
 // Helpers que usa: getComputedShifts, checkTradeConflicts, canUserTakeShift, getServiceColor, getAllUniqueServices, getAllResidents, isPastDate, formatDK, saveState, renderAll, checkAutomaticGraduation
 // ============================================================
+/** Renderiza el calendario del Mercadillo con las guardias computadas (incluyendo trades aprobados). */
 function renderMercadoCalendar() {
   const y = curDate.getFullYear(), m = curDate.getMonth();
   const grid = document.getElementById('merc-cal-body'); grid.innerHTML = '';
@@ -2126,6 +2382,10 @@ function renderMercadoCalendar() {
 // Dependencias externas: state, loggedInUser, curDate
 // Helpers que usa: canUserTakeShift, getComputedShifts, checkTradeConflicts, isPastDate, formatDK, getServiceColor, getAllResidents, saveState, renderAll
 // ============================================================
+/**
+ * Abre el modal del Mercadillo para un día: muestra opciones de venta/cambio si el usuario
+ * tiene guardia, o de compra/cambio si no la tiene.
+ */
 function openMercadoModal(y, m, d, dk, dayShifts) {
   if (!loggedInUser) return alert("Debes identificarte para usar el Mercadillo.");
   let myShift = null; for (let u in dayShifts) { if (u === loggedInUser) myShift = dayShifts[u]; }
@@ -2177,17 +2437,21 @@ function openMercadoModal(y, m, d, dk, dayShifts) {
   modal.innerHTML = html; document.body.appendChild(modal);
 }
 
-function renderMercadoVender(dk, svc) { 
-    const res = getAllResidents().filter(r => r !== loggedInUser && canUserTakeShift(r, loggedInUser, dk, svc)); 
+/** Reemplaza la zona dinámica del modal con el formulario de venta de guardia. */
+function renderMercadoVender(dk, svc) {
+    const res = getAllResidents().filter(r => r !== loggedInUser && canUserTakeShift(r, loggedInUser, dk, svc));
     document.getElementById('mercado-dynamic').innerHTML = `<h4 style="margin-bottom:1rem;">Vender guardia de ${svc}</h4><label style="font-size:0.85rem; color:#64748b;">¿A quién se la vendes?</label><select id="vender-to-user"><option value="">-- Selecciona --</option><option value="Externo">👽 Otro Residente (Externo)</option>${res.map(r => `<option value="${r}">${r}</option>`).join('')}</select><button class="primary" style="width:100%" onclick="executeSellRequest('${dk}', '${svc}')">Confirmar Venta</button>`; 
 }
+/** Crea y procesa un trade de tipo 'venta'; si es a Externo, se aprueba directamente. */
 function executeSellRequest(dk, svc) { const target = document.getElementById('vender-to-user').value; if (!target) return alert("Selecciona a quién vender."); const trade = { id: Date.now(), type: 'venta', requester: loggedInUser, target: target, d1: dk, s1: svc, timestamp: new Date().toLocaleString('es-ES') }; let conflicts = checkTradeConflicts(trade); if (conflicts.length > 0) { if (!confirm("⚠️ ATENCIÓN: Conflictos:\n\n" + conflicts.join("\n") + "\n\n¿Proponer de todos modos?")) return; } if (target === 'Externo') { trade.status = 'approved'; alert("Venta a externo realizada."); } else { trade.status = 'pending'; alert(`Solicitud enviada a ${target}.`); } if(!state.trades) state.trades = []; state.trades.push(trade); saveState(); document.getElementById('mercado-modal').remove(); checkAutomaticGraduation();
     renderAll(); }
 
 
 
+/** Crea y procesa un trade de tipo 'cambio' directo entre dos días/residentes. */
 function executeSwapRequestDirect(myDk, mySvc, targetDk, targetSvc, targetUser) { const trade = { id: Date.now(), type: 'cambio', requester: loggedInUser, target: targetUser, d1: myDk, s1: mySvc, d2: targetDk, s2: targetSvc, timestamp: new Date().toLocaleString('es-ES') }; let conflicts = checkTradeConflicts(trade); if (conflicts.length > 0) { if (!confirm("⚠️ Conflictos:\n" + conflicts.join("\n") + "\n¿Proponer de todos modos?")) return; } if (targetUser === 'Externo') { trade.status = 'approved'; alert("Cambio con externo realizado."); } else { trade.status = 'pending'; alert(`Solicitud enviada a ${targetUser}.`); } if(!state.trades) state.trades = []; state.trades.push(trade); saveState(); document.getElementById('mercado-modal').remove(); checkAutomaticGraduation();
     renderAll(); }
+/** Crea y procesa un trade de tipo 'compra'; si es de Externo, se aprueba directamente. */
 function executeBuyRequest(dk, svc, targetUser) { if (targetUser !== 'Externo' && !confirm(`¿Comprar ${svc} a ${targetUser}?`)) return; if (targetUser === 'Externo' && !confirm(`¿Añadir guardia de ${svc} desde Externo?`)) return; const trade = { id: Date.now(), type: 'compra', requester: loggedInUser, target: targetUser, d1: dk, s1: svc, timestamp: new Date().toLocaleString('es-ES') }; let conflicts = checkTradeConflicts(trade); if (conflicts.length > 0) { if (!confirm("⚠️ Conflictos:\n" + conflicts.join("\n") + "\n¿Solicitar de todos modos?")) return; } if (targetUser === 'Externo') { trade.status = 'approved'; alert("Comprada a externo."); } else { trade.status = 'pending'; alert(`Solicitud enviada a ${targetUser}.`); } if(!state.trades) state.trades = []; state.trades.push(trade); saveState(); document.getElementById('mercado-modal').remove(); checkAutomaticGraduation();
     renderAll(); }
 // ============================================================
@@ -2197,6 +2461,7 @@ function executeBuyRequest(dk, svc, targetUser) { if (targetUser !== 'Externo' &
 // Dependencias externas: promoConfig, supabaseClient, currentUserProfile
 // Helpers que usa: syncConfigFromUI, saveState, setStatus, renderAll, checkAutomaticGraduation, MONTHS
 // ============================================================
+/** Renderiza el formulario de ajustes de la promoción: planes, servicios, reglas y pernoctas. */
 function renderAdminAjustes() {
   const container = document.getElementById('admin-config-container');
   let html = ``;
@@ -2393,17 +2658,20 @@ function renderAdminAjustes() {
   container.innerHTML = html;
 }
 
+/** Añade un nuevo plan vacío al final de promoConfig.planes y re-renderiza ajustes. */
 function adminAddPlan() {
     syncConfigFromUI();
     let numPlanes = promoConfig.planes.length + 1;
     promoConfig.planes.push({ id: 'plan-' + Date.now(), nombre: `Plan R${numPlanes}`, servicios: [] });
     renderAdminAjustes();
 }
+/** Elimina el plan en la posición pIdx y todos sus servicios tras confirmación. */
 function adminRemovePlan(pIdx) {
     if(!confirm("¿Seguro que quieres borrar este PLAN entero y todos sus servicios?")) return;
     syncConfigFromUI(); promoConfig.planes.splice(pIdx, 1); renderAdminAjustes();
 }
 	
+/** Añade un servicio con valores por defecto al plan indicado y re-renderiza ajustes. */
 function adminAddService(pIdx) {
   syncConfigFromUI();
   promoConfig.planes[pIdx].servicios.push({ 
@@ -2420,14 +2688,18 @@ function adminAddService(pIdx) {
   renderAdminAjustes();
 }
 	
+/** Elimina el servicio en posición i del plan pIdx tras confirmación. */
 function adminRemoveService(pIdx, i) { if(!confirm("¿Borrar servicio?")) return; syncConfigFromUI(); promoConfig.planes[pIdx].servicios.splice(i, 1); renderAdminAjustes(); }
 
+/** Añade una regla obligatoria vacía al servicio indicado. */
 function adminAddRule(pIdx, svcIdx) {
     syncConfigFromUI();
     promoConfig.planes[pIdx].servicios[svcIdx].reglasObligatorias.push({ id: Date.now(), minimo: 1, etiquetas: [], mensaje: "Debes cumplir esta regla." });
     renderAdminAjustes();
 }
+/** Elimina la regla en ruleIdx del servicio dado. */
 function adminRemoveRule(pIdx, svcIdx, ruleIdx) { syncConfigFromUI(); promoConfig.planes[pIdx].servicios[svcIdx].reglasObligatorias.splice(ruleIdx, 1); renderAdminAjustes(); }
+/** Activa o desactiva una etiqueta ICS en la regla obligatoria indicada. */
 function adminToggleRuleTag(pIdx, svcIdx, ruleIdx, tag) {
     syncConfigFromUI();
     let tags = promoConfig.planes[pIdx].servicios[svcIdx].reglasObligatorias[ruleIdx].etiquetas;
@@ -2436,6 +2708,10 @@ function adminToggleRuleTag(pIdx, svcIdx, ruleIdx, tag) {
     renderAdminAjustes();
 }
 
+/**
+ * Lee todos los inputs del formulario de ajustes y los persiste en promoConfig en memoria.
+ * Debe llamarse antes de cualquier guardado o exportación de configuración.
+ */
 function syncConfigFromUI() {
   if (!promoConfig) promoConfig = {};
   if (!promoConfig.planes) promoConfig.planes = [];
@@ -2541,6 +2817,7 @@ function syncConfigFromUI() {
   });
 }
 
+/** Genera y descarga un archivo .txt con el resumen de reglas y prioridades de subasta de todos los planes. */
 function exportarReglasTexto() {
     if (!promoConfig || !promoConfig.planes || promoConfig.planes.length === 0) {
         alert("No hay planes configurados para exportar.");
@@ -2610,6 +2887,7 @@ function exportarReglasTexto() {
     URL.revokeObjectURL(url);
 }
 
+/** Sincroniza promoConfig desde la UI y lo persiste en Supabase (tabla promociones). */
 async function adminSaveConfig() {
   syncConfigFromUI();
   setStatus('Guardando ajustes...');
@@ -2641,6 +2919,7 @@ async function adminSaveConfig() {
 // Dependencias externas: state.shifts, state.trades, state.planRotations, promoConfig, XLSX
 // Helpers que usa: getComputedShifts, getAllResidents, getDaysInMonth, formatDateKey, MONTHS, getRotationKey
 // ============================================================
+/** Abre el modal de exportación y rellena los selectores de plan, servicio y período disponibles. */
 function openExportModal() {
     if (!promoConfig || !promoConfig.planes || promoConfig.planes.length === 0) {
         alert("No hay ningún Plan de Guardias configurado.");
@@ -2677,6 +2956,7 @@ function openExportModal() {
     document.getElementById('export-modal').style.display = 'flex';
 }
 
+/** Actualiza el selector de servicios del modal de exportación al cambiar el plan seleccionado. */
 function updateExportServices() {
     const planName = document.getElementById('exp-plan').value;
     const plan = promoConfig.planes.find(p => p.nombre === planName);
@@ -2690,6 +2970,10 @@ function updateExportServices() {
     }
 }
 
+/**
+ * Genera y descarga un archivo Excel (.xlsx) con las guardias del plan/servicio/período seleccionados.
+ * Soporta exportación de turnos originales o con trades del mercadillo aplicados.
+ */
 function executeExport() {
     const planName = document.getElementById('exp-plan').value;
     const svcName = document.getElementById('exp-svc').value;
@@ -2804,8 +3088,12 @@ function executeExport() {
 // Dependencias externas: state.festivos, state.habilitaciones, state.pedWhitelist, promoConfig, curDate
 // Helpers que usa: getFirstDayOffset, getDaysInMonth, formatDateKey, getCellBackgroundStyle, isServiceEnabledOnDate, getPlazasForDay, saveState, renderAdminCalendar, setStatus, supabaseClient
 // ============================================================
+/**
+ * Renderiza el calendario de administración: grid mensual con controles de festivos,
+ * habilitaciones de servicios por día y whitelist de PEDs.
+ */
 function renderAdminCalendar() {
-    const grid = document.getElementById('admin-cal-body'); 
+    const grid = document.getElementById('admin-cal-body');
     grid.innerHTML = '';
     const y = curDate.getFullYear(), m = curDate.getMonth();
     
@@ -2955,6 +3243,7 @@ function renderAdminCalendar() {
 // Helpers que usa: getRotationKey, getDaysInMonth, formatDateKey, saveState, renderAdminExceptions, renderAll, checkAutomaticGraduation, MONTHS
 // ============================================================
 
+/** Renderiza el panel de excepciones: solicitudes pendientes, motivos configurados y log histórico. */
 function renderAdminExceptions() {
   const y = curDate.getFullYear(), m = curDate.getMonth(); const monthKey = getRotationKey(y, m);
   const pendList = document.getElementById('admin-pending-list'); const pendings = state.pendingExceptions && state.pendingExceptions[monthKey] ? state.pendingExceptions[monthKey] : {};
@@ -2964,14 +3253,20 @@ function renderAdminExceptions() {
   const rList = document.getElementById('admin-reasons-list'); rList.innerHTML = (state.exceptionReasons || []).map((r, i) => `<div class="editor-row" style="justify-content:space-between; border-bottom:1px solid #e2e8f0; padding:6px 0;"><span style="color:#475569; font-size:0.9rem;">${r}</span><button class="danger icon-btn" style="padding:2px 6px; font-size:0.8rem;" onclick="adminRemoveExceptionReason(${i})">Borrar</button></div>`).join('');
   const lList = document.getElementById('admin-logs-list'); if (!state.exceptionLogs || state.exceptionLogs.length === 0) { lList.innerHTML = "<p style='font-size:0.85rem; color:#64748b;'>Sin registros.</p>"; } else { lList.innerHTML = state.exceptionLogs.slice().reverse().map((l, revIdx) => { const origIdx = state.exceptionLogs.length - 1 - revIdx; return `<div style="background:#f1f5f9; padding:10px; border-radius:8px; margin-bottom:8px; font-size:0.85rem; border:1px solid #e2e8f0;"><div style="display:flex; justify-content:space-between; margin-bottom:4px;"><strong>👤 ${l.user}</strong><div><span style="color:#94a3b8; font-size:0.75rem; margin-right:8px;">🗓️ ${l.timestamp}</span><button class="danger icon-btn" style="padding:2px 6px; font-size:0.7rem;" onclick="adminDeleteLog(${origIdx})">Borrar</button></div></div><div>Mes: <b>${l.monthStr}</b></div><div style="color:var(--fest);">Motivo: <b>${l.reason}</b></div><div style="color:#475569; font-style:italic;">Retenidas: ${l.shiftsSummary}</div></div>`}).join(''); }
 }
+/** Elimina una entrada del log de excepciones por su índice. */
 async function adminDeleteLog(idx) { if (!confirm("¿Borrar?")) return; state.exceptionLogs.splice(idx, 1); await saveState(); renderAdminExceptions(); }
+/** Valida la solicitud de excepción del residente y le salta el turno automáticamente. */
 async function adminApproveException(u, monthKey) { if(!confirm(`¿Validar?`)) return; const reason = state.pendingExceptions[monthKey][u]; const [yStr, mStr] = monthKey.split('_'); const y = parseInt(yStr, 10), m = parseInt(mStr, 10); let chosenShifts = []; for(let d=1; d<=getDaysInMonth(y, m); d++) { const dk = formatDateKey(y, m, d); if (state.shifts[dk] && state.shifts[dk][u]) chosenShifts.push(`Día ${d} (${state.shifts[dk][u]})`); } const shiftsSummary = chosenShifts.length > 0 ? chosenShifts.join(', ') : 'Ninguna'; if (!state.exceptionLogs) state.exceptionLogs = []; state.exceptionLogs.push({ user: u, monthStr: `${MONTHS[m]} ${y}`, reason: `(Validado) Otros: ${reason}`, shiftsSummary: shiftsSummary, timestamp: new Date().toLocaleString('es-ES') }); if (!state.skippedTurns[monthKey]) state.skippedTurns[monthKey] = []; if (!state.skippedTurns[monthKey].includes(u)) state.skippedTurns[monthKey].push(u); delete state.pendingExceptions[monthKey][u]; await saveState(); checkAutomaticGraduation();
     renderAll(); }
+/** Rechaza la solicitud de excepción y devuelve el turno al residente. */
 async function adminRejectException(u, monthKey) { if(!confirm(`¿Rechazar?`)) return; delete state.pendingExceptions[monthKey][u]; await saveState(); checkAutomaticGraduation();
     renderAll(); }
+/** Añade un motivo de excepción a la lista configurable de la promoción. */
 async function adminAddExceptionReason() { const v = document.getElementById('new-reason-input').value.trim(); if (!v) return; if (!state.exceptionReasons) state.exceptionReasons = []; state.exceptionReasons.push(v); document.getElementById('new-reason-input').value = ''; await saveState(); renderAdminExceptions(); }
+/** Elimina un motivo de excepción de la lista por índice. */
 async function adminRemoveExceptionReason(idx) { if (!confirm("¿Borrar?")) return; state.exceptionReasons.splice(idx, 1); await saveState(); renderAdminExceptions(); }
 
+/** Renderiza la tabla de horas por residente (mes actual, año, histórico) en el panel admin. */
 function renderAdminHoras() {
     const y = curDate.getFullYear(), m = curDate.getMonth();
     const residentes = (globalProfiles || [])
@@ -3015,10 +3310,16 @@ function renderAdminHoras() {
         `<h3 style="margin-bottom:16px; font-size:1.1rem; color:var(--dark);">⏱️ Horas por Residente — ${MONTHS[m]} ${y}</h3>${tablaHtml}`;
 }
 
+/** Restaura todos los turnos saltados del mes, devolviendo al grupo su turno natural. */
 async function adminResetSkips(y, m) { const monthKey = getRotationKey(y, m); if (state.skippedTurns[monthKey]) { delete state.skippedTurns[monthKey]; await saveState(); checkAutomaticGraduation();
     renderAll(); } }
+/** Borra todas las guardias, skips, subastas y excepciones del mes. Acción destructiva con confirmación. */
 async function adminResetMonth(y, m) { if (!confirm(`¡PELIGRO! ¿Borrar todas las guardias de este mes?`)) return; const days = getDaysInMonth(y, m); for(let d = 1; d <= days; d++) { const dk = formatDateKey(y, m, d); delete state.shifts[dk]; } const monthKey = getRotationKey(y, m); delete state.skippedTurns[monthKey]; if (state.pendingExceptions && state.pendingExceptions[monthKey]) delete state.pendingExceptions[monthKey]; if (state.configMes && state.configMes[monthKey]) delete state.configMes[monthKey]; if (state.subastasCerradasForzosas) { Object.keys(state.subastasCerradasForzosas).forEach(k => { if (k.startsWith(`${y}_${m}_`)) delete state.subastasCerradasForzosas[k]; }); } if (state.subastaNominados) { Object.keys(state.subastaNominados).forEach(k => { if (k.startsWith(`${y}_${m}_`)) delete state.subastaNominados[k]; }); } await saveState(); checkAutomaticGraduation();
     renderAll(); }
+/**
+ * Expulsa a todos los residentes no-admin de la promoción y limpia el estado del calendario completo.
+ * Mantiene las reglas de promoConfig. Requiere confirmación doble con texto "VACIAR".
+ */
 async function adminVaciarGeneracion() {
     if (!confirm("⚠️ ATENCIÓN: Vas a expulsar a todos los residentes normales y borrar todas las guardias y calendarios. Las reglas se mantendrán. ¿Estás seguro?")) return;
     if (prompt("Escribe VACIAR en mayúsculas para confirmar:") !== "VACIAR") return;
@@ -3066,8 +3367,10 @@ async function adminVaciarGeneracion() {
     alert("Contenedor vaciado con éxito. Listo para la nueva generación.");
     window.location.reload();
 }
+/** Borra permanentemente toda la promoción de Supabase. Requiere confirmación doble con texto "BORRAR". */
 async function adminDeletePromotion() { if (!confirm("⚠️ ¡ALERTA ROJA! ⚠️\nEstás a punto de borrar TODA la promoción y sus calendarios.\nNO se puede deshacer.")) return; if (prompt("Escribe BORRAR en mayúsculas para confirmar:") !== "BORRAR") return; setStatus('Destruyendo grupo...'); const { error } = await supabaseClient.from('promociones').delete().eq('id', currentUserProfile.promocion_id); if (error) alert("Error: " + error.message); else window.location.reload(); }
 
+/** Actualiza el buzón de solicitudes entrantes y el historial de operaciones del Mercadillo. */
 function renderMercadoInboxAndLog() {
   if (!loggedInUser) return; const inb = document.getElementById('merc-inbox'); const log = document.getElementById('merc-log'); let myInbox = (state.trades || []).filter(t => (t.status === 'pending' && t.target === loggedInUser) || (t.status === 'undo_pending' && t.undoRequester !== loggedInUser && (t.requester === loggedInUser || t.target === loggedInUser))); if (myInbox.length === 0) inb.innerHTML = `<span style="font-size:0.85rem; color:#94a3b8;">No tienes solicitudes pendientes.</span>`; else { inb.innerHTML = myInbox.map(t => { let desc = ""; if (t.status === 'undo_pending') desc = `⚠️ <b>${t.undoRequester}</b> quiere DESHACER la operación del ${t.timestamp}.`; else if (t.type === 'venta') desc = `💵 <b>${t.requester}</b> te quiere VENDER su guardia de ${t.s1} (${formatDK(t.d1)}).`; else if (t.type === 'compra') desc = `🛒 <b>${t.requester}</b> te quiere COMPRAR tu guardia de ${t.s1} (${formatDK(t.d1)}).`; else if (t.type === 'cambio') desc = `🔄 <b>${t.requester}</b> quiere CAMBIAR su ${t.s1} (${formatDK(t.d1)}) por tu ${t.s2} (${formatDK(t.d2)}).`; return `<div class="trade-row" style="border-left:3px solid var(--merc);"><div>${desc}</div><div style="display:flex; gap:8px;"><button class="primary" style="background:var(--ped); font-size:0.75rem;" onclick="processTrade(${t.id}, true)">✅ Aceptar</button><button class="danger" style="font-size:0.75rem;" onclick="processTrade(${t.id}, false)">❌ Rechazar</button></div></div>`; }).join(''); } let allLogs = (state.trades || []).filter(t => {
     if (!['approved', 'undone', 'undo_pending', 'pending'].includes(t.status)) return false;
@@ -3092,17 +3395,28 @@ function renderMercadoInboxAndLog() {
     return true;
 }); if (allLogs.length === 0) log.innerHTML = `<span style="font-size:0.85rem; color:#94a3b8;">El historial de mercado está vacío.</span>`; else { log.innerHTML = allLogs.slice().reverse().map(t => { let desc = ""; let isPending = t.status === 'pending'; if (t.type === 'venta') desc = isPending ? `⏳ <b>${t.requester}</b> quiere VENDER su ${t.s1} (${formatDK(t.d1)}) a <b>${t.target}</b>.` : `💵 <b>${t.requester}</b> vendió su ${t.s1} (${formatDK(t.d1)}) a <b>${t.target}</b>.`; else if (t.type === 'compra') desc = isPending ? `⏳ <b>${t.requester}</b> quiere COMPRAR ${t.s1} (${formatDK(t.d1)}) a <b>${t.target}</b>.` : `🛒 <b>${t.requester}</b> compró ${t.s1} (${formatDK(t.d1)}) de <b>${t.target}</b>.`; else if (t.type === 'cambio') desc = isPending ? `⏳ <b>${t.requester}</b> quiere CAMBIAR su ${t.s1} (${formatDK(t.d1)}) por la de <b>${t.target}</b> (${formatDK(t.d2)}).` : `🔄 <b>${t.requester}</b> cambió su ${t.s1} (${formatDK(t.d1)}) por la de <b>${t.target}</b> (${formatDK(t.d2)}).`; let actionBtn = ""; if (t.status === 'approved' && (t.requester === loggedInUser || t.target === loggedInUser)) actionBtn = `<button class="danger icon-btn" style="font-size:0.7rem; padding:2px 6px;" onclick="requestTradeUndo(${t.id})">Deshacer</button>`; else if (isPending && t.requester === loggedInUser) actionBtn = `<button class="danger icon-btn" style="font-size:0.7rem; padding:2px 6px;" onclick="cancelPendingTrade(${t.id})">Cancelar Solicitud</button>`; let statusStyle = ""; let statusLabel = ""; if (t.status === 'undone') { statusStyle = "opacity:0.5; background:#f1f5f9;"; statusLabel = '<b style="color:var(--fest);">(DESHECHO)</b>'; } else if (t.status === 'undo_pending') { statusStyle = "border-left: 3px solid var(--pac);"; statusLabel = '<b style="color:var(--pac);">(DESHACER PENDIENTE)</b>'; } else if (t.status === 'pending') { statusStyle = "border-left: 3px solid #cbd5e1; background:#f8fafc;"; statusLabel = '<b style="color:#64748b;">(PENDIENTE)</b>'; } return `<div class="trade-row" style="${statusStyle}"><div style="display:flex; justify-content:space-between; align-items:flex-start;"><span>${desc} ${statusLabel}</span>${actionBtn}</div><span style="font-size:0.7rem; color:#94a3b8;">${t.timestamp}</span></div>`; }).join(''); }
 }
+/** Cancela una solicitud de trade pendiente enviada por el usuario. */
 async function cancelPendingTrade(id) { if (!confirm("¿Cancelar solicitud?")) return; state.trades = state.trades.filter(t => t.id !== id); await saveState(); checkAutomaticGraduation();
     renderAll(); }
+/**
+ * Aprueba o rechaza una solicitud de trade (o un undo_pending).
+ * Verifica que las guardias involucradas aún existen antes de aprobar.
+ */
 async function processTrade(id, isApprove) { let t = state.trades.find(x => x.id === id); if (!t) return; if (t.status === 'pending') { if(isApprove) { const computed = getComputedShifts(); if (t.type === 'cambio' && (!computed[t.d1]?.[t.requester] || !computed[t.d2]?.[t.target])) { alert("Error: Las guardias ya no existen."); t.status = 'rejected'; } else if (t.type === 'venta' && !computed[t.d1]?.[t.requester]) { alert("Error: La guardia ya no existe."); t.status = 'rejected'; } else if (t.type === 'compra' && t.target !== 'Externo' && !computed[t.d1]?.[t.target]) { alert("Error: La guardia ya no existe."); t.status = 'rejected'; } else { let conflicts = checkTradeConflicts(t); if (conflicts.length > 0) { if (!confirm("Generará conflictos:\n" + conflicts.join("\n") + "\n¿Continuar?")) return; } t.status = 'approved'; } } else t.status = 'rejected'; } else if (t.status === 'undo_pending') t.status = isApprove ? 'undone' : 'approved'; await saveState(); checkAutomaticGraduation();
     renderAll(); }
+/** Solicita deshacer un trade aprobado. Si es con Externo, se deshace directamente; si no, queda pendiente de confirmación. */
 async function requestTradeUndo(id) { let t = state.trades.find(x => x.id === id); if (!t) return; if (t.target === 'Externo') { if(!confirm("¿Deshacer operación con externo?")) return; t.status = 'undone'; } else { if(!confirm(`¿Enviar solicitud de deshacer?`)) return; t.status = 'undo_pending'; t.undoRequester = loggedInUser; } await saveState(); checkAutomaticGraduation();
     renderAll(); }
 
+/** Muestra el formulario de cambio propio: elige la fecha destino para intercambiar la guardia del usuario. */
 function renderMercadoCambiar(dk, svc) { const container = document.getElementById('mercado-dynamic'); container.innerHTML = `<h4 style="margin-bottom:1rem;">Cambiar guardia de ${svc}</h4><label style="font-size:0.85rem; color:#64748b;">1. Elige la fecha objetivo:</label><input type="date" id="cambio-date" onchange="loadCambioTargets('${dk}', '${svc}')"><div id="cambio-targets-area" style="margin-top:1rem;"></div>`; }
+/** Carga el selector de contrapartes disponibles para la fecha destino elegida en el cambio propio. */
 function loadCambioTargets(myDk, mySvc) { const dateVal = document.getElementById('cambio-date').value; if (!dateVal) return; const [y, mStr, dStr] = dateVal.split('-'); const targetDk = `${y}_${mStr}_${dStr}`; if (isPastDate(targetDk)) { document.getElementById('cambio-targets-area').innerHTML = `<p style="color:var(--fest); font-size:0.85rem;">No puedes seleccionar una fecha del pasado para hacer un cambio.</p>`; return; } const computed = getComputedShifts(); const dayShifts = computed[targetDk] || {}; let html = `<label style="font-size:0.85rem; color:#64748b;">2. ¿Con quién la cambias?</label><select id="cambio-to-user"><option value="">-- Selecciona opción --</option>`; html += `<option value="Externo|">👽 Mover a este día (Otro Residente Externo)</option>`; for (let u in dayShifts) { if (u !== loggedInUser && !u.startsWith('VRE')) { if (canUserTakeShift(u, loggedInUser, myDk, mySvc) && canUserTakeShift(loggedInUser, u, targetDk, dayShifts[u])) { html += `<option value="${u}|${dayShifts[u]}">🔄 ${u} (Su ${dayShifts[u]})</option>`; } } } html += `</select><button class="merc" style="width:100%; margin-top:10px;" onclick="proxySwapRequest('${myDk}', '${mySvc}', '${targetDk}')">Solicitar Cambio</button>`; document.getElementById('cambio-targets-area').innerHTML = html; }
+/** Lee el select de contrapartes y delega en executeSwapRequestDirect con los parámetros correctos. */
 function proxySwapRequest(myDk, mySvc, targetDk) { const val = document.getElementById('cambio-to-user').value; if (!val) return alert("Selecciona una opción de cambio."); const [targetUser, targetSvc] = val.split('|'); executeSwapRequestDirect(myDk, mySvc, targetDk, targetSvc, targetUser); }
+/** Muestra el formulario para proponer un cambio sobre la guardia de otro residente: elige tu guardia a ofrecer. */
 function renderMercadoCambiarAjena(targetDk, targetSvc, targetUser) { const container = document.getElementById('mercado-dynamic'); if (!canUserTakeShift(loggedInUser, targetUser, targetDk, targetSvc)) { container.innerHTML = `<p style="color:var(--fest); padding:10px; background:#fee2e2; border-radius:8px;">⚠️ Tu nivel actual no te permite asumir esta guardia de ${targetSvc}.</p>`; return; } const computed = getComputedShifts(); let myFutureShifts = []; for (let dk in computed) { if (!isPastDate(dk) && computed[dk][loggedInUser]) { if (canUserTakeShift(targetUser, loggedInUser, dk, computed[dk][loggedInUser])) { myFutureShifts.push({dk: dk, svc: computed[dk][loggedInUser]}); } } } let html = `<h4 style="margin-bottom:1rem; color:var(--adu);">Ofrecer cambio a ${targetUser}</h4><div style="background:#f8fafc; padding:8px; border-radius:8px; margin-bottom:1rem; font-size:0.85rem; border:1px solid #cbd5e1;">Te quedarías su: <b>${targetSvc} (${formatDK(targetDk)})</b></div>`; if (myFutureShifts.length === 0) { html += `<p style="font-size:0.85rem; color:var(--fest); font-weight:bold;">No tienes guardias futuras programadas para ofrecerle a cambio.</p>`; } else { html += `<label style="font-size:0.85rem; color:#64748b;">¿Qué guardia tuya le ofreces a cambio?</label><select id="cambio-ajena-sel"><option value="">-- Selecciona una de tus guardias --</option>${myFutureShifts.map(s => `<option value="${s.dk}|${s.svc}">${formatDK(s.dk)} - ${s.svc}</option>`).join('')}</select><button class="primary" style="width:100%; margin-top:10px; background:var(--adu);" onclick="executeSwapRequestAjena('${targetDk}', '${targetSvc}', '${targetUser}')">Enviar Propuesta de Cambio</button>`; } container.innerHTML = html; }
+/** Lee el select de "mi guardia a ofrecer" y ejecuta el cambio con la guardia ajena. */
 function executeSwapRequestAjena(targetDk, targetSvc, targetUser) { const val = document.getElementById('cambio-ajena-sel').value; if(!val) return alert("Selecciona una guardia tuya para ofrecer."); const [myDk, mySvc] = val.split('|'); executeSwapRequestDirect(myDk, mySvc, targetDk, targetSvc, targetUser); }
 // ============================================================
 // MÓDULO: ADMIN_CUENTAS
@@ -3111,6 +3425,7 @@ function executeSwapRequestAjena(targetDk, targetSvc, targetUser) { const val = 
 // Dependencias externas: supabaseClient, currentUserProfile, state, globalProfiles, curDate
 // Helpers que usa: setStatus, saveState, renderAccountsList, renderRotationView, reempaquetarGruposPlan, invalidateConfigMes, limpiarFuturos, formatDateKey, getCurrentRotPlan, MONTHS
 // ============================================================
+/** Descarga y renderiza la lista de usuarios de la promoción con acciones de aprobar, expulsar y cambiar rol. */
 async function renderAccountsList() {
   const el = document.getElementById('accounts-list');
   if (!el) return;
@@ -3213,7 +3528,7 @@ async function renderAccountsList() {
   el.innerHTML = html;
 }
 
-// Funciones de Ejecución de Privilegios
+/** Degrada al admin actual a residente normal, renunciando a todos los privilegios. */
 async function adminRenunciarPrivilegios() {
     if (!confirm("¿Seguro que quieres renunciar a tus privilegios de Administrador? Volverás a ser un residente normal y perderás el acceso a esta pestaña.")) return;
     setStatus('Renunciando...');
@@ -3221,6 +3536,11 @@ async function adminRenunciarPrivilegios() {
     window.location.reload();
 }
 
+/**
+ * Cambia el rol de un usuario de la promoción.
+ * @param {string} userId
+ * @param {'admin'|'delegado'|null} nuevoRol
+ */
 async function adminCambiarRol(userId, nuevoRol) {
     setStatus('Actualizando rol...');
     const { error } = await supabaseClient.from('perfiles').update({ rol: nuevoRol }).eq('id', userId);
@@ -3229,6 +3549,12 @@ async function adminCambiarRol(userId, nuevoRol) {
     setStatus('Conectado ✅');
 }
 
+/**
+ * Transfiere la propiedad absoluta de la promoción a otro residente.
+ * El que la cede pasa a ser delegado.
+ * @param {string} userId
+ * @param {string} userName
+ */
 async function adminTraspasarCorona(userId, userName) {
     if (!confirm(`¿Estás seguro de que quieres ceder la corona a ${userName}? Perderás el control absoluto y pasarás a ser un Delegado normal.`)) return;
     setStatus('Traspasando corona...');
@@ -3239,6 +3565,10 @@ async function adminTraspasarCorona(userId, userName) {
     window.location.reload();
 }
 
+/**
+ * Abre un modal SweetAlert2 para editar las fechas de residencia de un usuario.
+ * Persiste en Supabase y regenera historialEventos para el motor de rotación.
+ */
 window.adminEditarFechas = async function adminEditarFechas(userId, userName, fInicio, fCambio, fEntrada, fSalida) {
     try {
         // Convertir fecha completa a solo YYYY-MM para el selector de mes
@@ -3299,6 +3629,12 @@ window.adminEditarFechas = async function adminEditarFechas(userId, userName, fI
     }
 }
 
+/**
+ * Aprueba la solicitud de acceso de un usuario y lo añade al grupo de rotación con menos miembros.
+ * Re-empaqueta automáticamente si algún grupo supera 4 miembros.
+ * @param {string} userId
+ * @param {string} userName
+ */
 async function adminAprobarUsuario(userId, userName) {
     setStatus('Aprobando...');
     const { error } = await supabaseClient.from('perfiles').update({ estado: 'aprobado' }).eq('id', userId);
@@ -3332,6 +3668,12 @@ async function adminAprobarUsuario(userId, userName) {
     setStatus('Conectado ✅');
 }
 
+/**
+ * Mueve al usuario al estado 'historico', registrando su fecha de salida en historialEventos.
+ * Ya no aparecerá en futuras rotaciones pero sus guardias históricas se conservan.
+ * @param {string} userId
+ * @param {string} userName
+ */
 async function adminExpulsarUsuario(userId, userName) {
     if(!confirm(`¿Seguro que quieres dar de baja a ${userName}? Pasará al histórico y ya no estará en futuras listas de rotación.`)) return;
     setStatus('Expulsando...');
@@ -3351,6 +3693,7 @@ async function adminExpulsarUsuario(userId, userName) {
     setStatus('Conectado ✅');
 }
 
+/** Rechaza la solicitud de acceso de un usuario: lo desvincula de la promoción y lo deja en estado pendiente. */
 async function adminRechazarUsuario(userId) {
     if(!confirm("¿Rechazar solicitud?")) return;
     setStatus('Rechazando...');
@@ -3359,6 +3702,7 @@ async function adminRechazarUsuario(userId) {
     setStatus('Conectado ✅');
 }
 
+/** Renderiza la vista de rotación con el selector de plan (para delegados) y el orden de grupos del mes. */
 function renderRotationView() {
     const y = curDate.getFullYear(), m = curDate.getMonth();
     const dk = formatDateKey(y, m, 1);
@@ -3400,6 +3744,11 @@ function renderRotationView() {
     } else document.getElementById('admin-rot-tools').style.display = 'none'; 
 }
 
+/**
+ * Alterna el estado "fijo" de un residente en el plan activo.
+ * Los residentes fijos forman un grupo separado que rota en orden fijo.
+ * @param {string} nombre
+ */
 async function toggleResidenteFijo(nombre) {
     const dk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
     const planName = getCurrentRotPlan(dk);
@@ -3432,6 +3781,11 @@ async function toggleResidenteFijo(nombre) {
     renderEditor();
 }
 
+/**
+ * Alterna la exclusión de un residente del pool de candidatos para subastas forzosas.
+ * Sus guardias no se cuentan para calcular el exceso mensual.
+ * @param {string} nombre
+ */
 async function toggleResidenteExcluido(nombre) {
     if (!state.excluidosSubastas) state.excluidosSubastas = [];
     if (state.excluidosSubastas.includes(nombre)) {
@@ -3453,6 +3807,7 @@ async function toggleResidenteExcluido(nombre) {
 // Dependencias externas: state.planRotations, editingGroups, curDate, isAdmin, globalProfiles
 // Helpers que usa: renderEditor, renderRotationView, saveState, getCurrentRotPlan, formatDateKey, getRotationKey, getRotationForPlan, getAllResidents, reempaquetarGrupos, reempaquetarGruposPlan, invalidateConfigMes, MONTHS
 // ============================================================
+/** Renderiza el editor de grupos de rotación con controles para mover, fusionar, fijar y excluir residentes. */
 function renderEditor() {
     const setupC = document.getElementById('setup-groups');
     setupC.innerHTML = '';
@@ -3541,7 +3896,12 @@ function renderEditor() {
 // Dependencias externas: editingGroups, state.planRotations, curDate
 // Helpers que usa: renderEditor, getCurrentRotPlan, formatDateKey, reempaquetarGrupos, monthString, saveState, renderRotationView
 // ============================================================
-// Mueve un residente ARRIBA o ABAJO dentro de su propio grupo (sin reempaquetar)
+/**
+ * Mueve un residente arriba o abajo dentro de su propio grupo sin reempaquetar.
+ * @param {number} gIdx - índice del grupo
+ * @param {number} rIdx - índice del residente dentro del grupo
+ * @param {'up'|'down'} dir
+ */
 function moveResInGroup(gIdx, rIdx, dir) {
     const g = editingGroups[gIdx];
     if (!g) return;
@@ -3553,7 +3913,7 @@ function moveResInGroup(gIdx, rIdx, dir) {
     renderEditor();
 }
 
-// Mueve un residente al grupo anterior (intercambia con el último de ese grupo)
+/** Mueve un residente al grupo anterior. No puede saltar por encima del grupo de fijos. */
 function moveResToPrevGroup(gIdx, rIdx) {
     if (gIdx <= 0) return;
     const _dk2 = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
@@ -3565,7 +3925,7 @@ function moveResToPrevGroup(gIdx, rIdx) {
     renderEditor();
 }
 
-// Mueve un residente al grupo siguiente (lo pone al principio de ese grupo)
+/** Mueve un residente al grupo siguiente, colocándolo al inicio de dicho grupo. */
 function moveResToNextGroup(gIdx, rIdx) {
     if (gIdx >= editingGroups.length - 1) return;
     const moved = editingGroups[gIdx].splice(rIdx, 1)[0];
@@ -3573,7 +3933,11 @@ function moveResToNextGroup(gIdx, rIdx) {
     renderEditor();
 }
 
-// Divide un grupo en dos a partir de la posición rIdx
+/**
+ * Divide un grupo en dos a partir de la posición rIdx.
+ * @param {number} gIdx
+ * @param {number} rIdx - índice del primer residente del segundo grupo
+ */
 function splitGroupAt(gIdx, rIdx) {
     if (rIdx <= 0 || rIdx >= editingGroups[gIdx].length) return;
     const g = editingGroups[gIdx];
@@ -3583,7 +3947,7 @@ function splitGroupAt(gIdx, rIdx) {
     renderEditor();
 }
 
-// Fusiona un grupo con el siguiente
+/** Fusiona el grupo en gIdx con el grupo siguiente. */
 function mergeGroupWithNext(gIdx) {
     if (gIdx >= editingGroups.length - 1) return;
     const merged = [...editingGroups[gIdx], ...editingGroups[gIdx+1]];
@@ -3591,6 +3955,11 @@ function mergeGroupWithNext(gIdx) {
     renderEditor();
 }
 
+/**
+ * Sube o baja el grupo entero una posición. No puede saltar por encima del grupo de fijos.
+ * @param {number} gIdx
+ * @param {'up'|'down'} dir
+ */
 function moveGroupEntirely(gIdx, dir) {
     if (dir === 'up' && gIdx > 0) {
         const _mgDk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
@@ -3606,6 +3975,7 @@ function moveGroupEntirely(gIdx, dir) {
 }
 
 
+/** Añade el residente seleccionado (o un nuevo virtual) al final de la fila india y reempaqueta. */
 function editorAddSelectedRes() {
     const val = document.getElementById('sel-add-res').value;
     if (!val) return;
@@ -3630,6 +4000,7 @@ function editorAddSelectedRes() {
     }
 }
 
+/** Elimina un residente del grupo directamente (sin reempaquetar) y elimina el grupo si queda vacío. */
 function editorRemoveMemberLinear(gIdx, rIdx) {
     // Elimina el residente directamente del grupo (sin reempaquetar)
     if (editingGroups[gIdx]) {
@@ -3649,6 +4020,10 @@ function editorRemoveMemberLinear(gIdx, rIdx) {
 // Dependencias externas: state.planRotations, curDate, editingGroups
 // Helpers que usa: getAllResidents, reempaquetarGruposPlan, formatDateKey, getCurrentRotPlan, saveState, renderRotationView
 // ============================================================
+/**
+ * Baraja aleatoriamente la fila india manteniendo los residentes fijos al inicio.
+ * Reinicia customRotations, baseMonth y baseYear al mes actual.
+ */
 async function adminAutoShuffleGroups() {
     if (!confirm("⚠️ Se va a barajar a los residentes. Los marcados como 'Fijos' se mantendrán al inicio de la rueda. ¿Continuar?")) return;
     
@@ -3680,9 +4055,12 @@ async function adminAutoShuffleGroups() {
     renderRotationView();
 }
 	
+/** Añade un nuevo grupo vacío al final de editingGroups. */
 function editorAddGroup() { editingGroups.push([]); renderEditor(); }
+/** Elimina el grupo en el índice dado de editingGroups. */
 function editorRemoveGroup(gi) { editingGroups.splice(gi, 1); renderEditor(); }
 
+/** Guarda el orden actual de editingGroups como excepción solo para el mes visible (customRotation). */
 async function saveCustomMonth() {
     const _dk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
     const _planName = getCurrentRotPlan(_dk);
@@ -3693,6 +4071,10 @@ async function saveCustomMonth() {
     renderAll(); 
     alert("Excepción guardada SOLO para este mes. Los meses siguientes seguirán su curso matemático normal ignorando este cambio."); 
 }
+/**
+ * Establece editingGroups como la nueva base matemática del plan desde el mes actual.
+ * Borra customRotations futuros y invalida configMes para que se regeneren.
+ */
 async function saveAsNewBase() {
     const _dk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
     const _planName = getCurrentRotPlan(_dk);
@@ -3725,6 +4107,7 @@ async function saveAsNewBase() {
     alert(`¡Base Absoluta establecida para el Plan '${_planName}'!\nEl orden de turno de todos los meses desde ${MONTHS[curDate.getMonth()]} ${curDate.getFullYear()} en adelante se ha recalculado automáticamente.`);
 }
 
+/** Borra la excepción del mes visible y devuelve el cálculo al orden matemático natural. */
 async function clearCustomMonth() {
     const _dk = formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1);
     const _pr = state.planRotations?.[getCurrentRotPlan(_dk)];
@@ -3736,6 +4119,12 @@ async function clearCustomMonth() {
     alert("Excepción borrada. El mes vuelve a su cálculo matemático."); 
 }
 
+/**
+ * Calcula cuántos festivos/fin-de-semana obligatorios existen ese mes y cuántos debe hacer cada residente.
+ * @param {number} ano
+ * @param {number} mes - 0-indexed
+ * @returns {{ huecosFestivosObligatorios: number, cargaMedia: string, minimoExigible: number, necesitaRepartoEquitativo: boolean }}
+ */
 function calcularViabilidadFestivosMensual(ano, mes) {
     const totalDias = getDaysInMonth(ano, mes);
     let huecosFestivosObligatorios = 0;
@@ -3825,6 +4214,10 @@ function getHistoricoFestivosResidentes(targetY, targetM, validTags, targetSvc =
     return historico;
 }
 
+/**
+ * Renderiza el banner de alerta de carga mensual bajo el calendario principal.
+ * Muestra el estado de la subasta (abierta/cerrada), los nominados y la distribución proyectada.
+ */
 function renderAlertaCargaMensual() {
     const container = document.getElementById('alerta-carga-mensual');
     if (!container) return;
@@ -3926,6 +4319,13 @@ function renderAlertaCargaMensual() {
     }
 }
 
+/**
+ * Cierra la ventana voluntaria de la subasta inmediatamente para un servicio dado.
+ * Activa el estado 'subasta_cerrada' marcando la clave en state.subastasCerradasForzosas.
+ * @param {number} y
+ * @param {number} m
+ * @param {string} svcNombre
+ */
 async function forzarCierreSubasta(y, m, svcNombre) {
     if (!confirm(`¿Seguro que quieres cerrar la subasta de ${svcNombre} inmediatamente? Se requerirá la inyección forzosa para cubrir los huecos restantes.`)) return;
     if (!state.subastasCerradasForzosas) state.subastasCerradasForzosas = {};
@@ -3937,6 +4337,14 @@ async function forzarCierreSubasta(y, m, svcNombre) {
     renderAll();
 }
 
+/**
+ * Simula la asignación forzosa sin mutar state: devuelve la distribución proyectada de guardias.
+ * Usado para el banner de distribución antes de ejecutar la asignación real.
+ * @param {number} y
+ * @param {number} m
+ * @param {Object} analisis - resultado de getAnalisisFestivos
+ * @returns {{ proyecciones: Array, salvados: string[] }}
+ */
 function proyectarAsignacionForzosa(y, m, analisis) {
     const planRef = (promoConfig.planes || []).find(p => p.nombre === analisis.planNombre) || promoConfig.planes?.[0];
     const svcRef = planRef?.servicios?.find(s => s.nombre === analisis.svcNombre);
@@ -4124,6 +4532,10 @@ async function ejecutarAsignacionForzosa(y, m, targetSvcNombre) {
     alert(mensajeFinal);
 }
 
+/**
+ * Actualiza el nombre visible del usuario en Supabase y recarga la página.
+ * Impide duplicados comprobando el resto de globalProfiles antes de persistir.
+ */
 async function guardarNombrePerfil() {
     const nuevoNombre = document.getElementById('perfil-nombre-mostrar').value.trim();
     if (!nuevoNombre) return alert("El nombre no puede estar vacío.");
@@ -4175,6 +4587,7 @@ function getAnalisisFestivos(y, m) {
     _computingAnalisis = false;
     }
 }
+/** Implementación interna del análisis de festivos; no debe llamarse directamente (usa getAnalisisFestivos). */
 function _getAnalisisFestivosImpl(y, m) {
     const mk = getRotationKey(y, m);
     // Salvaguarda: solo consideramos la ronda terminada si al menos alguien ha asignado una guardia este mes.
@@ -4499,6 +4912,11 @@ window.resetAllConfigMes = async function() {
 };
 
 // Invalida el cache de ordenSeleccion para que se recalcule en el próximo renderizado
+/**
+ * Borra el configMes cacheado del mes indicado (o de todos si no se pasa clave)
+ * para forzar que getCurrentTurn regenere el orden de selección.
+ * @param {string} [mk] - clave "YYYY_MM"; si se omite, limpia todo el cache
+ */
 function invalidateConfigMes(mk) {
     if (mk) {
         if (state.configMes && state.configMes[mk]) {
@@ -4630,6 +5048,12 @@ function getCurrentTurn(y, m) {
 // Dependencias externas: state.bajasLargas
 // Helpers que usa: getAllResidents
 // ============================================================
+/**
+ * Devuelve todos los residentes que no tienen una baja larga aprobada que solape con el mes dado.
+ * @param {number} y
+ * @param {number} m - 0-indexed
+ * @returns {string[]} array de nombre_mostrar activos en ese mes
+ */
 function getResidentesActivosEnMes(y, m) {
     const todos = getAllResidents();
     if (!state.bajasLargas) state.bajasLargas = [];
@@ -4685,6 +5109,11 @@ function calcHorasResidente(nombre, filtroY, filtroM) {
     return { horasMes, horasAnio, horasTotal, completasMes, partidasMes };
 }
 
+/**
+ * Actualiza los filtros de año/mes del panel de horas del perfil y re-renderiza.
+ * @param {number|string} y
+ * @param {number|string} m - 0-indexed
+ */
 function setPerfilHorasFiltro(y, m) {
     perfilHorasFiltroY = +y;
     perfilHorasFiltroM = +m;
@@ -4699,6 +5128,10 @@ function setPerfilHorasFiltro(y, m) {
 // Helpers que usa: formatDateKey, calcHorasResidente, getPlanForUserOnDate, saveState, renderPerfilUsuario, invalidateConfigMes, formatDK, MONTHS
 // ============================================================
 
+/**
+ * Renderiza el panel de perfil del usuario: datos personales, contrato, ausencias y auditoría de horas.
+ * Calcula el plan activo en la fecha de hoy y muestra la barra de carga laboral histórica.
+ */
 function renderPerfilUsuario() {
     const uProfile = currentUserProfile;
     if (!uProfile) return;
@@ -4879,6 +5312,7 @@ function renderPerfilUsuario() {
             </div> `;
 	}
 // A) GUARDAR LA FECHA DE CAMBIO DE CONTRATO DESDE EL PERFIL
+/** Persiste el mes de cambio de contrato del usuario (día fijo al 1 del mes, año base 2000). */
 async function guardarFechaContratoPerfil() {
     const mes = document.getElementById('perfil-mes-contrato').value;
     const nuevaFecha = `2000-${mes}-01`; // Siempre día 1
@@ -4901,6 +5335,7 @@ async function guardarFechaContratoPerfil() {
 }
 
 // B) GUARDAR LA FECHA DE INICIO DE RESIDENCIA
+/** Persiste la fecha de inicio de residencia R1 del usuario e invalida el cache de turnos. */
 async function guardarFechaInicioPerfil() {
     const nuevaFecha = document.getElementById('perfil-fecha-inicio').value;
     if (!nuevaFecha) return alert("Selecciona una fecha válida.");
@@ -4923,6 +5358,7 @@ async function guardarFechaInicioPerfil() {
 }
 
 // C) SOLICITAR UNA NUEVA BAJA PROLONGADA
+/** Registra un nuevo periodo de baja/ausencia para el usuario actual y persiste en state. */
 async function solicitarBajaPerfil() {
     const fInicio = document.getElementById('baja-fecha-inicio').value;
     const fFin = document.getElementById('baja-fecha-fin').value;
@@ -4953,6 +5389,10 @@ async function solicitarBajaPerfil() {
 }
 
 // C) ELIMINAR UNA BAJA REGISTRADA
+/**
+ * Elimina un periodo de baja por su id y persiste el estado actualizado.
+ * @param {number} idBaja - id generado con Date.now() al crear la baja
+ */
 async function eliminarBajaPerfil(idBaja) {
     if (!confirm("¿Seguro que deseas eliminar este periodo de baja y volver a activarte en la rotación?")) return;
 
@@ -4969,7 +5409,13 @@ async function eliminarBajaPerfil(idBaja) {
 // Dependencias externas: state.planRotations, curDate
 // Helpers que usa: getCurrentRotPlan, formatDateKey
 // ============================================================
+/** Wrapper que llama a reempaquetarGruposPlan con el plan activo del mes actual. */
 function reempaquetarGrupos(lista) { return reempaquetarGruposPlan(lista, state.planRotations?.[getCurrentRotPlan(formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1))] || {}); }
+/**
+ * Reagrupa una lista plana en sub-grupos de máximo 4, distribuyendo el resto equitativamente.
+ * @param {string[]} lista
+ * @returns {string[][]}
+ */
 function _reempaquetarGrupos(lista) {
     if (!lista || lista.length === 0) return [[]];
     let n = lista.length;
@@ -4992,6 +5438,12 @@ function _reempaquetarGrupos(lista) {
     return result;
 }
 
+/**
+ * Activa o desactiva el modificador "guardia diurna" para un usuario en un día.
+ * @param {string} dk - dateKey
+ * @param {string} user - nombre_mostrar
+ * @param {boolean} isDiurna
+ */
 async function toggleDiurna(dk, user, isDiurna) {
     if (!state.shiftModifiers) state.shiftModifiers = {};
     if (!state.shiftModifiers[dk]) state.shiftModifiers[dk] = {};
@@ -5002,6 +5454,12 @@ async function toggleDiurna(dk, user, isDiurna) {
     renderMainCalendar(); // Refresca para eliminar los salientes grises en vivo
 }
 
+/**
+ * Actualiza el tipo de guardia (normal / partida_primera / partida_segunda) de un usuario en un día.
+ * @param {string} dk - dateKey
+ * @param {string} user - nombre_mostrar
+ * @param {'normal'|'partida_primera'|'partida_segunda'} modo
+ */
 async function updateShiftMode(dk, user, modo) {
     if (!state.shiftModifiers) state.shiftModifiers = {};
     if (!state.shiftModifiers[dk]) state.shiftModifiers[dk] = {};
@@ -5015,6 +5473,10 @@ async function updateShiftMode(dk, user, modo) {
     }
 }
 
+/**
+ * Marca a un residente como graduado, descarga su historial completo en Excel y lo excluye de futuras rotaciones.
+ * @param {string} user - nombre_mostrar
+ */
 function graduarResidente(user) {
     if (!confirm(`¿Estás seguro de que quieres graduar a ${user}? Se eliminará de las listas activas y se descargará un Excel con su histórico completo de guardias (Mercadillo).`)) return;
     
@@ -5053,6 +5515,10 @@ function graduarResidente(user) {
 }
 
 
+/**
+ * Revisa todos los perfiles y marca como graduados a quienes ya no tienen plan activo
+ * pero llevan tiempo en la residencia. Salvaguarda: no actúa si no hay planes configurados.
+ */
 function checkAutomaticGraduation() {
     if (!state.graduados) state.graduados = [];
     let changed = false;
@@ -5091,6 +5557,10 @@ function checkAutomaticGraduation() {
 // Dependencias externas: state.trades, XLSX
 // Helpers que usa: formatDK
 // ============================================================
+/**
+ * Genera y descarga un Excel con el log de operaciones aprobadas/deshachas del Mercadillo
+ * en el rango de meses seleccionado (máximo 12 meses).
+ */
 function exportarLogMercadillo() {
     const fromVal = document.getElementById('export-merc-desde').value;
     const toVal = document.getElementById('export-merc-hasta').value;
