@@ -1,4 +1,11 @@
 
+// REVISAR: podría pertenecer a HELPERS_SERVICIOS
+/**
+ * Genera el estilo CSS de fondo de una celda de calendario según festivos y servicios habilitados.
+ * @param {string} dk  - dateKey "YYYY_MM_DD"
+ * @param {number} filterLevel - nombre del plan activo o 'ALL'
+ * @returns {string} regla CSS inline (background / gradient)
+ */
 function getCellBackgroundStyle(dk, y, m, d, filterLevel = 'ALL') {
     const dateObj = new Date(y, m, d);
     const isWeekend = dateObj.getDay() === 0 || dateObj.getDay() === 6;
@@ -37,9 +44,13 @@ function getCellBackgroundStyle(dk, y, m, d, filterLevel = 'ALL') {
     return `background: linear-gradient(135deg, ${gradient.join(', ')}); border-color: ${colors[0]}; border-width: 2px;`;
 }
 
-// ==========================================
-// 1. CONFIGURACIÓN SUPABASE Y ESTADO
-// ==========================================
+// ============================================================
+// MÓDULO: CONFIG_ESTADO
+// Exportar a: src/modules/config.js
+// Líneas estimadas: ~70
+// Dependencias externas: ninguna
+// Helpers que usa: monthString, formatDateKey
+// ============================================================
 const SUPABASE_URL = 'https://elmpelhplacgkgfuiwno.supabase.co'; 
 const SUPABASE_KEY = 'sb_publishable_xeqDUYHHiGZTMcCG4IQ8kA_JVPG38X0'; 
 let supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -105,9 +116,13 @@ let perfilHorasFiltroM = new Date().getMonth(); // 0-indexed
 let promoConfig = { servicios: [] };
 let globalProfiles = []; // Almacena las fechas de inicio/cambio de todos los residentes activos
 
-// ==========================================
-// UTILIDADES (Fechas y Etiquetas ICS)
-// ==========================================
+// ============================================================
+// MÓDULO: HELPERS_UTILS
+// Exportar a: src/modules/helpers.js
+// Líneas estimadas: ~65
+// Dependencias externas: state.festivos
+// Helpers que usa: formatDateKey
+// ============================================================
 function getInitials(name) {
   if (!name) return "";
   return name.trim().split(/\s+/).map(word => word[0].toUpperCase()).join('').substring(0, 3);
@@ -168,9 +183,13 @@ function getDayTag(y, m, d) {
     return 'laborable';
 }
 
-// ==========================================
-// 2. PERSISTENCIA Y NORMALIZACIÓN DE CONFIG
-// ==========================================
+// ============================================================
+// MÓDULO: PERSISTENCIA
+// Exportar a: src/modules/persistencia.js
+// Líneas estimadas: ~135
+// Dependencias externas: supabaseClient, state, promoConfig, currentUserProfile, authSession
+// Helpers que usa: setStatus, formatDateKey, promoConfig.planes
+// ============================================================
 async function saveState() {
   if (!currentUserProfile || !currentUserProfile.promocion_id) return; 
   setStatus('Guardando...');
@@ -210,6 +229,12 @@ async function saveState() {
   }
 }
 
+/**
+ * Rellena campos opcionales de una configuración de promoción con valores por defecto.
+ * También realiza la migración desde el formato antiguo (config.servicios) al nuevo (config.planes).
+ * @param {Object} config - objeto configuracion de la tabla promociones
+ * @returns {Object} configuración normalizada
+ */
 function normalizeConfig(config) {
     if (!config.ventana_voluntaria_horas || config.ventana_voluntaria_horas < 24 || config.ventana_voluntaria_horas > 48) config.ventana_voluntaria_horas = 48;
     if (!config.planes) {
@@ -306,9 +331,13 @@ async function loadState() {
     alert("La conexión con el servidor ha fallado.");
   }
 }
-// ==========================================
-// 3. MOTOR DE INICIO Y SESIONES (GOOGLE AUTH)
-// ==========================================
+// ============================================================
+// MÓDULO: AUTH_SESION
+// Exportar a: src/modules/auth.js
+// Líneas estimadas: ~120
+// Dependencias externas: supabaseClient, currentUserProfile, loggedInUser, isAdmin, isDelegado
+// Helpers que usa: setStatus, renderUserHeader, evaluarEstadoUsuario, loadPromoConfig, loadState, nav, renderAll, renderGruposView, renderAccountsList, renderAdminExceptions
+// ============================================================
 let authSession = null;
 let currentUserProfile = null; 
 
@@ -423,9 +452,13 @@ async function evaluarEstadoUsuario() {
 
 initApp();
 
-// ==========================================
-// LÓGICA DE USUARIOS Y ACCESOS MENORES
-// ==========================================
+// ============================================================
+// MÓDULO: USUARIOS_ACCESOS
+// Exportar a: src/modules/usuarios.js
+// Líneas estimadas: ~115
+// Dependencias externas: supabaseClient, currentUserProfile, todasLasPromociones
+// Helpers que usa: setStatus, evaluarEstadoUsuario, ejecutarSalidaFinal, activateSimulationMode, renderAll, nav, getRotationKey, saveState
+// ============================================================
 let todasLasPromociones = []; 
 async function cargarListaPromociones() {
   const { data, error } = await supabaseClient.from('promociones').select('*');
@@ -542,9 +575,20 @@ function renderUserHeader() {
   else el.innerHTML = `<button onclick="loginWithGoogle()" class="primary" style="padding:0.3rem 0.8rem; font-size:0.8rem; background: #ea4335; border:none; color:white;">Entrar con Google</button>`;
 }
 
-// ==========================================
-// NÚCLEO 3.5: MOTOR DE SIMULACIÓN TEMPORAL Y MERCADILLO
-// ==========================================
+// ============================================================
+// MÓDULO: MOTOR_TEMPORAL
+// Exportar a: src/modules/motorTemporal.js
+// Líneas estimadas: ~70
+// Dependencias externas: globalProfiles, promoConfig, currentUserProfile, loggedInUser
+// Helpers que usa: getUserLevelOnDate, getPlanForUserOnDate, getSvcConfig
+// ============================================================
+/**
+ * Calcula el nivel de residencia (R1, R2, …) de un usuario en una fecha dada,
+ * usando fecha_inicio_residencia y fecha_cambio_contrato del perfil.
+ * @param {Object} userProfile - perfil de Supabase
+ * @param {string} dateKey - "YYYY_MM_DD"
+ * @returns {number} nivel (0 = antes de empezar, 1 = R1, 2 = R2, …)
+ */
 function getUserLevelOnDate(userProfile, dateKey) {
     // Si no hay perfil o no tiene fecha de inicio, por defecto es R1
     if (!userProfile || !userProfile.fecha_inicio_residencia) return 1;
@@ -615,9 +659,21 @@ function canUserTakeShift(targetUserName, sourceUserName, dateKey, svcName) {
     return true; // 'cualquiera'
 }
 
-// ==========================================
-// NÚCLEO 4: MOTOR DE SALIENTES DINÁMICO
-// ==========================================
+// ============================================================
+// MÓDULO: MOTOR_SALIENTES
+// Exportar a: src/modules/motorSalientes.js
+// Líneas estimadas: ~90
+// Dependencias externas: state.shifts, state.shiftModifiers, globalProfiles
+// Helpers que usa: getSvcConfigForUser, getDayTag, formatDateKey, getIllegalShiftsForUser
+// ============================================================
+/**
+ * Calcula los días de saliente que genera una guardia (día siguiente y, si es sábado, lunes).
+ * Respeta el modo de modalidad diurna/partida_primera para omitir el saliente.
+ * @param {string} dateKey
+ * @param {string} svcName
+ * @param {string} user - nombre_mostrar
+ * @returns {string[]} array de dateKeys que son salientes
+ */
 function getSalienteDaysForShift(dateKey, svcName, user) {
     // 🛑 CONTROL DE MODALIDAD: Si es Diurna o la 1ª Mitad de una partida, no hay pernocta -> No hay saliente
     const mod = state.shiftModifiers?.[dateKey]?.[user];
@@ -704,13 +760,25 @@ function getIllegalShiftsForUser(user, shiftsObj) {
     return conflicts;
 }
 
-// ==========================================
-// NÚCLEO 5: EVALUADOR DE REGLAS (EL CEREBRO)
-// ==========================================
+// ============================================================
+// MÓDULO: MOTOR_ROTACION
+// Exportar a: src/modules/motorRotacion.js
+// Líneas estimadas: ~180
+// Dependencias externas: state.planRotations, state.historialEventos, globalProfiles, promoConfig
+// Helpers que usa: formatDateKey, getRotationKey, getPlanForUserOnDate, getUserLevelOnDate, reempaquetarGruposPlan
+// ============================================================
 function getRotationKey(y, m) { return `${y}_${String(m).padStart(2,'0')}`; }
 function getRotationForPlan(planName, y, m) {
     return getRotation(y, m, planName);
 }
+/**
+ * Calcula el orden de rotación de grupos para un mes dado, aplicando la rotación matemática
+ * desde la base configurada. Soporta customRotations por mes y migración desde estado antiguo.
+ * @param {number} y
+ * @param {number} m - 0-indexed
+ * @param {string} [forcedPlanName] - si se omite, usa getCurrentRotPlan
+ * @returns {string[][]} array de grupos ordenados para ese mes
+ */
 function getRotation(y, m, forcedPlanName) {
     const dkStep = formatDateKey(y, m, 1);
     const planName = forcedPlanName || getCurrentRotPlan(dkStep);
@@ -870,6 +938,14 @@ function getAllResidents() {
 }
 
 
+// ============================================================
+// MÓDULO: MOTOR_EVALUACION
+// Exportar a: src/modules/motorEvaluacion.js
+// Líneas estimadas: ~185
+// Dependencias externas: state.shifts, state.skippedTurns, promoConfig, globalProfiles
+// Helpers que usa: getDaysInMonth, formatDateKey, getDayTag, getPlazasForDay, isServiceEnabledOnDate, isUserBusyOnDay, getIllegalShiftsForUser, getComputedShifts, getAnalisisFestivos, calcularViabilidadFestivosMensual, getPlanForUserOnDate
+// ============================================================
+
 // Escáner de Válvula de Escape: Busca si queda AL MENOS UN hueco legal en el mes
 function hasAvailableLegalSlots(user, y, m, svc, rule, planName = null) {
     for (let d = 1; d <= getDaysInMonth(y, m); d++) {
@@ -933,6 +1009,14 @@ function hasAvailableLegalSlotsForService(user, y, m, svc, planName = null) {
     return false;
 }
 
+/**
+ * Calcula el progreso de guardias de un usuario para un mes dado.
+ * Verifica cuotas, reglas obligatorias y mínimo de festivos globales.
+ * @param {string} user - nombre_mostrar
+ * @param {number} y
+ * @param {number} m - 0-indexed
+ * @returns {{ progress: Object, isFinished: boolean, messages: string[] }}
+ */
 // Evaluador Maestro de un usuario
 function getUserProgress(user, y, m) {
     let progress = {};
@@ -1035,7 +1119,9 @@ function getUserProgress(user, y, m) {
     }
 
     // El cerebro ajusta la exigencia según la subasta
+    // USA: motorSubastas.getAnalisisFestivos()
     const analisis = getAnalisisFestivos(y, m);
+    // USA: motorSubastas.calcularViabilidadFestivosMensual()
     const viabilidad = calcularViabilidadFestivosMensual(y, m);
     let minimoExigibleEsteMes = viabilidad.minimoExigible || 0;
 
@@ -1056,9 +1142,18 @@ function getUserProgress(user, y, m) {
 
     return { progress, isFinished, messages };
 }
-// ==========================================
-// CORE: MOTOR DEL MERCADILLO
-// ==========================================
+// ============================================================
+// MÓDULO: MOTOR_MERCADILLO
+// Exportar a: src/modules/motorMercadillo.js
+// Líneas estimadas: ~95
+// Dependencias externas: state.trades, state.shifts
+// Helpers que usa: getIllegalShiftsForUser, formatDK
+// ============================================================
+/**
+ * Devuelve el mapa de guardias con todas las operaciones aprobadas del mercadillo aplicadas.
+ * Las ventas a "Externo" se marcan como VRE_<id>. No muta state.shifts.
+ * @returns {Object} mapa dk → { user: svcNombre }
+ */
 function getComputedShifts() {
   let computed = JSON.parse(JSON.stringify(state.shifts || {}));
   const activeTrades = (state.trades || []).filter(t => t.status === 'approved' || t.status === 'undo_pending');
@@ -1087,6 +1182,11 @@ function getComputedShifts() {
   return computed;
 }
 
+/**
+ * Valida que una operación de mercadillo no genere conflictos de guardia doble ni saliente ilegal.
+ * @param {Object} newTrade - objeto trade a evaluar
+ * @returns {string[]} lista de mensajes de conflicto (vacía = sin conflictos)
+ */
 function checkTradeConflicts(newTrade) {
     const computed = getComputedShifts(); let overlaps = [];
     const hasShift = (dk, user) => computed[dk] && computed[dk][user] && !computed[dk][user].startsWith('VRE');
@@ -1133,9 +1233,13 @@ function checkTradeConflicts(newTrade) {
     return conflicts;
 }
 
-// ==========================================
-// VISOR DE GRUPOS Y HOSPITALES
-// ==========================================
+// ============================================================
+// MÓDULO: GRUPOS_HOSPITALARIOS
+// Exportar a: src/modules/grupos.js
+// Líneas estimadas: ~230
+// Dependencias externas: supabaseClient, currentUserProfile, state
+// Helpers que usa: setStatus, evaluarEstadoUsuario, saveState, limpiarFuturos, renderGruposView
+// ============================================================
 async function renderGruposView() {
     const currentContainer = document.getElementById('grupos-current-info');
     const listContainer = document.getElementById('grupos-list-container');
@@ -1365,9 +1469,13 @@ async function ejecutarSalidaFinal(destinoId) {
     evaluarEstadoUsuario(); 
 }
 
-// ==========================================
-// RENDERIZADO VISUAL GLOBAL Y NAVEGACIÓN
-// ==========================================
+// ============================================================
+// MÓDULO: NAVEGACION
+// Exportar a: src/modules/navegacion.js
+// Líneas estimadas: ~120
+// Dependencias externas: isAdmin, isDelegado, currentAdminView, loggedInUser, simulatedViewUser
+// Helpers que usa: renderAll, renderGruposView, renderPerfilUsuario, renderAdminCalendar, renderAdminExceptions, renderAdminAjustes, renderAdminSeguridad, renderAdminHoras, renderAccountsList, checkAutomaticGraduation
+// ============================================================
 function nav(tab) {
   if (tab === 'admin' && !isDelegado) return;
 
@@ -1487,9 +1595,14 @@ function toggleFilter() {
     renderAll();
 }
 	
-// ==========================================
-// AYUDANTES DEL MOTOR TEMPORAL (EXTRACTORES)
-// ==========================================
+// ============================================================
+// MÓDULO: HELPERS_SERVICIOS
+// Exportar a: src/modules/helpersServicios.js
+// Líneas estimadas: ~55
+// Dependencias externas: promoConfig, state.habilitaciones, state.pedWhitelist
+// Helpers que usa: getSvcConfig
+// NOTA: getCellBackgroundStyle también pertenece aquí (ver línea 2)
+// ============================================================
 function getAllUniqueServices() {
     let unique = []; let names = new Set();
     if (!promoConfig.planes) return [];
@@ -1538,9 +1651,13 @@ function getPlazasForDay(svc, dk) {
     return svc.plazasPorDia >= 0 ? svc.plazasPorDia : 1;
 }
 
-// ==========================================
-// RENDERIZADOR DEL CALENDARIO ORIGINAL
-// ==========================================
+// ============================================================
+// MÓDULO: CALENDARIO
+// Exportar a: src/modules/calendario.js
+// Líneas estimadas: ~225
+// Dependencias externas: state, curDate, promoConfig, loggedInUser, simulatedViewUser, isDelegado
+// Helpers que usa: getRotationKey, getCurrentTurn, getAnalisisFestivos, getUserProgress, getAllUniqueServices, getPlazasForDay, getCellBackgroundStyle, getFirstDayOffset, getDaysInMonth, formatDateKey, getInitials, renderAlertaCargaMensual
+// ============================================================
 function renderMainCalendar() {
   const y = curDate.getFullYear(), m = curDate.getMonth();
   const banner = document.getElementById('turn-banner');
@@ -1760,9 +1877,13 @@ function renderMainCalendar() {
   renderAlertaCargaMensual();
 }
 
-// ==========================================
-// EL MODAL DINÁMICO (Capa 2 y Multi-Slot)
-// ==========================================
+// ============================================================
+// MÓDULO: MODALES_CALENDARIO
+// Exportar a: src/modules/modalesCalendario.js
+// Líneas estimadas: ~185
+// Dependencias externas: state, loggedInUser, simulatedViewUser, isDelegado, isAdmin
+// Helpers que usa: getCurrentTurn, getAnalisisFestivos, getUserProgress, getPlanForUserOnDate, getDayTag, getPlazasForDay, isServiceEnabledOnDate, isUserBusyOnDay, getIllegalShiftsForUser, saveState, renderMainCalendar, renderAll, MONTHS, getAllResidents
+// ============================================================
 function openShiftModal(y, m, d, dateKey) {
   if (!isDelegado && !loggedInUser) { alert("⚠️ Inicia sesión para usar el calendario."); loginWithGoogle(); return; }
   const dayShifts = state.shifts[dateKey] || {};
@@ -1922,9 +2043,13 @@ async function adminSkipTurn(turnUser, y, m) {
     renderAll();
 }
 
-// ==========================================
-// TURNO OTORGADO (ADMIN GRANT TURN)
-// ==========================================
+// ============================================================
+// MÓDULO: ADMIN_TURNO (sub-sección de MODALES_CALENDARIO)
+// Exportar a: src/modules/modalesCalendario.js  ← mismo archivo
+// Líneas estimadas: ~30
+// Dependencias externas: state.grantedTurn, simulatedViewUser
+// Helpers que usa: getRotationKey, saveState, renderAll, MONTHS
+// ============================================================
 async function adminGrantTurn(y, m) {
     if (simulatedViewUser !== null) { alert('⚠️ Estás en modo visualización. Sal de la simulación para realizar cambios.'); return; }
     const sel = document.getElementById('sel-grant-turn');
@@ -1950,9 +2075,13 @@ async function adminClearGrantedTurn(y, m) {
     renderAll();
 }
 
-// ==========================================
-// RENDER MERCADILLO
-// ==========================================
+// ============================================================
+// MÓDULO: MERCADILLO_RENDER
+// Exportar a: src/modules/mercadillo.js
+// Líneas estimadas: ~200
+// Dependencias externas: state.trades, loggedInUser, simulatedViewUser, promoConfig
+// Helpers que usa: getComputedShifts, checkTradeConflicts, canUserTakeShift, getServiceColor, getAllUniqueServices, getAllResidents, isPastDate, formatDK, saveState, renderAll, checkAutomaticGraduation
+// ============================================================
 function renderMercadoCalendar() {
   const y = curDate.getFullYear(), m = curDate.getMonth();
   const grid = document.getElementById('merc-cal-body'); grid.innerHTML = '';
@@ -1990,9 +2119,13 @@ function renderMercadoCalendar() {
   }
 }
 
-// ==========================================
-// MODALES Y ACCIONES DEL MERCADILLO
-// ==========================================
+// ============================================================
+// MÓDULO: MERCADILLO_MODALES (sub-sección de MERCADILLO_RENDER)
+// Exportar a: src/modules/mercadillo.js  ← mismo archivo
+// Líneas estimadas: ~115
+// Dependencias externas: state, loggedInUser, curDate
+// Helpers que usa: canUserTakeShift, getComputedShifts, checkTradeConflicts, isPastDate, formatDK, getServiceColor, getAllResidents, saveState, renderAll
+// ============================================================
 function openMercadoModal(y, m, d, dk, dayShifts) {
   if (!loggedInUser) return alert("Debes identificarte para usar el Mercadillo.");
   let myShift = null; for (let u in dayShifts) { if (u === loggedInUser) myShift = dayShifts[u]; }
@@ -2057,9 +2190,13 @@ function executeSwapRequestDirect(myDk, mySvc, targetDk, targetSvc, targetUser) 
     renderAll(); }
 function executeBuyRequest(dk, svc, targetUser) { if (targetUser !== 'Externo' && !confirm(`¿Comprar ${svc} a ${targetUser}?`)) return; if (targetUser === 'Externo' && !confirm(`¿Añadir guardia de ${svc} desde Externo?`)) return; const trade = { id: Date.now(), type: 'compra', requester: loggedInUser, target: targetUser, d1: dk, s1: svc, timestamp: new Date().toLocaleString('es-ES') }; let conflicts = checkTradeConflicts(trade); if (conflicts.length > 0) { if (!confirm("⚠️ Conflictos:\n" + conflicts.join("\n") + "\n¿Solicitar de todos modos?")) return; } if (targetUser === 'Externo') { trade.status = 'approved'; alert("Comprada a externo."); } else { trade.status = 'pending'; alert(`Solicitud enviada a ${targetUser}.`); } if(!state.trades) state.trades = []; state.trades.push(trade); saveState(); document.getElementById('mercado-modal').remove(); checkAutomaticGraduation();
     renderAll(); }
-// ==========================================
-// CONFIGURACIÓN DINÁMICA DEL HOSPITAL (AJUSTES)
-// ==========================================
+// ============================================================
+// MÓDULO: ADMIN_AJUSTES
+// Exportar a: src/modules/adminAjustes.js
+// Líneas estimadas: ~440
+// Dependencias externas: promoConfig, supabaseClient, currentUserProfile
+// Helpers que usa: syncConfigFromUI, saveState, setStatus, renderAll, checkAutomaticGraduation, MONTHS
+// ============================================================
 function renderAdminAjustes() {
   const container = document.getElementById('admin-config-container');
   let html = ``;
@@ -2497,9 +2634,13 @@ async function adminSaveConfig() {
   }
 }
 
-// ==========================================
-// EL NUEVO EXPORTADOR UNIVERSAL
-// ==========================================
+// ============================================================
+// MÓDULO: EXPORTACION
+// Exportar a: src/modules/exportacion.js
+// Líneas estimadas: ~195
+// Dependencias externas: state.shifts, state.trades, state.planRotations, promoConfig, XLSX
+// Helpers que usa: getComputedShifts, getAllResidents, getDaysInMonth, formatDateKey, MONTHS, getRotationKey
+// ============================================================
 function openExportModal() {
     if (!promoConfig || !promoConfig.planes || promoConfig.planes.length === 0) {
         alert("No hay ningún Plan de Guardias configurado.");
@@ -2656,7 +2797,13 @@ function executeExport() {
     document.getElementById('export-modal').style.display = 'none';
 }
 
-// RESTO DE FUNCIONES MENORES (Mercadillo UI, Admin Logs...)
+// ============================================================
+// MÓDULO: ADMIN_CALENDARIO
+// Exportar a: src/modules/adminCalendario.js
+// Líneas estimadas: ~155
+// Dependencias externas: state.festivos, state.habilitaciones, state.pedWhitelist, promoConfig, curDate
+// Helpers que usa: getFirstDayOffset, getDaysInMonth, formatDateKey, getCellBackgroundStyle, isServiceEnabledOnDate, getPlazasForDay, saveState, renderAdminCalendar, setStatus, supabaseClient
+// ============================================================
 function renderAdminCalendar() {
     const grid = document.getElementById('admin-cal-body'); 
     grid.innerHTML = '';
@@ -2799,6 +2946,14 @@ function renderAdminCalendar() {
         grid.appendChild(cell);
     }
 }
+
+// ============================================================
+// MÓDULO: ADMIN_EXCEPCIONES
+// Exportar a: src/modules/adminExcepciones.js
+// Líneas estimadas: ~60
+// Dependencias externas: state.pendingExceptions, state.exceptionLogs, state.exceptionReasons, state.skippedTurns
+// Helpers que usa: getRotationKey, getDaysInMonth, formatDateKey, saveState, renderAdminExceptions, renderAll, checkAutomaticGraduation, MONTHS
+// ============================================================
 
 function renderAdminExceptions() {
   const y = curDate.getFullYear(), m = curDate.getMonth(); const monthKey = getRotationKey(y, m);
@@ -2949,9 +3104,13 @@ function loadCambioTargets(myDk, mySvc) { const dateVal = document.getElementByI
 function proxySwapRequest(myDk, mySvc, targetDk) { const val = document.getElementById('cambio-to-user').value; if (!val) return alert("Selecciona una opción de cambio."); const [targetUser, targetSvc] = val.split('|'); executeSwapRequestDirect(myDk, mySvc, targetDk, targetSvc, targetUser); }
 function renderMercadoCambiarAjena(targetDk, targetSvc, targetUser) { const container = document.getElementById('mercado-dynamic'); if (!canUserTakeShift(loggedInUser, targetUser, targetDk, targetSvc)) { container.innerHTML = `<p style="color:var(--fest); padding:10px; background:#fee2e2; border-radius:8px;">⚠️ Tu nivel actual no te permite asumir esta guardia de ${targetSvc}.</p>`; return; } const computed = getComputedShifts(); let myFutureShifts = []; for (let dk in computed) { if (!isPastDate(dk) && computed[dk][loggedInUser]) { if (canUserTakeShift(targetUser, loggedInUser, dk, computed[dk][loggedInUser])) { myFutureShifts.push({dk: dk, svc: computed[dk][loggedInUser]}); } } } let html = `<h4 style="margin-bottom:1rem; color:var(--adu);">Ofrecer cambio a ${targetUser}</h4><div style="background:#f8fafc; padding:8px; border-radius:8px; margin-bottom:1rem; font-size:0.85rem; border:1px solid #cbd5e1;">Te quedarías su: <b>${targetSvc} (${formatDK(targetDk)})</b></div>`; if (myFutureShifts.length === 0) { html += `<p style="font-size:0.85rem; color:var(--fest); font-weight:bold;">No tienes guardias futuras programadas para ofrecerle a cambio.</p>`; } else { html += `<label style="font-size:0.85rem; color:#64748b;">¿Qué guardia tuya le ofreces a cambio?</label><select id="cambio-ajena-sel"><option value="">-- Selecciona una de tus guardias --</option>${myFutureShifts.map(s => `<option value="${s.dk}|${s.svc}">${formatDK(s.dk)} - ${s.svc}</option>`).join('')}</select><button class="primary" style="width:100%; margin-top:10px; background:var(--adu);" onclick="executeSwapRequestAjena('${targetDk}', '${targetSvc}', '${targetUser}')">Enviar Propuesta de Cambio</button>`; } container.innerHTML = html; }
 function executeSwapRequestAjena(targetDk, targetSvc, targetUser) { const val = document.getElementById('cambio-ajena-sel').value; if(!val) return alert("Selecciona una guardia tuya para ofrecer."); const [myDk, mySvc] = val.split('|'); executeSwapRequestDirect(myDk, mySvc, targetDk, targetSvc, targetUser); }
-// ==========================================
-// GESTIÓN DE USUARIOS, DELEGADOS Y ABDICACIÓN
-// ==========================================
+// ============================================================
+// MÓDULO: ADMIN_CUENTAS
+// Exportar a: src/modules/adminCuentas.js
+// Líneas estimadas: ~250
+// Dependencias externas: supabaseClient, currentUserProfile, state, globalProfiles, curDate
+// Helpers que usa: setStatus, saveState, renderAccountsList, renderRotationView, reempaquetarGruposPlan, invalidateConfigMes, limpiarFuturos, formatDateKey, getCurrentRotPlan, MONTHS
+// ============================================================
 async function renderAccountsList() {
   const el = document.getElementById('accounts-list');
   if (!el) return;
@@ -3287,9 +3446,13 @@ async function toggleResidenteExcluido(nombre) {
 }
 
 	
-// ==========================================
-// RENDERIZADOR DEL EDITOR
-// ==========================================
+// ============================================================
+// MÓDULO: ROTACION_EDITOR
+// Exportar a: src/modules/rotacionEditor.js
+// Líneas estimadas: ~370
+// Dependencias externas: state.planRotations, editingGroups, curDate, isAdmin, globalProfiles
+// Helpers que usa: renderEditor, renderRotationView, saveState, getCurrentRotPlan, formatDateKey, getRotationKey, getRotationForPlan, getAllResidents, reempaquetarGrupos, reempaquetarGruposPlan, invalidateConfigMes, MONTHS
+// ============================================================
 function renderEditor() {
     const setupC = document.getElementById('setup-groups');
     setupC.innerHTML = '';
@@ -3371,9 +3534,13 @@ function renderEditor() {
     </div>`;
     setupC.appendChild(btnContainer);
 }
-// ==========================================
-// CONTROLES DEL EDITOR LINEAL
-// ==========================================
+// ============================================================
+// MÓDULO: ROTACION_EDITOR_CONTROLES (sub-sección de ROTACION_EDITOR)
+// Exportar a: src/modules/rotacionEditor.js  ← mismo archivo
+// Líneas estimadas: ~145
+// Dependencias externas: editingGroups, state.planRotations, curDate
+// Helpers que usa: renderEditor, getCurrentRotPlan, formatDateKey, reempaquetarGrupos, monthString, saveState, renderRotationView
+// ============================================================
 // Mueve un residente ARRIBA o ABAJO dentro de su propio grupo (sin reempaquetar)
 function moveResInGroup(gIdx, rIdx, dir) {
     const g = editingGroups[gIdx];
@@ -3475,9 +3642,13 @@ function editorRemoveMemberLinear(gIdx, rIdx) {
     renderEditor();
 }
 
-// ==========================================
-// EL BOTÓN DEL CAOS (Aleatorio Real)
-// ==========================================
+// ============================================================
+// MÓDULO: ROTACION_SORTEO (sub-sección de ROTACION_EDITOR)
+// Exportar a: src/modules/rotacionEditor.js  ← mismo archivo
+// Líneas estimadas: ~35
+// Dependencias externas: state.planRotations, curDate, editingGroups
+// Helpers que usa: getAllResidents, reempaquetarGruposPlan, formatDateKey, getCurrentRotPlan, saveState, renderRotationView
+// ============================================================
 async function adminAutoShuffleGroups() {
     if (!confirm("⚠️ Se va a barajar a los residentes. Los marcados como 'Fijos' se mantendrán al inicio de la rueda. ¿Continuar?")) return;
     
@@ -3604,6 +3775,16 @@ function calcularViabilidadFestivosMensual(ano, mes) {
     };
 }
 	
+/**
+ * Suma las guardias de cada residente en los meses anteriores al objetivo, filtradas por tipo de día.
+ * Sólo cuenta guardias del mismo año de residencia (nivel) que tiene el residente en el mes objetivo.
+ * @param {number} targetY
+ * @param {number} targetM - 0-indexed
+ * @param {string[]} validTags - etiquetas ICS a contar (ej: ['fin_de_semana','festivo_intersemanal'])
+ * @param {string|null} targetSvc - si se indica, filtra por nombre de servicio
+ * @param {boolean} includeCurrentMonth - si true incluye el mes objetivo en el cómputo
+ * @returns {Object} { nombre_mostrar: count }
+ */
 function getHistoricoFestivosResidentes(targetY, targetM, validTags, targetSvc = null, includeCurrentMonth = false) {
     if (!validTags) validTags = ['fin_de_semana', 'festivo_intersemanal'];
 
@@ -3828,6 +4009,13 @@ function proyectarAsignacionForzosa(y, m, analisis) {
     return { proyecciones, salvados };
 }
 
+async /**
+ * Asigna automáticamente guardias pendientes de un servicio a los nominados por la subasta.
+ * Respeta las restricciones de saliente y rota la carga entre los candidatos con fairness.
+ * @param {number} y
+ * @param {number} m - 0-indexed
+ * @param {string} targetSvcNombre - nombre del servicio a cubrir
+ */
 async function ejecutarAsignacionForzosa(y, m, targetSvcNombre) {
     if (!confirm(`¿Seguro que quieres inyectar automáticamente las guardias pendientes de ${targetSvcNombre} a los nominados?`)) return;
     
@@ -3963,9 +4151,21 @@ async function guardarNombrePerfil() {
     window.location.reload();
 }
 
-// ==========================================
-// CALCULADORA DE FASES Y SUBASTAS (JUSTICIA)
-// ==========================================
+// ============================================================
+// MÓDULO: MOTOR_SUBASTAS
+// Exportar a: src/modules/motorSubastas.js
+// Líneas estimadas: ~390
+// Dependencias externas: state, promoConfig, globalProfiles, curDate
+// Helpers que usa: getDaysInMonth, formatDateKey, getDayTag, isServiceEnabledOnDate, getPlazasForDay, getHistoricoFestivosResidentes, getResidentesActivosEnMes, getUserProgress, getPlanForUserOnDate, getComputedShifts, saveState, renderAll, getRotationKey
+// ============================================================
+/**
+ * Punto de entrada del motor de subastas. Calcula el estado del mes (libre / subasta_abierta /
+ * subasta_cerrada / critico), los nominados para asignación forzosa y el exceso de huecos.
+ * Usa un guard _computingAnalisis para evitar recursión con getUserProgress.
+ * @param {number} y
+ * @param {number} m - 0-indexed
+ * @returns {{ estado: string, exceso: number, nominados: string[], svcNombre: string|null, horasRestantes?: number }}
+ */
 function getAnalisisFestivos(y, m) {
     if (_computingAnalisis) return { estado: 'libre', exceso: 0, nominados: [], svcNombre: null };
     _computingAnalisis = true;
@@ -4047,6 +4247,9 @@ function _getAnalisisFestivosImpl(y, m) {
     if (residentes.length === 0) return { estado: 'libre', exceso: 0, nominados: [], svcNombre: null };
 
     const serviciosOrdenados = [...miPlan.servicios].sort((a, b) => (a.ordenSubasta || 999) - (b.ordenSubasta || 999));
+    // FIX: usar getComputedShifts() para que las compras/ventas del mercadillo
+    // también cuenten como huecos cubiertos y reduzcan correctamente el exceso.
+    const computedShiftsRef = getComputedShifts();
     for (let i = 0; i < serviciosOrdenados.length; i++) {
         const svc = serviciosOrdenados[i];
 
@@ -4061,13 +4264,13 @@ function _getAnalisisFestivosImpl(y, m) {
 
             if (svc.subastaTrigger.includes(tag)) {
                 if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk, miPlan.nombre)) continue;
-                
+
                 const needed = getPlazasForDay(svc, dk);
                 huecosObligatoriosSvc += needed;
-                
-                if (state.shifts[dk]) {
-                    for (let u in state.shifts[dk]) {
-                        if (state.shifts[dk][u] === svc.nombre && !u.startsWith('VRE')) {
+
+                if (computedShiftsRef[dk]) {
+                    for (let u in computedShiftsRef[dk]) {
+                        if (computedShiftsRef[dk][u] === svc.nombre && !u.startsWith('VRE')) {
                             // Solo contar shifts de residentes del mismo plan
                             const uProfile = globalProfiles.find(p => p.nombre_mostrar === u);
                             if (!uProfile || getPlanForUserOnDate(uProfile, referenceDk)?.nombre === miPlan.nombre) {
@@ -4118,52 +4321,52 @@ function _getAnalisisFestivosImpl(y, m) {
             let nominados = [];
 
             const storedNominados = state.subastaNominados?.[nominadosKey];
-            if (storedNominados && storedNominados.length >= excesoSvc) {
-                // Cache válido y suficiente; slice por si alguien tomó slots voluntariamente
+            const esDeterminista = svc.subastaCriterio !== 'aleatorio' && !fallbackPri;
+
+            if (!esDeterminista && storedNominados && storedNominados.length >= excesoSvc) {
+                // Criterio aleatorio: cache válido y suficiente; slice por si alguien tomó slots voluntariamente
                 nominados = storedNominados.slice(0, excesoSvc);
-            } else {
-                // Cache ausente o insuficiente (p.ej. excesoSvc creció por fix de plazas) → recomputar
-                if (svc.subastaCriterio === 'aleatorio' || fallbackPri) {
-                    nominados = [...residentes].sort(() => Math.random() - 0.5).slice(0, excesoSvc);
-                } else {
-                    // Sort determinista: Math.random() en el comparador corrompe el orden primario
-                    const residentesOrdenados = [...residentes].sort((a, b) => {
-                        const diff = (historico[a] || 0) - (historico[b] || 0);
-                        if (diff !== 0) return diff;
-                        if (historicoDesempate && !fallbackDes) {
-                            const diffDes = (historicoDesempate[a] || 0) - (historicoDesempate[b] || 0);
-                            if (diffDes !== 0) return diffDes;
-                        }
-                        return 0; // empate real: se resuelve por tramos abajo
-                    });
-                    // Selección por tramos: nunca mezcla conteos distintos si hay suficientes empatados
-                    nominados = [];
-                    let _idx = 0;
-                    while (nominados.length < excesoSvc && _idx < residentesOrdenados.length) {
-                        const _r0 = residentesOrdenados[_idx];
-                        const _pri0 = (historico[_r0] || 0);
-                        const _des0 = (historicoDesempate && !fallbackDes) ? (historicoDesempate[_r0] || 0) : null;
-                        const tramo = [];
-                        while (_idx < residentesOrdenados.length) {
-                            const _r = residentesOrdenados[_idx];
-                            if ((historico[_r] || 0) !== _pri0) break;
-                            if (_des0 !== null && (historicoDesempate[_r] || 0) !== _des0) break;
-                            tramo.push(_r);
-                            _idx++;
-                        }
-                        const _needed = excesoSvc - nominados.length;
-                        if (tramo.length <= _needed) {
-                            nominados.push(...tramo);
-                        } else {
-                            // Sorteo ciego solo dentro del tramo empatado
-                            nominados.push(...[...tramo].sort(() => Math.random() - 0.5).slice(0, _needed));
-                        }
-                    }
-                }
-                // Persistir para que todos los usuarios vean el mismo sorteo
+            } else if (svc.subastaCriterio === 'aleatorio' || fallbackPri) {
+                // Criterio aleatorio sin cache suficiente: sortear y persistir
+                nominados = [...residentes].sort(() => Math.random() - 0.5).slice(0, excesoSvc);
                 if (!state.subastaNominados) state.subastaNominados = {};
                 state.subastaNominados[nominadosKey] = nominados;
-                saveState(); // fire-and-forget: no bloqueamos el render
+                saveState();
+            } else {
+                // Criterio determinista: siempre recomputar con el histórico actual (nunca usar cache).
+                // El resultado es reproducible para todos los usuarios sin necesidad de persistirlo.
+                // Desempate dentro de tramos igualados: orden alfabético (estable y consistente).
+                const residentesOrdenados = [...residentes].sort((a, b) => {
+                    const diff = (historico[a] || 0) - (historico[b] || 0);
+                    if (diff !== 0) return diff;
+                    if (historicoDesempate && !fallbackDes) {
+                        const diffDes = (historicoDesempate[a] || 0) - (historicoDesempate[b] || 0);
+                        if (diffDes !== 0) return diffDes;
+                    }
+                    return 0;
+                });
+                let _idx = 0;
+                while (nominados.length < excesoSvc && _idx < residentesOrdenados.length) {
+                    const _r0 = residentesOrdenados[_idx];
+                    const _pri0 = (historico[_r0] || 0);
+                    const _des0 = (historicoDesempate && !fallbackDes) ? (historicoDesempate[_r0] || 0) : null;
+                    const tramo = [];
+                    while (_idx < residentesOrdenados.length) {
+                        const _r = residentesOrdenados[_idx];
+                        if ((historico[_r] || 0) !== _pri0) break;
+                        if (_des0 !== null && (historicoDesempate[_r] || 0) !== _des0) break;
+                        tramo.push(_r);
+                        _idx++;
+                    }
+                    const _needed = excesoSvc - nominados.length;
+                    if (tramo.length <= _needed) {
+                        nominados.push(...tramo);
+                    } else {
+                        // Tramo empatado: desempate alfabético (determinista, mismo resultado para todos)
+                        nominados.push(...[...tramo].sort((a, b) => a.localeCompare(b)).slice(0, _needed));
+                    }
+                }
+                // No persistir: el resultado es determinista y siempre se recomputa igual
             }
             
             const inicioRonda = state.fechaFinRonda[keyMes];
@@ -4197,6 +4400,14 @@ function _getAnalisisFestivosImpl(y, m) {
     
     return { estado: 'libre', exceso: 0, nominados: [], svcNombre: null };
 }
+
+// ============================================================
+// MÓDULO: MOTOR_TURNO
+// Exportar a: src/modules/motorTurno.js
+// Líneas estimadas: ~210
+// Dependencias externas: state.configMes, state.skippedTurns, state.grantedTurn, promoConfig, globalProfiles
+// Helpers que usa: getRotationKey, getRotationForPlan, getPlanForUserOnDate, getUserProgress, getResidentesActivosEnMes, formatDateKey, saveState, renderAll
+// ============================================================
 
 // Guard para evitar recursión: getCurrentTurn → getUserProgress → getAnalisisFestivos → getCurrentTurn
 let _computingTurn = false;
@@ -4298,6 +4509,14 @@ function invalidateConfigMes(mk) {
     }
 }
 
+/**
+ * Devuelve el nombre del residente cuyo turno está activo en el mes dado.
+ * Genera/cachea el orden en state.configMes si no existe. Respeta grantedTurn,
+ * bajasLargas, skippedTurns y pausados. Usa guard _computingTurn anti-recursión.
+ * @param {number} y
+ * @param {number} m - 0-indexed
+ * @returns {string|null} nombre_mostrar o null si todos han completado
+ */
 function getCurrentTurn(y, m) {
     if (_computingTurn) return null; // Corta la recursión
     const mk = getRotationKey(y, m);
@@ -4404,9 +4623,13 @@ function getCurrentTurn(y, m) {
         _computingTurn = false;
     }
 }
-// ==========================================
-// FILTRO DE RESIDENTES ACTIVOS POR MES (BAJAS)
-// ==========================================
+// ============================================================
+// MÓDULO: BAJAS_ACTIVOS (sub-sección de MOTOR_TURNO)
+// Exportar a: src/modules/motorTurno.js  ← mismo archivo
+// Líneas estimadas: ~30
+// Dependencias externas: state.bajasLargas
+// Helpers que usa: getAllResidents
+// ============================================================
 function getResidentesActivosEnMes(y, m) {
     const todos = getAllResidents();
     if (!state.bajasLargas) state.bajasLargas = [];
@@ -4431,6 +4654,14 @@ function getResidentesActivosEnMes(y, m) {
     });
 }
 
+/**
+ * Calcula las horas de guardia de un residente (mes, año y total histórico),
+ * separando guardias completas de partidas en el mes solicitado.
+ * @param {string} nombre - nombre_mostrar
+ * @param {number} filtroY - año del mes a desglosar
+ * @param {number} filtroM - mes (0-indexed) a desglosar
+ * @returns {{ horasMes, horasAnio, horasTotal, completasMes, partidasMes }}
+ */
 function calcHorasResidente(nombre, filtroY, filtroM) {
     const prefMes = `${filtroY}_${String(filtroM + 1).padStart(2, '0')}_`;
     const prefAnio = `${filtroY}_`;
@@ -4459,6 +4690,14 @@ function setPerfilHorasFiltro(y, m) {
     perfilHorasFiltroM = +m;
     renderPerfilUsuario();
 }
+
+// ============================================================
+// MÓDULO: PERFIL_USUARIO
+// Exportar a: src/modules/perfilUsuario.js
+// Líneas estimadas: ~285
+// Dependencias externas: currentUserProfile, globalProfiles, state.bajasLargas, supabaseClient
+// Helpers que usa: formatDateKey, calcHorasResidente, getPlanForUserOnDate, saveState, renderPerfilUsuario, invalidateConfigMes, formatDK, MONTHS
+// ============================================================
 
 function renderPerfilUsuario() {
     const uProfile = currentUserProfile;
@@ -4723,9 +4962,13 @@ async function eliminarBajaPerfil(idBaja) {
     renderPerfilUsuario();
 }
 
-// ==========================================
-// MOTOR DE BALANCEO DINÁMICO (Regla 3-4)
-// ==========================================
+// ============================================================
+// MÓDULO: MOTOR_BALANCEO
+// Exportar a: src/modules/motorRotacion.js  ← mismo archivo que MOTOR_ROTACION
+// Líneas estimadas: ~35
+// Dependencias externas: state.planRotations, curDate
+// Helpers que usa: getCurrentRotPlan, formatDateKey
+// ============================================================
 function reempaquetarGrupos(lista) { return reempaquetarGruposPlan(lista, state.planRotations?.[getCurrentRotPlan(formatDateKey(curDate.getFullYear(), curDate.getMonth(), 1))] || {}); }
 function _reempaquetarGrupos(lista) {
     if (!lista || lista.length === 0) return [[]];
@@ -4841,9 +5084,13 @@ function checkAutomaticGraduation() {
     }
 }
 
-// ==========================================
-// EXPORTADOR DE LOG MERCADILLO
-// ==========================================
+// ============================================================
+// MÓDULO: EXPORTACION_MERCADILLO (sub-sección de EXPORTACION)
+// Exportar a: src/modules/exportacion.js  ← mismo archivo
+// Líneas estimadas: ~50
+// Dependencias externas: state.trades, XLSX
+// Helpers que usa: formatDK
+// ============================================================
 function exportarLogMercadillo() {
     const fromVal = document.getElementById('export-merc-desde').value;
     const toVal = document.getElementById('export-merc-hasta').value;
@@ -4893,3 +5140,46 @@ function exportarLogMercadillo() {
     XLSX.utils.book_append_sheet(wb, ws, "Log Mercadillo");
     XLSX.writeFile(wb, `Log_Mercadillo_${fromVal}_a_${toVal}.xlsx`);
 }
+
+// ============================================================
+// MAPA DE MÓDULOS
+// ============================================================
+// CONFIG_ESTADO          → src/modules/config.js          (~70 líneas)  | Depende de: ninguno
+// HELPERS_UTILS          → src/modules/helpers.js          (~65 líneas)  | Depende de: state.festivos
+// PERSISTENCIA           → src/modules/persistencia.js    (~135 líneas) | Depende de: CONFIG_ESTADO, supabaseClient, HELPERS_UTILS
+// AUTH_SESION            → src/modules/auth.js            (~120 líneas) | Depende de: PERSISTENCIA, USUARIOS_ACCESOS, NAVEGACION
+// USUARIOS_ACCESOS       → src/modules/usuarios.js        (~115 líneas) | Depende de: AUTH_SESION, GRUPOS_HOSPITALARIOS
+// MOTOR_TEMPORAL         → src/modules/motorTemporal.js   (~70 líneas)  | Depende de: CONFIG_ESTADO, globalProfiles, promoConfig
+// MOTOR_SALIENTES        → src/modules/motorSalientes.js  (~90 líneas)  | Depende de: MOTOR_TEMPORAL, HELPERS_UTILS
+// MOTOR_ROTACION         → src/modules/motorRotacion.js   (~215 líneas) | Depende de: MOTOR_TEMPORAL, PERSISTENCIA, MOTOR_BALANCEO
+// MOTOR_EVALUACION       → src/modules/motorEvaluacion.js (~185 líneas) | Depende de: MOTOR_ROTACION, MOTOR_SALIENTES, MOTOR_SUBASTAS, HELPERS_SERVICIOS
+// MOTOR_MERCADILLO       → src/modules/motorMercadillo.js (~95 líneas)  | Depende de: MOTOR_SALIENTES
+// MOTOR_SUBASTAS         → src/modules/motorSubastas.js   (~390 líneas) | Depende de: MOTOR_EVALUACION, MOTOR_TEMPORAL, HELPERS_SERVICIOS
+// MOTOR_TURNO            → src/modules/motorTurno.js      (~210 líneas) | Depende de: MOTOR_EVALUACION, MOTOR_ROTACION, MOTOR_SUBASTAS
+// MOTOR_BALANCEO         → src/modules/motorRotacion.js   (~35 líneas)  | Depende de: MOTOR_ROTACION  ← mismo archivo
+// NAVEGACION             → src/modules/navegacion.js      (~120 líneas) | Depende de: MOTOR_TURNO, todos los render*
+// HELPERS_SERVICIOS      → src/modules/helpersServicios.js (~55 líneas) | Depende de: promoConfig, state.habilitaciones
+// CALENDARIO             → src/modules/calendario.js      (~225 líneas) | Depende de: MOTOR_TURNO, MOTOR_SUBASTAS, MOTOR_EVALUACION, HELPERS_SERVICIOS
+// MODALES_CALENDARIO     → src/modules/modalesCalendario.js (~215 líneas)| Depende de: MOTOR_EVALUACION, MOTOR_TURNO, MOTOR_SUBASTAS
+// MERCADILLO_RENDER      → src/modules/mercadillo.js      (~315 líneas) | Depende de: MOTOR_MERCADILLO, MOTOR_TEMPORAL, HELPERS_SERVICIOS
+// ADMIN_AJUSTES          → src/modules/adminAjustes.js    (~440 líneas) | Depende de: promoConfig, supabaseClient
+// ADMIN_CALENDARIO       → src/modules/adminCalendario.js (~155 líneas) | Depende de: HELPERS_SERVICIOS, state.festivos, state.habilitaciones
+// ADMIN_EXCEPCIONES      → src/modules/adminExcepciones.js (~60 líneas) | Depende de: MOTOR_TURNO, state.pendingExceptions
+// ADMIN_CUENTAS          → src/modules/adminCuentas.js    (~250 líneas) | Depende de: supabaseClient, MOTOR_ROTACION
+// GRUPOS_HOSPITALARIOS   → src/modules/grupos.js          (~230 líneas) | Depende de: supabaseClient, AUTH_SESION
+// ROTACION_EDITOR        → src/modules/rotacionEditor.js  (~555 líneas) | Depende de: MOTOR_ROTACION, MOTOR_BALANCEO, state.planRotations
+// EXPORTACION            → src/modules/exportacion.js     (~245 líneas) | Depende de: MOTOR_MERCADILLO, state.shifts, XLSX
+// PERFIL_USUARIO         → src/modules/perfilUsuario.js   (~285 líneas) | Depende de: MOTOR_TEMPORAL, supabaseClient, state.bajasLargas
+// GRADUACION             → (inline, ~95 líneas)           | Depende de: MOTOR_ROTACION, MOTOR_TEMPORAL, XLSX
+//
+// HELPERS COMPARTIDOS (usados por 3+ módulos):
+//   formatDateKey, getDayTag, getDaysInMonth, getRotationKey, getFirstDayOffset,
+//   setStatus, saveState, getComputedShifts, getPlanForUserOnDate, getUserLevelOnDate,
+//   getAllResidents, renderAll, checkAutomaticGraduation, MONTHS
+//
+// POSIBLES IMPORTS CIRCULARES:
+//   MOTOR_EVALUACION ←→ MOTOR_SUBASTAS  (getUserProgress llama getAnalisisFestivos y viceversa)
+//     → resuelto en código con guards _computingTurn / _computingAnalisis
+//   MOTOR_TURNO ←→ MOTOR_EVALUACION  (getCurrentTurn → getUserProgress → getAnalisisFestivos → getCurrentTurn)
+//     → resuelto con _computingTurn
+// ============================================================
