@@ -4570,6 +4570,36 @@ async function guardarNombrePerfil() {
 // Dependencias externas: state, promoConfig, globalProfiles, curDate
 // Helpers que usa: getDaysInMonth, formatDateKey, getDayTag, isServiceEnabledOnDate, getPlazasForDay, getHistoricoFestivosResidentes, getResidentesActivosEnMes, getUserProgress, getPlanForUserOnDate, getComputedShifts, saveState, renderAll, getRotationKey
 // ============================================================
+
+/**
+ * Genera una semilla entera a partir de un objeto historico {nombre: count}.
+ * La semilla cambia si cualquier conteo cambia, y es idéntica para todos los usuarios
+ * que compartan el mismo state → el orden aleatorio de desempate es consistente y se
+ * actualiza automáticamente cuando se añaden guardias (calendario o mercadillo).
+ * @param {Object} hist
+ * @returns {number}
+ */
+function hashHistorico(hist) {
+    return Object.keys(hist).sort().reduce((acc, k, i) => {
+        const nameHash = k.split('').reduce((h, c) => (Math.imul(31, h) + c.charCodeAt(0)) | 0, 0);
+        return (Math.imul(acc ^ nameHash, 1664525) + (hist[k] || 0) * 1013904223) | 0;
+    }, 1234567891);
+}
+
+/**
+ * Devuelve una función PRNG basada en la semilla dada (algoritmo mulberry32).
+ * Cada llamada al resultado avanza el estado interno y retorna un float [0, 1).
+ * @param {number} seed
+ * @returns {() => number}
+ */
+function seededRandom(seed) {
+    seed = (seed ^ 0xdeadbeef) >>> 0;
+    return function() {
+        seed = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+        seed ^= seed + Math.imul(seed ^ (seed >>> 7), 61 | seed);
+        return ((seed ^ (seed >>> 14)) >>> 0) / 4294967296;
+    };
+}
 /**
  * Punto de entrada del motor de subastas. Calcula el estado del mes (libre / subasta_abierta /
  * subasta_cerrada / critico), los nominados para asignación forzosa y el exceso de huecos.
@@ -4748,7 +4778,8 @@ function _getAnalisisFestivosImpl(y, m) {
             } else {
                 // Criterio determinista: siempre recomputar con el histórico actual (nunca usar cache).
                 // El resultado es reproducible para todos los usuarios sin necesidad de persistirlo.
-                // Desempate dentro de tramos igualados: orden alfabético (estable y consistente).
+                // Desempate dentro de tramos igualados: aleatorio con semilla derivada del histórico.
+                // Todos los usuarios obtienen el mismo orden; cambia automáticamente al añadir guardias.
                 const residentesOrdenados = [...residentes].sort((a, b) => {
                     const diff = (historico[a] || 0) - (historico[b] || 0);
                     if (diff !== 0) return diff;
@@ -4775,8 +4806,11 @@ function _getAnalisisFestivosImpl(y, m) {
                     if (tramo.length <= _needed) {
                         nominados.push(...tramo);
                     } else {
-                        // Tramo empatado: desempate alfabético (determinista, mismo resultado para todos)
-                        nominados.push(...[...tramo].sort((a, b) => a.localeCompare(b)).slice(0, _needed));
+                        // Tramo empatado: shuffle con semilla = hash del histórico actual.
+                        // Mismo resultado para todos; se renueva al añadirse cualquier guardia.
+                        const _seed = hashHistorico(historico) ^ (historicoDesempate && !fallbackDes ? hashHistorico(historicoDesempate) : 0);
+                        const _rng = seededRandom(_seed);
+                        nominados.push(...[...tramo].sort(() => _rng() - 0.5).slice(0, _needed));
                     }
                 }
                 // No persistir: el resultado es determinista y siempre se recomputa igual
