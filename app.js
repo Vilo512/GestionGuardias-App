@@ -3393,11 +3393,45 @@ function renderMercadoInboxAndLog() {
         if (maxDateObj.getMonth() !== curDate.getMonth() || maxDateObj.getFullYear() !== curDate.getFullYear()) return false;
     }
     return true;
-}); if (allLogs.length === 0) log.innerHTML = `<span style="font-size:0.85rem; color:#94a3b8;">El historial de mercado está vacío.</span>`; else { log.innerHTML = allLogs.slice().reverse().map(t => { let desc = ""; let isPending = t.status === 'pending'; if (t.type === 'venta') desc = isPending ? `⏳ <b>${t.requester}</b> quiere VENDER su ${t.s1} (${formatDK(t.d1)}) a <b>${t.target}</b>.` : `💵 <b>${t.requester}</b> vendió su ${t.s1} (${formatDK(t.d1)}) a <b>${t.target}</b>.`; else if (t.type === 'compra') desc = isPending ? `⏳ <b>${t.requester}</b> quiere COMPRAR ${t.s1} (${formatDK(t.d1)}) a <b>${t.target}</b>.` : `🛒 <b>${t.requester}</b> compró ${t.s1} (${formatDK(t.d1)}) de <b>${t.target}</b>.`; else if (t.type === 'cambio') desc = isPending ? `⏳ <b>${t.requester}</b> quiere CAMBIAR su ${t.s1} (${formatDK(t.d1)}) por la de <b>${t.target}</b> (${formatDK(t.d2)}).` : `🔄 <b>${t.requester}</b> cambió su ${t.s1} (${formatDK(t.d1)}) por la de <b>${t.target}</b> (${formatDK(t.d2)}).`; let actionBtn = ""; if (t.status === 'approved' && (t.requester === loggedInUser || t.target === loggedInUser)) actionBtn = `<button class="danger icon-btn" style="font-size:0.7rem; padding:2px 6px;" onclick="requestTradeUndo(${t.id})">Deshacer</button>`; else if (isPending && t.requester === loggedInUser) actionBtn = `<button class="danger icon-btn" style="font-size:0.7rem; padding:2px 6px;" onclick="cancelPendingTrade(${t.id})">Cancelar Solicitud</button>`; let statusStyle = ""; let statusLabel = ""; if (t.status === 'undone') { statusStyle = "opacity:0.5; background:#f1f5f9;"; statusLabel = '<b style="color:var(--fest);">(DESHECHO)</b>'; } else if (t.status === 'undo_pending') { statusStyle = "border-left: 3px solid var(--pac);"; statusLabel = '<b style="color:var(--pac);">(DESHACER PENDIENTE)</b>'; } else if (t.status === 'pending') { statusStyle = "border-left: 3px solid #cbd5e1; background:#f8fafc;"; statusLabel = '<b style="color:#64748b;">(PENDIENTE)</b>'; } return `<div class="trade-row" style="${statusStyle}"><div style="display:flex; justify-content:space-between; align-items:flex-start;"><span>${desc} ${statusLabel}</span>${actionBtn}</div><span style="font-size:0.7rem; color:#94a3b8;">${t.timestamp}</span></div>`; }).join(''); }
+}); if (allLogs.length === 0) log.innerHTML = `<span style="font-size:0.85rem; color:#94a3b8;">El historial de mercado está vacío.</span>`; else { log.innerHTML = allLogs.slice().reverse().map(t => { let desc = ""; let isPending = t.status === 'pending'; if (t.type === 'venta') desc = isPending ? `⏳ <b>${t.requester}</b> quiere VENDER su ${t.s1} (${formatDK(t.d1)}) a <b>${t.target}</b>.` : `💵 <b>${t.requester}</b> vendió su ${t.s1} (${formatDK(t.d1)}) a <b>${t.target}</b>.`; else if (t.type === 'compra') desc = isPending ? `⏳ <b>${t.requester}</b> quiere COMPRAR ${t.s1} (${formatDK(t.d1)}) a <b>${t.target}</b>.` : `🛒 <b>${t.requester}</b> compró ${t.s1} (${formatDK(t.d1)}) de <b>${t.target}</b>.`; else if (t.type === 'cambio') desc = isPending ? `⏳ <b>${t.requester}</b> quiere CAMBIAR su ${t.s1} (${formatDK(t.d1)}) por la de <b>${t.target}</b> (${formatDK(t.d2)}).` : `🔄 <b>${t.requester}</b> cambió su ${t.s1} (${formatDK(t.d1)}) por la de <b>${t.target}</b> (${formatDK(t.d2)}).`; let actionBtn = ""; if (t.status === 'approved' && (t.requester === loggedInUser || t.target === loggedInUser)) actionBtn = `<button class="danger icon-btn" style="font-size:0.7rem; padding:2px 6px;" onclick="requestTradeUndo(${t.id})">Deshacer</button>`; else if (isPending && t.requester === loggedInUser) actionBtn = `<button class="danger icon-btn" style="font-size:0.7rem; padding:2px 6px;" onclick="cancelPendingTrade(${t.id})">Cancelar Solicitud</button>`; if (isAdmin || isDelegado) actionBtn += `<button class="danger icon-btn" style="font-size:0.7rem; padding:2px 6px; margin-left:4px;" onclick="adminForceBorrarTrade(${t.id})" title="Eliminar entrada y guardia del calendario">🗑 Borrar</button>`; let statusStyle = ""; let statusLabel = ""; if (t.status === 'undone') { statusStyle = "opacity:0.5; background:#f1f5f9;"; statusLabel = '<b style="color:var(--fest);">(DESHECHO)</b>'; } else if (t.status === 'undo_pending') { statusStyle = "border-left: 3px solid var(--pac);"; statusLabel = '<b style="color:var(--pac);">(DESHACER PENDIENTE)</b>'; } else if (t.status === 'pending') { statusStyle = "border-left: 3px solid #cbd5e1; background:#f8fafc;"; statusLabel = '<b style="color:#64748b;">(PENDIENTE)</b>'; } return `<div class="trade-row" style="${statusStyle}"><div style="display:flex; justify-content:space-between; align-items:flex-start;"><span>${desc} ${statusLabel}</span>${actionBtn}</div><span style="font-size:0.7rem; color:#94a3b8;">${t.timestamp}</span></div>`; }).join(''); }
 }
 /** Cancela una solicitud de trade pendiente enviada por el usuario. */
 async function cancelPendingTrade(id) { if (!confirm("¿Cancelar solicitud?")) return; state.trades = state.trades.filter(t => t.id !== id); await saveState(); checkAutomaticGraduation();
     renderAll(); }
+
+/**
+ * Elimina forzosamente una entrada del mercadillo (solo admin o delegado).
+ * Borra el trade de state.trades y, si existe, la guardia subyacente en state.shifts
+ * para los usuarios implicados en la operación.
+ * Útil para limpiar entradas de usuarios que han cambiado de nombre o han sido expulsados.
+ */
+async function adminForceBorrarTrade(id) {
+    if (!isAdmin && !isDelegado) return;
+    const t = state.trades.find(x => x.id === id);
+    if (!t) return;
+    if (!confirm(`¿Eliminar esta entrada del mercadillo y sus guardias asociadas en el calendario (si existieran)?`)) return;
+
+    const removeShift = (dk, user) => {
+        if (!dk || !user || user === 'Externo' || String(user).startsWith('VRE_')) return;
+        if (state.shifts[dk]?.[user]) {
+            delete state.shifts[dk][user];
+            if (Object.keys(state.shifts[dk]).length === 0) delete state.shifts[dk];
+        }
+    };
+
+    if (t.type === 'venta') {
+        removeShift(t.d1, t.requester);
+    } else if (t.type === 'compra') {
+        removeShift(t.d1, t.target);
+    } else if (t.type === 'cambio') {
+        removeShift(t.d1, t.requester);
+        removeShift(t.d2, t.target);
+    }
+
+    state.trades = state.trades.filter(x => x.id !== id);
+    await saveState();
+    renderAll();
+}
 /**
  * Aprueba o rechaza una solicitud de trade (o un undo_pending).
  * Verifica que las guardias involucradas aún existen antes de aprobar.
