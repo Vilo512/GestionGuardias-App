@@ -7477,13 +7477,13 @@ function renderPerfilUsuario() {
     const topeVisual = 850;
     const porcentajeCarga = Math.min(100, (horasTotal / topeVisual) * 100);
 
-    let colorBarra = 'var(--pac)';
+    let estadoCarga = 'deficit';
     let estadoTexto = 'Déficit Formativo (Revisar)';
     if (horasTotal >= minHoras && horasTotal <= maxHoras) {
-        colorBarra = 'var(--ped)';
+        estadoCarga = 'ok';
         estadoTexto = 'Rango Legal y Formativo Óptimo';
     } else if (horasTotal > maxHoras) {
-        colorBarra = 'var(--fest)';
+        estadoCarga = 'exceso';
         estadoTexto = 'Exceso (Alerta de Descanso)';
     }
 
@@ -7506,130 +7506,145 @@ function renderPerfilUsuario() {
         return `<option value="${v}" ${v === dMes ? 'selected' : ''}>${m}</option>`; 
     }).join('');
 
-// 5. Inyección del layout limpio en el contenedor principal
-    document.getElementById('contenido-principal').innerHTML = `
-        
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; background: white; padding: 15px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); flex-wrap: wrap; gap: 10px;">
-            <div>
-                <h2 style="margin: 0; color: var(--dark); font-size: 1.5rem;">👤 Mi Perfil</h2>
-                <p style="margin: 4px 0 0 0; color: #64748b; font-size: 0.9rem;">Identidad activa: <span style="font-weight: bold; color: var(--dark);">${uProfile.nombre_mostrar}</span></p>
+// 5. Inyección del layout en el contenedor principal
+    const root = document.getElementById('contenido-principal');
+    _bindPerfilActions(root);
+    // left/width de la barra son dato calculado: se pasan como custom properties, no como style= de presentación.
+    const pct = v => `${((v / topeVisual) * 100).toFixed(2)}%`;
+    root.innerHTML = `
+        <div class="prf-head">
+            <div class="prf-head__info">
+                <h2 class="prf-head__title">👤 Mi Perfil</h2>
+                <p class="prf-head__who">Identidad activa: <strong>${escapeHtml(uProfile.nombre_mostrar)}</strong></p>
             </div>
-            <div style="background: #e0f2fe; color: #0369a1; padding: 6px 12px; border-radius: 20px; font-weight: bold; font-size: 0.85rem;">
-                📍 Plan Actual: ${nombrePlanHoy}
-            </div>
+            <span class="prf-plan">📍 Plan actual: ${escapeHtml(nombrePlanHoy)}</span>
         </div>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
-            
-            <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between;">
+        <div class="prf-grid">
+            <section class="prf-card">
                 <div>
-                    <h3 style="margin-bottom: 12px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">✏️ Datos Personales</h3>
-                    <div style="margin-bottom: 12px;">
-                        <label style="font-size: 0.8rem; font-weight: bold; color: #64748b; display: block; margin-bottom: 4px;">Nombre y Apellidos:</label>
-                        <p style="margin: 0; padding: 8px; border: 1px solid #e2e8f0; border-radius: 6px; background: #f8fafc; color: #475569; font-size: 0.95rem;">${uProfile.nombre_mostrar}</p>
-                    </div>
-                    <p style="font-size: 0.8rem; color: #94a3b8; line-height: 1.4;">El nombre se sincroniza automáticamente desde tu cuenta de Google. Contacta al administrador si necesitas corregirlo.</p>
+                    <h3 class="prf-card__title">✏️ Datos Personales</h3>
+                    <span class="prf-label">Nombre y apellidos</span>
+                    <p class="prf-readonly">${escapeHtml(uProfile.nombre_mostrar)}</p>
+                    <p class="prf-note">El nombre se sincroniza automáticamente desde tu cuenta de Google. Contacta al administrador si necesitas corregirlo.</p>
                 </div>
-            </div>
+            </section>
 
-            <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between;">
+            <section class="prf-card">
                 <div>
-                    <h3 style="margin-bottom: 12px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">🎓 Inicio de Residencia</h3>
-                    <div style="margin-bottom: 12px;">
-                        <label style="font-size: 0.8rem; font-weight: bold; color: #64748b; display: block; margin-bottom: 4px;">Fecha de Inicio Oficial (R1):</label>
-                        <input type="date" id="perfil-fecha-inicio" value="${uProfile.fecha_inicio_residencia || ''}" style="margin:0; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%; background: white;">
-                    </div>
-                    <p style="font-size: 0.8rem; color: #94a3b8; line-height: 1.4;">* Esta es la fecha exacta (con año) en la que empezaste el contrato de R1. Sirve para saber qué plan aplicarte.</p>
+                    <h3 class="prf-card__title">🎓 Inicio de Residencia</h3>
+                    <label class="prf-label" for="perfil-fecha-inicio">Fecha de inicio oficial (R1)</label>
+                    <input type="date" id="perfil-fecha-inicio" class="prf-input" value="${escapeHtml(uProfile.fecha_inicio_residencia || '')}">
+                    <p class="prf-note">Es la fecha exacta (con año) en la que empezaste el contrato de R1. Sirve para saber qué plan aplicarte.</p>
                 </div>
-                <button onclick="guardarFechaInicioPerfil()" style="width:100%; margin-top: 16px; background: var(--merc); color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer;">🔄 Actualizar Inicio</button>
-            </div>
+                <button class="primary prf-action" data-prf-act="guardar-inicio">🔄 Actualizar inicio</button>
+            </section>
 
-            <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between;">
+            <section class="prf-card">
                 <div>
-                    <h3 style="margin-bottom: 12px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">🪪 Datos de Contrato</h3>
-                    <div style="margin-bottom: 12px;">
-                        <label style="font-size: 0.8rem; font-weight: bold; color: #64748b; display: block; margin-bottom: 4px;">Mes de Cambio de Contrato:</label>
-                        <select id="perfil-mes-contrato" style="margin:0; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%; background: white;">
-                            ${mesOptions}
-                        </select>
-                    </div>
-                    <p style="font-size: 0.8rem; color: #94a3b8; line-height: 1.4;">* El mes en que se renueva tu contrato y subes de nivel (R1→R2→R3). El día se fija automáticamente al 1 del mes.</p>
+                    <h3 class="prf-card__title">🪪 Datos de Contrato</h3>
+                    <label class="prf-label" for="perfil-mes-contrato">Mes de cambio de contrato</label>
+                    <select id="perfil-mes-contrato" class="prf-input">${mesOptions}</select>
+                    <p class="prf-note">El mes en que se renueva tu contrato y subes de nivel (R1→R2→R3). El día se fija automáticamente al 1 del mes.</p>
                 </div>
-                <button onclick="guardarFechaContratoPerfil()" style="width:100%; margin-top: 16px; background: var(--adu); color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer;">💾 Actualizar Contrato</button>
-            </div>
-            <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between;">
+                <button class="primary prf-action" data-prf-act="guardar-contrato">💾 Actualizar contrato</button>
+            </section>
+
+            <section class="prf-card">
                 <div>
-                    <h3 style="margin-bottom: 12px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">🏥 Ausencias y Suspensiones</h3>
-                    <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 15px;">Registra periodos largos de baja médica o rotaciones externas para que el asignador automático te excluya de las ruedas afectadas.</p>
-                    
-                    <div id="lista-bajas-usuario" style="margin-bottom: 15px; max-height: 150px; overflow-y: auto;">
-                        ${misBajas.length === 0 ? '<p style="font-size:0.85rem; color:#94a3b8; font-style: italic;">No tienes ausencias registradas.</p>' : misBajas.map(b => `
-                            <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; padding:8px; border-radius:6px; margin-bottom:6px; border:1px solid #e2e8f0;">
-                                <div style="font-size:0.8rem; line-height:1.3;">
-                                    <b style="color:var(--dark);">${b.motivo}</b><br>
-                                    <span style="color:#64748b;">Del ${formatDK(b.fechaInicio.replace(/-/g,'_'))} al ${formatDK(b.fechaFin.replace(/-/g,'_'))}</span>
+                    <h3 class="prf-card__title">🏥 Ausencias y Suspensiones</h3>
+                    <p class="prf-intro">Registra periodos largos de baja médica o rotaciones externas para que el asignador automático te excluya de las ruedas afectadas.</p>
+                    <div id="lista-bajas-usuario" class="prf-bajas">
+                        ${misBajas.length === 0 ? '<p class="prf-empty">No tienes ausencias registradas.</p>' : misBajas.map(b => `
+                            <div class="prf-baja">
+                                <div class="prf-baja__info">
+                                    <strong class="prf-baja__motivo">${escapeHtml(b.motivo)}</strong>
+                                    <span class="prf-baja__fechas">Del ${formatDK(b.fechaInicio.replace(/-/g,'_'))} al ${formatDK(b.fechaFin.replace(/-/g,'_'))}</span>
                                 </div>
-                                <button class="danger icon-btn" onclick="eliminarBajaPerfil(${b.id})" style="padding:2px 6px; font-size:0.75rem;">X</button>
+                                <button class="danger prf-baja__del" data-prf-act="borrar-baja" data-prf-id="${escapeHtml(String(b.id))}" aria-label="Eliminar ausencia: ${escapeHtml(b.motivo)}">✕</button>
                             </div>
                         `).join('')}
                     </div>
-
-                    <div style="border-top: 1px dashed #cbd5e1; padding-top: 12px;">
-                        <label style="font-size: 0.75rem; font-weight: bold; color: #475569; display: block; margin-bottom: 4px;">Nueva Ausencia:</label>
-                        <div style="display: flex; gap: 6px; margin-bottom: 8px;">
-                            <div style="flex:1;"><span style="font-size:0.7rem; color:#64748b;">Inicio</span><input type="date" id="baja-fecha-inicio" style="margin:0; padding:6px; font-size:0.8rem; width:100%;"></div>
-                            <div style="flex:1;"><span style="font-size:0.7rem; color:#64748b;">Fin</span><input type="date" id="baja-fecha-fin" style="margin:0; padding:6px; font-size:0.8rem; width:100%;"></div>
+                    <div class="prf-new">
+                        <span class="prf-label">Nueva ausencia</span>
+                        <div class="prf-new__dates">
+                            <div class="prf-new__field"><label class="prf-sublabel" for="baja-fecha-inicio">Inicio</label><input type="date" id="baja-fecha-inicio" class="prf-input"></div>
+                            <div class="prf-new__field"><label class="prf-sublabel" for="baja-fecha-fin">Fin</label><input type="date" id="baja-fecha-fin" class="prf-input"></div>
                         </div>
-                        <input type="text" id="baja-motivo" placeholder="Motivo (ej: Rotación Externa, IT...)" style="margin:0; padding:8px; font-size:0.8rem; width:100%; border: 1px solid #cbd5e1; border-radius: 4px;">
+                        <label class="prf-sublabel" for="baja-motivo">Motivo</label>
+                        <input type="text" id="baja-motivo" class="prf-input" placeholder="Ej: Rotación externa, IT…">
                     </div>
                 </div>
-                <button onclick="solicitarBajaPerfil()" style="width:100%; margin-top: 16px; background: var(--dark); color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer;">➕ Añadir Ausencia</button>
-            </div>
-            <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); grid-column: span 2;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; flex-wrap:wrap; gap:10px;">
-                    <h3 style="margin:0; font-size: 1.1rem; color: var(--dark);">⏱️ Auditoría de Carga Laboral (Horas)</h3>
-                    <div style="display:flex; gap:8px; align-items:center;">
-                        <select onchange="setPerfilHorasFiltro(this.value, perfilHorasFiltroM)" style="margin:0; padding:5px 8px; font-size:0.85rem; border:1px solid #cbd5e1; border-radius:6px;">${anioOpcionesHoras}</select>
-                        <select onchange="setPerfilHorasFiltro(perfilHorasFiltroY, this.value)" style="margin:0; padding:5px 8px; font-size:0.85rem; border:1px solid #cbd5e1; border-radius:6px;">${mesOpcionesHoras}</select>
+                <button class="primary prf-action" data-prf-act="nueva-baja">➕ Añadir ausencia</button>
+            </section>
+
+            <section class="prf-card prf-card--wide">
+                <div class="prf-hours-head">
+                    <h3 class="prf-card__title prf-card__title--flush">⏱️ Auditoría de Carga Laboral (Horas)</h3>
+                    <div class="prf-filters">
+                        <select class="prf-input" data-prf-filtro="y" aria-label="Año">${anioOpcionesHoras}</select>
+                        <select class="prf-input" data-prf-filtro="m" aria-label="Mes">${mesOpcionesHoras}</select>
                     </div>
                 </div>
 
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 14px;">
-                    <div style="background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
-                        <span style="font-size: 0.8rem; color: #64748b; font-weight: bold; display: block;">HORAS ${MONTHS[perfilHorasFiltroM].toUpperCase()}</span>
-                        <span style="font-size: 1.8rem; font-weight: bold; color: var(--dark);">${horasMes.toFixed(1)} h</span>
+                <div class="prf-stats">
+                    <div class="prf-stat">
+                        <span class="prf-stat__label">Horas ${MONTHS[perfilHorasFiltroM]}</span>
+                        <span class="prf-stat__value">${horasMes.toFixed(1)} h</span>
                     </div>
-                    <div style="background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
-                        <span style="font-size: 0.8rem; color: #64748b; font-weight: bold; display: block;">GUARDIAS COMPLETAS</span>
-                        <span style="font-size: 1.8rem; font-weight: bold; color: var(--adu);">${completasMes}</span>
+                    <div class="prf-stat">
+                        <span class="prf-stat__label">Guardias completas</span>
+                        <span class="prf-stat__value prf-stat__value--adu">${completasMes}</span>
                     </div>
-                    <div style="background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
-                        <span style="font-size: 0.8rem; color: #64748b; font-weight: bold; display: block;">MEDIAS GUARDIAS (PARTIDAS)</span>
-                        <span style="font-size: 1.8rem; font-weight: bold; color: var(--merc);">${partidasMes}</span>
+                    <div class="prf-stat">
+                        <span class="prf-stat__label">Medias guardias (partidas)</span>
+                        <span class="prf-stat__value prf-stat__value--merc">${partidasMes}</span>
                     </div>
                 </div>
-                <div style="display:flex; gap:24px; font-size:0.85rem; color:#64748b; margin-bottom:18px; flex-wrap:wrap;">
-                    <span>Total ${perfilHorasFiltroY}: <b style="color:var(--dark);">${horasAnio.toFixed(1)} h</b></span>
-                    <span>Total histórico: <b style="color:var(--dark);">${horasTotal.toFixed(1)} h</b></span>
+                <div class="prf-totals">
+                    <span>Total ${perfilHorasFiltroY}: <strong>${horasAnio.toFixed(1)} h</strong></span>
+                    <span>Total histórico: <strong>${horasTotal.toFixed(1)} h</strong></span>
                 </div>
 
-                <div>
-                    <div style="display: flex; justify-content: space-between; font-size: 0.85rem; font-weight: bold; margin-bottom: 6px; color: #475569;">
-                        <span style="color: ${colorBarra};">${estadoTexto}</span>
-                        <span>${horasTotal.toFixed(0)} / ${targetHoras} h (±${tolerancia}h)</span>
+                <div class="prf-load prf-load--${estadoCarga}">
+                    <div class="prf-load__head">
+                        <span class="prf-load__state">${estadoTexto}</span>
+                        <span class="prf-load__count">${horasTotal.toFixed(0)} / ${targetHoras} h (±${tolerancia} h)</span>
                     </div>
-                    <div style="background: #e2e8f0; width: 100%; height: 12px; border-radius: 6px; position: relative; overflow: hidden;">
-                        <div style="position: absolute; left: ${(minHoras/topeVisual)*100}%; width: 2px; height: 100%; background: #94a3b8; z-index: 2;" title="Mínimo Formativo (${minHoras}h)"></div>
-                        <div style="position: absolute; left: ${(maxHoras/topeVisual)*100}%; width: 2px; height: 100%; background: #ef4444; z-index: 2;" title="Tope Máximo (${maxHoras}h)"></div>
-                        <div style="background: ${colorBarra}; width: ${porcentajeCarga}%; height: 100%; transition: width 0.3s ease;"></div>
+                    <div class="prf-load__track" role="img" aria-label="${horasTotal.toFixed(0)} horas acumuladas; rango legal entre ${minHoras} y ${maxHoras}">
+                        <div class="prf-load__mark prf-load__mark--min" style="--x:${pct(minHoras)}" title="Mínimo formativo (${minHoras} h)"></div>
+                        <div class="prf-load__mark prf-load__mark--max" style="--x:${pct(maxHoras)}" title="Tope máximo (${maxHoras} h)"></div>
+                        <div class="prf-load__fill" style="--w:${porcentajeCarga.toFixed(2)}%"></div>
                     </div>
-                    <p style="font-size: 0.75rem; color: #94a3b8; margin-top: 8px; line-height: 1.4;">
-                        * Objetivo: <b>${targetHoras}h</b>. Tolerancia legal: entre <b>${minHoras}h</b> y <b>${maxHoras}h</b>.<br>
+                    <p class="prf-note">
+                        Objetivo: <strong>${targetHoras} h</strong>. Tolerancia legal: entre <strong>${minHoras} h</strong> y <strong>${maxHoras} h</strong>.<br>
                         Por debajo del mínimo el sistema advierte de un posible déficit formativo; por encima del máximo, se incumplen los descansos estipulados.
                     </p>
                 </div>
-            </div>
-            </div> `;
-	}
+            </section>
+        </div>`;
+}
+
+/** Delegado de Mi Perfil: botones con data-prf-act y selectores con data-prf-filtro, sin onclick inline. */
+function _bindPerfilActions(root) {
+    if (!root || root._prfBound) return;
+    root._prfBound = true;
+    root.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-prf-act]');
+        if (!btn || !root.contains(btn)) return;
+        switch (btn.dataset.prfAct) {
+            case 'guardar-inicio':   return guardarFechaInicioPerfil();
+            case 'guardar-contrato': return guardarFechaContratoPerfil();
+            case 'nueva-baja':       return solicitarBajaPerfil();
+            case 'borrar-baja':      return eliminarBajaPerfil(Number(btn.dataset.prfId));
+        }
+    });
+    root.addEventListener('change', (e) => {
+        const sel = e.target.closest('[data-prf-filtro]');
+        if (!sel || !root.contains(sel)) return;
+        if (sel.dataset.prfFiltro === 'y') setPerfilHorasFiltro(sel.value, perfilHorasFiltroM);
+        else setPerfilHorasFiltro(perfilHorasFiltroY, sel.value);
+    });
+}
 // A) GUARDAR LA FECHA DE CAMBIO DE CONTRATO DESDE EL PERFIL
 /** Persiste el mes de cambio de contrato del usuario (día fijo al 1 del mes, año base 2000). */
 async function guardarFechaContratoPerfil() {
