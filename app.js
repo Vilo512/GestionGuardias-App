@@ -5004,7 +5004,9 @@ async function renderAccountsList() {
       const esDueñoFila = promo && promo.creador_id === u.id;
       let rolBadge = '✅ Residente';
       if (esDueñoFila) rolBadge = '👑 Dueño';
-      else if (u.rol === 'admin') rolBadge = '🛡 Admin';
+      // El selector de variación (U+FE0F) no es opcional: sin él, 🛡 se
+      // dibuja en estilo texto y sale un contorno tipo corazón, no un escudo.
+      else if (u.rol === 'admin') rolBadge = '🛡️ Admin';
       else if (u.rol === 'delegado') rolBadge = '⭐ Delegado';
 
       const n = escapeHtml(u.nombre_mostrar);
@@ -5025,10 +5027,20 @@ async function renderAccountsList() {
               // El Dueño puede expulsar a cualquiera
               acciones += `<button class="danger icon-btn" data-acc-act="expulsar" data-acc-id="${u.id}" data-acc-nombre="${n}">Expulsar</button>`;
 
-              if (u.rol === 'delegado') {
-                  acciones += `<button class="danger icon-btn" data-acc-act="rol" data-acc-id="${u.id}" data-acc-rol="residente">Quitar Delegado</button>`;
-              } else if (u.rol !== 'admin') {
-                  acciones += `<button class="primary icon-btn" data-acc-act="rol" data-acc-id="${u.id}" data-acc-rol="delegado">Hacer Delegado</button>`;
+              // Gestión de rol. «Hacer Admin» es exclusivo del Dueño (PRD §3.2)
+              // y va siempre con su contrario: sin «Quitar Admin» la promoción
+              // sería una puerta de un solo sentido, porque una fila de admin
+              // no mostraba ningún botón de rol y solo se podía deshacer
+              // expulsando o coronando.
+              if (u.rol === 'admin') {
+                  acciones += `<button class="danger icon-btn" data-acc-act="rol" data-acc-id="${u.id}" data-acc-rol="residente">Quitar Admin</button>`;
+              } else {
+                  if (u.rol === 'delegado') {
+                      acciones += `<button class="danger icon-btn" data-acc-act="rol" data-acc-id="${u.id}" data-acc-rol="residente">Quitar Delegado</button>`;
+                  } else {
+                      acciones += `<button class="primary icon-btn" data-acc-act="rol" data-acc-id="${u.id}" data-acc-rol="delegado">Hacer Delegado</button>`;
+                  }
+                  acciones += `<button class="primary icon-btn" data-acc-act="rol" data-acc-id="${u.id}" data-acc-rol="admin">Hacer Admin</button>`;
               }
               acciones += `<button class="primary icon-btn btn-crown" data-acc-act="coronar" data-acc-id="${u.id}" data-acc-nombre="${n}">Coronar Dueño</button>`;
           } else {
