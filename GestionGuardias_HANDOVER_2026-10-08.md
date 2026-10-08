@@ -14,7 +14,10 @@
 | B | **PRD v1.6** — permisos en tres niveles con ámbito por plan | ✅ En BETA |
 | C | **Paso 6, primera vista**: `renderAccountsList` al tema oscuro + dispatcher `data-*` | ✅ En BETA, auditado |
 | D | D-06 ampliado: el panel de Cuentas también escribe en simulación | ✅ Documentado, sin arreglar |
-| E | Push a `origin/GestionGuardias-BETA` | ❌ **6 commits locales sin subir** |
+| E | Push a `origin/GestionGuardias-BETA` | ✅ En sync |
+| F | AUDIT al día: MVP cerrado, W12 y W13 nuevas | ✅ En BETA |
+| G | Limpieza de ramas: 7 locales → 3, 8 remotas → 3 | ✅ Hecho |
+| H | Merge a `main` | ⛔ **Descartado hoy a propósito** — ver §2 |
 
 ## 2. Lo urgente que no se tocó
 
@@ -63,7 +66,13 @@ Y uno que **no** se arregló porque no es de este punto: **D-06 es más grande d
 - [x] Paso 6 · `renderAccountsList` (`470d0df`, `636965b`, `ee216fd`)
 
 ### Inmediato
-- [ ] **`git push origin GestionGuardias-BETA`** — 6 commits locales. No se hizo por no desplegar staging sin tu visto bueno.
+- [x] **Push de BETA.** En sync con `origin/GestionGuardias-BETA`.
+- [x] **Limpieza de ramas.** Locales 7 → 3 (`GestionGuardias-BETA`, `main`, `backup/main-mayo`); remotas 8 → 3 (`GestionGuardias-BETA`, `main`, `hot`).
+- [ ] **`origin/hot`** (21-may): dos commits de subida por la web de GitHub que tocan `LICENSE`, `app.js`, `index.html` y `style.css`. Anterior a la primera sesión del proyecto, no está ni en `main` ni en BETA. Pendiente de revisar o borrar.
+
+> **Sobre `main` local.** Estaba divergido: 8 commits de finales de mayo (serie W7) que no estaban ni en `origin/main` ni en BETA. El arreglo **sí** estaba en ambos por otra vía (PR #6 fusionado con otros SHA), así que se realineó con `git reset --hard origin/main`. La historia vieja se conserva en **`backup/main-mayo`** por si acaso; se puede borrar cuando haya confianza.
+
+> **Merge a `main`: descartado hoy, con conocimiento de causa.** Se planteó y se decidió que no. El merge está limpio —0 conflictos, y los 13 commits que `main` tenía de más son merges de PR sin código propio—, pero saldrían 43 commits el día uno de usuarios reales, con la app mitad oscura y mitad clara y sin haber probado iOS jamás. Se mantiene el plan: P-01 y P-02 sobre BETA, y **un solo despliegue** con todo.
 
 ### Cola (orden decidido en `GestionGuardias_BACKLOG.md`)
 - [ ] **[P-01]** Bugs de `adminExpulsarUsuario`: falla en silencio (`app.js:5202` no lee `error`) y no degrada el rol del expulsado
