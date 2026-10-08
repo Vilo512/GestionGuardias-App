@@ -97,6 +97,7 @@ No es bloqueante y no se tocó, pero ahora lo alcanza un admin nombrado: `adminR
 - [x] PRD v1.6 y backlog de permisos (`0d0eff3`)
 - [x] Paso 6 · `renderAccountsList` (`470d0df`, `636965b`, `ee216fd`)
 - [x] Paso 6 · **Rotación** (`renderRotationView` + `renderEditor` + `#pane-rot`), rama `feature/paso6-rotacion`. Ver §6-ter.
+- [x] Paso 6 · **Grupos** (`renderGruposView` + `#pane-grupos`), rama `feature/paso6-grupos`. Ver §6-quater.
 
 ### Inmediato
 - [x] **Push de BETA.** En sync con `origin/GestionGuardias-BETA`.
@@ -133,7 +134,7 @@ El bug declarado era uno; la auditoría estática encontró que **cuatro de las 
 **Verificación:** 29 pruebas de comportamiento que ejecutan el código real extraído de `app.js` con dobles de Supabase — **22 fallan contra la versión previa**, así que discriminan. Más `node --check`, canario, y un listener de `unhandledrejection` confirmando que el rechazo desapareció. El fichero de pruebas quedó en el scratchpad; **no está en el repo** y conviene decidir si se adopta, porque hoy el proyecto no tiene tests.
 
 ### Paso 6 — vistas que faltan
-`renderAdminAjustes` (23 colores), ~~rotación~~ (hecha), `renderAdminCalendar` (16), `renderGruposView` (18), `renderAdminHoras` (13), `renderAdminExceptions` (7, **lleva dentro [P-11]**), `renderAdminSeguridad` (2).
+`renderAdminAjustes` (23 colores), ~~rotación~~ (hecha), `renderAdminCalendar` (16), ~~`renderGruposView`~~ (hecha), `renderAdminHoras` (13), `renderAdminExceptions` (7, **lleva dentro [P-11]**), `renderAdminSeguridad` (2).
 
 > Las cifras de esta tabla salieron de rangos de líneas estimados a ojo y **algunas estaban mal**: «rotación» se midió como 274 líneas y son 143 repartidas en dos funciones. Antes de abrir cada vista, medirla de verdad acotando por la siguiente declaración de función.
 
@@ -149,6 +150,19 @@ Clases propias `.rot-*`. **`.rot-group` y `.editor-row` no se tocaron**, porque 
 ### Sin verificar (límite del entorno)
 - [ ] **WebKit / iOS Safari.** Todo se validó en Chromium. Sigue igual que en agosto.
 
+## 6-quater. Paso 6 — Grupos (rama `feature/paso6-grupos`, commits `08db77d`, `1094703`)
+
+Clases `.grp-*`, mismas capas que Rotación (card `--surface` → fila `--surface-2`, acciones en outline sobre `--bg`). Cero `style=` y cero colores fijos en la vista.
+
+- **Delegación:** `onclick="solicitarCambioGrupo('${p.id}')"` y el de salir pasan a `data-grp-act` + `_bindGruposActions` (enlazado una vez a `#pane-grupos`). Hospital, servicio, nombre y el mensaje de error se escapan: antes un nombre de promoción con HTML se inyectaba tal cual, y cualquier usuario puede crear promociones.
+- **Bugs de paso:** guarda de sesión (el `visibilitychange` de `initApp` llama sin perfil); el error de red dejaba la lista en «Cargando…»; un `promocion_id` que apunta a una promoción borrada dejaba «Mi grupo» en «Cargando…» para siempre, ahora avisa y ofrece salir.
+- **`index.html`:** el botón «Crear» era blanco sobre `--adu` a 3.7:1 → `button.primary`. Ojo: `button.danger` le gana en especificidad a una clase sola; por eso es `button.grp-leave`.
+- `testing-lead`: sin bloqueantes. Anota que «Cancelar Solicitud» (`index.html:72`, fuera de esta pestaña) conserva `onclick` inline: estático, sin interpolación, no aplica la regla.
+- `design-reviewer`: sin fallos AA. Aplicados servicio/contenedor a `--text` (`--text-2` sobre `--surface-2` da 4.57:1), azul solo en la acción, badge a 0.9rem sin ✅ verde sobre verde, intro a 1rem. **Queda abierto** el mismo de siempre: `button:hover` pegajoso en táctil, global.
+- **Al recargar el harness**, `initApp` vuelve a crear el `supabaseClient` real: asignar el doble **después** del reload, no antes.
+- `?v=` en **3.6**.
+- **Finales de línea:** `index.html` se guarda en el repo con CRLF y `core.autocrlf=true` lo convierte a LF al hacer `add` → el diff sale entero. Si se edita con `sed`, `unix2dos` + `git -c core.autocrlf=false add index.html`.
+
 ## 7. Método — lo que funcionó hoy
 
 1. **Medir antes de elegir.** «Empieza por el panel de admin» parecía un punto hasta que se contaron las líneas: eran seis sub-vistas. La medición cambió el plan.
@@ -158,20 +172,14 @@ Clases propias `.rot-*`. **`.rot-group` y `.editor-row` no se tocaron**, porque 
 
 ## 8. Arranque rápido de la próxima sesión
 
-**Siguiente punto propuesto: Paso 6 — pestaña Grupos (`renderGruposView`) al tema oscuro.** Es la vista de cara al residente que queda; las demás son de admin. El usuario puede cambiarlo al abrir.
+**Grupos hecho (§6-quater).** Ya no quedan vistas de residente sin migrar. **Siguiente punto propuesto: Paso 6 — `renderAdminHoras` al tema oscuro**, la vista de admin más acotada sin backlog dentro (Excepciones arrastra [P-11]). Medirla primero acotando por la siguiente declaración de función. El usuario puede cambiarlo al abrir.
 
-### Lo que hay que migrar, ya medido
-
-`renderGruposView` (`app.js:1861`): 79 líneas, 13 colores fijos, 20 `style=`, 2 botones. Hay que **medir cada vista acotando por la siguiente declaración de función**, no a ojo.
-
-- **Sí hay un `onclick` interpolado:** `solicitarCambioGrupo('${p.id}')`. Es un id y no un nombre, así que el riesgo es menor, pero aplica la regla: `data-*` + delegación.
-- Ese botón lleva `background:white; color:var(--adu)`, que en tema oscuro es una caja blanca. Pasa a outline `--adu-d` sobre `--bg`.
-- La card usa `border-left: 4px solid var(--adu)` en `index.html` (`#pane-grupos`), el token legacy. Pasa a `--adu-d`.
+> **Disparador al caer:** `app.js` tiene **7.988 líneas**. Cualquier vista que se abra lo cruza: **avisar y proponer el reparto por motores antes de empezar**, y que decida el usuario.
 
 ### Recordatorios del ciclo
 
-- **Disparador cerca:** `app.js` tiene **7.962 líneas** y el umbral es 8.000. El punto que lo cruce debe avisar y proponer el reparto por motores.
-- Subir el `?v=` de `app.js` y `style.css` en `index.html`. Van por **`3.5`**.
+- **Disparador cerca:** `app.js` tiene **7.988 líneas** y el umbral es 8.000. El punto que lo cruce debe avisar y proponer el reparto por motores.
+- Subir el `?v=` de `app.js` y `style.css` en `index.html`. Van por **`3.6`**.
 - `node --check` no basta: canario en navegador.
 - Banco de pruebas de comportamiento en el scratchpad (`p01-test.js`). **No está en el repo**; pendiente de decidir si se adopta.
 - Servidor de pruebas: entrada `gg-harness` en `.claude/launch.json` (puerto 8126).
