@@ -50,6 +50,23 @@ Al empezar un punto de la cola se mueve a las pendientes del handover y se marca
 - **Veredicto:** entra. Decidido con el usuario el 2026-10-08.
 - **Anotada:** 2026-10-08
 
+### [P-07] Perfiles históricos que conservan su rol (dato heredado)
+- **Qué:** P-01 hace que las bajas futuras degraden el rol, pero **no corrige lo ya guardado**. Quien fue expulsado antes del 8-oct-2026 sigue con `rol: 'admin'` o `'delegado'` y `estado: 'historico'` en la base. Y `adminAprobarUsuario` solo cambia `estado`, nunca toca `rol`: readmitir a uno de esos perfiles **le devuelve los privilegios**. Es el mismo bug que P-01 cierra, pero por la puerta del dato viejo.
+- **¿Tarde?:** sí, en el sentido útil: P-01 selló la puerta y esto es lo que ya había entrado.
+- **Impacto:** no es `app.js`, es una migración de datos en Supabase (`UPDATE perfiles SET rol = NULL WHERE estado = 'historico'`). Opcionalmente, que `adminAprobarUsuario` limpie el rol al readmitir, para que no dependa de una migración puntual.
+- **Choca con:** nada. Pero **requiere autorización para leer y escribir en Supabase**, y antes conviene contar cuántas filas hay en ese estado.
+- **Dónde:** detrás de **[P-01]**. No urge mientras no se readmita a nadie, y hoy la promoción es solo de R1.
+- **Veredicto:** entra. Detectado por el `testing-lead` al auditar P-01.
+- **Anotada:** 2026-10-08
+
+### [P-08] Dos valores distintos para «sin rol»
+- **Qué:** la columna `rol` guarda a la vez `null` (lo que usan `adminRenunciarPrivilegios` y ahora la expulsión) y la cadena `'residente'` (lo que pasa la UI al llamar a `adminCambiarRol`), pese a que el JSDoc de esa función declara `{'admin'|'delegado'|null}`.
+- **¿Tarde?:** no, preexistente.
+- **Impacto:** **ninguno hoy**, confirmado: todas las comparaciones del archivo son contra `'admin'` y `'delegado'`, así que los dos centinelas caen igual en la rama «sin privilegio». Es higiene de datos, no un bug.
+- **Dónde:** final de cola. Conviene hacerlo con [P-07], que ya toca la misma columna.
+- **Veredicto:** entra como limpieza de baja prioridad.
+- **Anotada:** 2026-10-08
+
 ### [P-04] Sucesión forzosa del Dueño
 - **Qué:** implementar PRD §3.5 (d). Que un Dueño no pueda graduarse, darse de baja ni renunciar sin traspasar antes la corona a alguien activo en la especialidad, y que se le avise cuando se acerque el fin de su residencia.
 - **¿Tarde?:** no — nunca se especificó. Sale a la luz al documentar que cada especialidad DEBE tener Dueño.
@@ -58,6 +75,9 @@ Al empezar un punto de la cola se mueve a las pendientes del handover y se marca
 - **Dónde:** detrás de **[P-02]** — comparte la zona de gestión de roles, y conviene hacerlo con el modelo de alcance ya en pie.
 - **Veredicto:** entra. Riesgo de bloqueo permanente de una especialidad si no se hace, aunque no es urgente mientras el Dueño siga en activo.
 - **Anotada:** 2026-10-08
+- **Ampliado el 2026-10-08** por la auditoría de P-01, que encontró dos agujeros más en esta misma lógica:
+  - **La sucesión automática puede coronar a alguien dado de baja.** `iniciarProcesoSalida` (`app.js:1990-2018`) consulta `estado IN ('aprobado','historico')` pero **no filtra por estado** al construir `otrosUsuarios`, `delegados` ni `residentes`. Dos efectos: el camino de «hibernación» (`otrosUsuarios.length === 0`) nunca se alcanza mientras queden históricos, y el sucesor elegido puede ser una persona expulsada, que recibe `rol: 'admin'` y `creador_id` **sin dejar de estar de baja**.
+  - **Un Dueño en solitario puede renunciar sin traspasar.** El candado de `renderAccountsList` (`app.js:5015`) solo aplica con `isDueño && aprobados.length > 1`. Estando solo ve el botón normal, se pone `rol: null` y conserva `creador_id`: pierde el acceso al panel de admin y no queda nadie que pueda devolvérselo.
 
 ### [P-05] D-06 ampliado — el panel de Cuentas escribe en modo simulación
 - **Qué:** un admin en modo simulación puede expulsar, cambiar roles o coronar desde Admin → Cuentas, con efecto real. Ninguna de las seis acciones comprueba `simulatedViewUser`, y la pestaña de Admin no se oculta al simular: su visibilidad se fija al iniciar sesión según el rol real (`app.js:731-732`, `app.js:2110-2124`) y `activateSimulationMode` (`app.js:908-916`) no la toca.
