@@ -1,8 +1,8 @@
 # GestionGuardias App — Product Requirements Document
-**Versión:** 1.5  
+**Versión:** 1.6  
 **Estado:** Funcionalidad core cerrada — rediseño visual en curso (§16.2)  
 **Audiencia:** Engineering Lead, desarrolladores, diseñadores  
-**Última actualización:** 24 de agosto de 2026
+**Última actualización:** 8 de octubre de 2026
 
 ---
 
@@ -84,11 +84,41 @@ Login mediante **Google OAuth**. No existen cuentas propias de la app.
 
 | Rol | Descripción |
 |---|---|
-| **Residente** | Accede a su calendario, realiza asignación mensual, opera en el mercadillo, consulta histórico público |
-| **Delegado** | Todo lo de Residente + funciones administrativas operativas (sin configuración estructural ni gestión de roles) |
-| **Admin** | Acceso completo: configuración estructural, gestión de roles, todos los registros |
+Tres niveles con privilegios, más el residente. Lo que distingue a Dueño de Admin **no son las funciones, es el alcance**: los dos pueden todo, el Dueño en toda la especialidad y el Admin solo en su plan.
 
-Los roles son **acumulativos**: un admin o delegado es simultáneamente residente activo y participa en la rotación con normalidad.
+| Rol | Alcance | Puede |
+|---|---|---|
+| **Residente** | — | Su calendario, asignación mensual, mercadillo, histórico público |
+| **Delegado** | Su plan actual | Lo mismo que el Admin de su plan, **salvo destituir o expulsar a un Admin**. Un Admin sí puede destituirlo a él |
+| **Admin** | Su plan actual (R1–R5) | Todas las funciones, limitadas a los residentes y la configuración de **su** plan |
+| **Dueño** | **Toda la especialidad**, todos los planes | Todas las funciones, sin límite de plan. Uno y solo uno por especialidad, y obligatorio |
+
+Los roles son **acumulativos**: un Dueño, admin o delegado es simultáneamente residente activo y participa en la rotación con normalidad.
+
+#### Vocabulario — dos niveles que la base de datos nombra al revés
+
+| Concepto | Qué es | Dónde vive |
+|---|---|---|
+| **Especialidad** (contenedor) | Hospital + Especialidad. Un residente pertenece a exactamente una | Tabla `promociones` — **el nombre de la tabla engaña** |
+| **Plan de Guardias** | Reglas de un año de residencia: R1, R2, R3, R4, R5 | `promoConfig.planes`, dentro de la especialidad |
+
+Cuando este documento dice «promoción» en el sentido de cohorte de un año, se refiere al **Plan**. La fila de `promociones` es la especialidad.
+
+#### El alcance del Admin y del Delegado es su plan actual
+
+El plan de un residente **no se almacena como cargo**: se deriva de su fecha de inicio de residencia, igual que ya hacen `getSvcConfigForUser` y `getPlazasForDay`. Por tanto, **cuando un residente avanza de R1 a R2, su cargo le acompaña al plan nuevo** y deja de tener poder sobre el plan que abandona.
+
+> Consecuencia a tener presente: un plan puede quedarse temporalmente sin admin ni delegado propios cuando su cohorte avanza en bloque. El Dueño cubre siempre ese hueco, porque su alcance es toda la especialidad.
+
+#### Cada especialidad DEBE tener Dueño, en todo momento
+
+El Dueño es el suelo del sistema: mientras exista, la especialidad nunca se queda sin nadie capaz de administrarla. De ahí que **no se le pueda destituir, solo suceder**:
+
+- Ningún Admin ni Delegado puede expulsar ni destituir al Dueño.
+- El Dueño no puede renunciar a sus privilegios, darse de baja **ni graduarse** sin **traspasar antes la corona** a alguien que siga activo en la especialidad.
+- El sistema debe rechazar cualquier operación cuyo resultado sea una especialidad con cero Dueños.
+
+Como el Dueño siempre existe y es indestituible, **no hace falta una guarda aparte del «último admin»**: el bloqueo de quedarse sin administración lo da el propio Dueño.
 
 ### 3.3 Vista de Simulación (Admin)
 El admin puede activar un **modo de simulación** seleccionando cualquier residente del contenedor desde el panel del calendario. Mientras está activo:
@@ -104,10 +134,36 @@ La sesión real del admin no se ve afectada: `loggedInUser`, `isAdmin` e `isDele
 >
 > El efecto no es una suplantación de identidad —el trade se graba con el `loggedInUser` real, es decir el admin—, sino una incoherencia entre lo que se ve y lo que se escribe: la rejilla está filtrada por el residente simulado, pero la operación que se cree hacer «en su nombre» acaba siendo del admin. Detectado en la auditoría del Paso 5 (ago-2026); pendiente de decidir si el mercadillo se bloquea en simulación o si se habilita explícitamente la operación en nombre de otro.
 
-### 3.4 Delegados
-- Puede haber **múltiples delegados** por contenedor
-- El admin los designa y puede revocar su rol en cualquier momento
-- Objetivo: distribuir carga operativa de supervisión sin otorgar acceso estructural completo
+### 3.4 Admins y Delegados
+
+- Puede haber **múltiples admins y múltiples delegados** por especialidad, y cada uno manda en **su** plan.
+- Un Admin designa y revoca delegados **de su plan**, y puede expulsarlos.
+- Un Delegado puede designar, revocar y expulsar a **otros delegados de su plan**. Lo único que no puede es destituir ni expulsar a un Admin.
+- El Dueño puede hacer todo lo anterior en **cualquier** plan, y es el único que puede destituir o expulsar a un Admin.
+- Quien avanza de plan **se lleva el cargo consigo** (§3.2) y pierde el poder sobre el plan que deja atrás.
+- Objetivo: que la supervisión de cada año no dependa de que una persona concreta esté disponible, y que nadie tenga poder sobre una cohorte a la que ya no pertenece.
+
+### 3.5 Punto de cambio — apertura de permisos (oct-2026)
+
+**Pendiente de implementación.** Lo descrito en §3.2 y §3.4 es el objetivo; el código actual no lo cumple. Divergencias medidas el 2026-10-08 sobre `GestionGuardias-BETA`, de mayor a menor alcance:
+
+**a) No existe el ámbito por plan. Es el cambio grande.** `perfiles.rol` es un **único valor global a la especialidad**, y ninguna de las 88 comprobaciones de rol de `app.js` es consciente del plan. Hoy un admin manda sobre los residentes de todos los años. Hay que derivar el plan del actor —igual que `getSvcConfigForUser` y `getPlazasForDay` ya derivan el del residente— y filtrar por él todas las acciones sobre personas y configuración. No requiere tocar el esquema, porque el cargo sigue a la persona (§3.2), pero sí toca muchos puntos.
+
+**b) La gestión de roles está atada al Dueño, no al Admin.** «Quitar Delegado», «Hacer Delegado», «Coronar Dueño» y editar fechas de residencia solo se renderizan bajo `isDueño` (`app.js:5009-5014`, `app.js:5030`). Un Admin no puede nombrar ni revocar delegados de su propio plan. Hay que abrir esos poderes a Admin **dentro de su plan**, dejando «Coronar Dueño» y «destituir un Admin» como exclusivos del Dueño.
+
+**c) Un delegado no puede destituir ni expulsar a otro delegado.** `app.js:5017` oculta «Expulsar» cuando el objetivo es `admin` **o** `delegado`, y «Quitar Delegado» (`app.js:5010`) solo existe para el Dueño. Las dos palancas están cerradas a la vez, así que tampoco sirve el camino de «primero quitar delegado, luego expulsar». Debe permitirse sobre delegados del propio plan, dejando bloqueado solo el objetivo `admin`.
+
+**d) Falta la sucesión forzosa del Dueño.** Las piezas existen —`adminTraspasarCorona`, y `app.js:4998` bloquea la renuncia con «No puedes abdicar sin traspasar la corona primero»— pero **nada detecta la graduación o la salida del Dueño**. Si termina la residencia y deja de entrar, la especialidad queda con un Dueño ausente y sin vía de recuperación desde la app. Hace falta: bloquear su baja sin traspaso previo, y avisarle de que debe traspasar cuando se acerque el fin de su residencia.
+
+**e) Trampa de nombres, a corregir antes de tocar las guardas.** `app.js:730` define `isDelegado = (rol === 'admin' || rol === 'delegado')`, es decir **«delegado o superior»**, no «es delegado». Cualquier guarda nueva escrita leyendo esa variable como «es delegado» será incorrecta. Renombrar, o introducir un `esSoloDelegado` explícito.
+
+**f) `adminExpulsarUsuario` no comprueba el error de Supabase.** `app.js:5202` lanza el `update` sin leer `error`; la UI pasa de «Expulsando…» a «Conectado ✅» aunque la escritura se haya rechazado. Es la explicación más probable de que «el botón no sirva» sin mensaje alguno. Añadir comprobación, como ya hace `app.js:4809`.
+
+**g) Expulsar no limpia el `rol`.** Solo escribe `estado: 'historico'`. Un delegado expulsado conserva `rol: 'delegado'` y, si se le vuelve a aprobar, **regresa con privilegios**. La baja debe degradar el rol a `residente` en la misma operación.
+
+**h) El nivel Dueño no estaba documentado.** Existía solo en el código, como `isDueño = promo.creador_id === currentUserProfile.id` (`app.js:2000`, `app.js:4960`). Queda documentado en §3.2 y se conserva. Ya está protegido contra expulsión por admins y delegados: `app.js:5005` reserva la rama de «expulsar a cualquiera» a `isDueño`, y el resto solo alcanza a residentes.
+
+> **Nota de alcance.** Ninguna de estas guardas vive en el servidor: son comprobaciones de JavaScript en el navegador. Mientras la escritura a Supabase no esté protegida por RLS, un residente con las devtools abiertas puede saltarse cualquiera de ellas. Eso es una cuestión aparte de este punto de cambio y debe tratarse como tal.
 
 ---
 
