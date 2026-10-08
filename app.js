@@ -1889,7 +1889,7 @@ async function renderGruposView() {
         : null;
     if (myPromo) {
         const statusBadge = currentUserProfile.estado === 'aprobado'
-            ? `<span class="grp-badge grp-badge--ok">✅ Acceso activo</span>`
+            ? `<span class="grp-badge grp-badge--ok">✓ Acceso activo</span>`
             : `<span class="grp-badge grp-badge--wait">⏳ Pendiente de aprobación</span>`;
 
         currentContainer.innerHTML = `
