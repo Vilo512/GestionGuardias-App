@@ -172,7 +172,9 @@ Clases `.grp-*`, mismas capas que Rotación (card `--surface` → fila `--surfac
 
 ## 8. Arranque rápido de la próxima sesión
 
-**Grupos hecho (§6-quater).** Ya no quedan vistas de residente sin migrar. **Siguiente punto propuesto: Paso 6 — `renderAdminHoras` al tema oscuro**, la vista de admin más acotada sin backlog dentro (Excepciones arrastra [P-11]). Medirla primero acotando por la siguiente declaración de función. El usuario puede cambiarlo al abrir.
+**Grupos hecho (§6-quater).** Ya no quedan vistas de residente sin migrar. **Siguiente punto propuesto: Paso 6 — `renderAdminHoras` al tema oscuro**, la vista de gestión más acotada sin backlog dentro (Excepciones arrastra [P-11]). Medirla primero acotando por la siguiente declaración de función. El usuario puede cambiarlo al abrir.
+
+> **Alcance real de Horas:** no es solo de admin. El panel de gestión se abre con `isDelegado` (`rol` admin **o** delegado, `app.js:736`) y `navAdmin` solo reserva al Dueño Ajustes y Seguridad (`app.js:2175`). La ven admins y delegados; los residentes ven sus horas en Mi Perfil. **Alternativa** si se prioriza alcance: `renderAdminCalendar`, que desde B5 también usan los delegados, pero es mayor (16 colores frente a 13, cifras sin re-medir).
 
 > **Disparador al caer:** `app.js` tiene **7.988 líneas**. Cualquier vista que se abra lo cruza: **avisar y proponer el reparto por motores antes de empezar**, y que decida el usuario.
 
