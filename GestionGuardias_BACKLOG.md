@@ -102,6 +102,7 @@ Al empezar un punto de la cola se mueve a las pendientes del handover y se marca
 - **¿Tarde?:** no — preexistente. D-06 se documentó en agosto como desviación **del mercadillo**; la auditoría del Paso 6 descubre que el alcance era mayor.
 - **Impacto:** `adminAprobarUsuario`, `adminExpulsarUsuario`, `adminCambiarRol`, `adminTraspasarCorona`, `adminRenunciarPrivilegios`, `adminEditarFechas`. Sin efecto visual. Más grave que el caso del mercadillo: allí era incoherencia entre lo que se ve y lo que se escribe, aquí son consecuencias de gobierno.
 - **Dónde:** detrás de **[P-01]**, misma zona. Conviene cerrarlo junto con la decisión D-06 del PRD §3.3, que sigue abierta.
+- **Ampliación (8-oct, Mi Perfil):** las escrituras de Mi Perfil (`guardarFechaInicioPerfil`, `guardarFechaContratoPerfil`, `solicitarBajaPerfil`, `eliminarBajaPerfil`) operan sobre `currentUserProfile` sin mirar `simulatedViewUser`. Sin verificar si en simulación escriben sobre el perfil real; revisarlo en el mismo punto.
 - **Veredicto:** entra.
 - **Anotada:** 2026-10-08
 
@@ -126,6 +127,22 @@ Al empezar un punto de la cola se mueve a las pendientes del handover y se marca
 - **¿Tarde?:** no. Lo detectó el `testing-lead` al revisar Rotación (Paso 6).
 - **Impacto:** solo plantillas de Excepciones. No toca motores. Es la misma zona que su migración visual (7 colores, y además usa `.rot-group`/`.editor-row`, que siguen vivos por ella).
 - **Dónde:** **dentro** del Paso 6 · `renderAdminExceptions`, que ya abre esa plantilla. No es un punto propio.
+- **Veredicto:** entra.
+- **Anotada:** 2026-10-08
+
+### [P-12] «Añadir ausencia» admite doble pulsación
+- **Qué:** `solicitarBajaPerfil` no desactiva el botón durante `await saveState()`; dos toques rápidos crean dos bajas idénticas, y si caen en el mismo milisegundo comparten `id: Date.now()` y un borrado se lleva las dos.
+- **¿Tarde?:** no — preexistente. Lo detectó el `testing-lead` al revisar la migración de Mi Perfil.
+- **Impacto:** solo `solicitarBajaPerfil` (y conviene revisar `guardarFecha*Perfil`). Sin motor. Sin efecto visual salvo el estado `disabled`.
+- **Dónde:** final de cola: Mi Perfil ya está cerrado y ningún punto encolado vuelve a abrirlo.
+- **Veredicto:** entra.
+- **Anotada:** 2026-10-08
+
+### [P-13] Sin estilo de foco propio en toda la app
+- **Qué:** `style.css` no define `:focus-visible`; con teclado o lector el foco depende del navegador y sobre `--surface-2` puede quedar tenue. Propuesta: `outline: 2px solid var(--adu-d); outline-offset: 2px` global.
+- **¿Tarde?:** no. Lo señaló el `design-reviewer` en Mi Perfil como sospecha sin medir.
+- **Impacto:** una regla global en `style.css`; afecta a todas las vistas. Sin lógica.
+- **Dónde:** al cierre del Paso 6, en la pasada global junto al `button:hover` pegajoso en táctil (abierto desde Rotación).
 - **Veredicto:** entra.
 - **Anotada:** 2026-10-08
 

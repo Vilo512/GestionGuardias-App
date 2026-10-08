@@ -100,6 +100,7 @@ No es bloqueante y no se tocó, pero ahora lo alcanza un admin nombrado: `adminR
 - [x] Paso 6 · **Rotación** (`renderRotationView` + `renderEditor` + `#pane-rot`), rama `feature/paso6-rotacion`. Ver §6-ter.
 - [x] Paso 6 · **Grupos** (`renderGruposView` + `#pane-grupos`), rama `feature/paso6-grupos`. Ver §6-quater.
 - [x] Paso 6 · **Horas** (`renderAdminHoras` + `#aview-horas`), rama `feature/paso6-horas`. Ver §6-quinquies.
+- [x] Paso 6 · **Mi Perfil** (`renderPerfilUsuario`), rama `feature/paso6-perfil`. Ver §6-sexies. **Merge local en BETA, sin push.**
 
 ### Inmediato
 - [x] **Push de BETA.** En sync con `origin/GestionGuardias-BETA`.
@@ -175,6 +176,18 @@ Clases `.hrs-*`, cero `style=`. En escritorio es una tabla con cabecera `--surfa
 - `app.js` baja de 7.988 a **7.982 líneas**. `?v=` en **3.7**.
 - Sin verificar en WebKit/iOS, igual que el resto.
 
+## 6-sexies. Paso 6 — Mi Perfil (rama `feature/paso6-perfil`, commits `e5e59db`, `c0188a8`, merge `ae00c01`)
+
+Clases `.prf-*`. Capas: card `--surface` → bloques `--surface-2`. Los 73 `style=` se quedan en 3, que son custom properties de la barra (`--x`, `--w`), dato calculado. El blanco **no** venía de `#pane-perfil`, que no lleva estilos: era todo inline.
+
+- **Bug de paso:** la card de horas tenía `grid-column: span 2`. En la rejilla de una columna del móvil eso creaba una columna implícita y **toda la página hacía scroll horizontal**. Ahora es `1 / -1`, y `minmax(min(320px, 100%), 1fr)` para móviles de 320px.
+- **Delegación:** `_bindPerfilActions` sobre `#contenido-principal` (`data-prf-act` y `data-prf-filtro`). Borrar ausencia resuelve el id contra `state.bajasLargas` en vez de usar `Number()`, que daba `NaN` con bajas sin id. Se escapan el nombre, el plan, el motivo y la fecha.
+- Los tres botones de guardar pasan a `button.primary`. Antes eran morado, azul a 3.7:1 y `--dark`, sin significado. En móvil las cifras del mes van en fila etiqueta–valor.
+- **Token nuevo `--border-input` (#80868b):** `--border-2` daba 2.25:1 como contorno de campo sobre `--surface`. Solo lo usa Perfil. Candidato a generalizarse en el resto de inputs.
+- `testing-lead`: sin bloqueantes. El menor del id está aplicado. Mandó al backlog la doble pulsación de «Añadir ausencia» (**[P-12]**) y amplió **[P-05]** con las escrituras de Perfil en modo simulación.
+- `design-reviewer`: aplicados sus dos fallos AA. Las marcas de la barra desaparecían en «exceso» (rojo sobre rojo) y ahora llevan halo `--bg` y 3px. El contorno de los campos y la pista pasan a `--border-input`. También el título de página a 1.4rem en móvil y el placeholder a `--text-2`. La falta de `:focus-visible` global va a **[P-13]**.
+- `?v=` en **3.8**. Sin verificar en WebKit/iOS.
+
 ## 7. Método — lo que funcionó hoy
 
 1. **Medir antes de elegir.** «Empieza por el panel de admin» parecía un punto hasta que se contaron las líneas: eran seis sub-vistas. La medición cambió el plan.
@@ -184,13 +197,15 @@ Clases `.hrs-*`, cero `style=`. En escritorio es una tabla con cabecera `--surfa
 
 ## 8. Arranque rápido de la próxima sesión
 
-**Horas hecho (§6-quinquies).**
+**Mi Perfil hecho (§6-sexies). Siguiente: `renderAdminSeguridad`, pero antes decidir el disparador de las 8.000 líneas (abajo).**
 
 ### Cola del Paso 6 — decidida por el usuario el 8-oct
 
-1. **`renderPerfilUsuario`** (Mi Perfil) ← **la próxima sesión empieza aquí**
-2. **`renderAdminSeguridad`**
+1. ~~**`renderPerfilUsuario`** (Mi Perfil)~~ — hecho
+2. **`renderAdminSeguridad`** ← **la próxima sesión empieza aquí**
 3. **`renderAdminCalendar`**
+
+> **⚠️ Disparador cruzado:** tras Mi Perfil, `app.js` tiene **8.001 líneas** (umbral 8.000). Hay que proponer el reparto por motores en varios `<script>` y que decida el usuario, antes de abrir Seguridad. La migración de Perfil sumó 19 líneas netas: la función de eventos nueva más la corrección del borrado.
 
 Una sesión por punto. Quedan fuera de la cola, sin fecha: `renderAdminExceptions` (arrastra [P-11]) y `renderAdminAjustes` (más la zona de promoción de `index.html:330-349`).
 
@@ -210,8 +225,8 @@ Medición del 8-oct, contando `style="` hasta la siguiente declaración de funci
 
 ### Recordatorios del ciclo
 
-- **Disparador cerca:** `app.js` tiene **7.982 líneas** y el umbral es 8.000. El punto que lo cruce debe avisar y proponer el reparto por motores.
-- Subir el `?v=` de `app.js` y `style.css` en `index.html`. Van por **`3.7`**.
+- **Disparador cruzado:** `app.js` tiene **8.001 líneas**. Ver el aviso de arriba.
+- Subir el `?v=` de `app.js` y `style.css` en `index.html`. Van por **`3.8`**.
 - `node --check` no basta: canario en navegador.
 - Banco de pruebas de comportamiento en el scratchpad (`p01-test.js`). **No está en el repo**; pendiente de decidir si se adopta.
 - Servidor de pruebas: entrada `gg-harness` en `.claude/launch.json` (puerto 8126).
