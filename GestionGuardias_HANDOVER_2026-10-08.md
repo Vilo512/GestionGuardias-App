@@ -75,12 +75,26 @@ Y uno que **no** se arregló porque no es de este punto: **D-06 es más grande d
 > **Merge a `main`: descartado hoy, con conocimiento de causa.** Se planteó y se decidió que no. El merge está limpio —0 conflictos, y los 13 commits que `main` tenía de más son merges de PR sin código propio—, pero saldrían 43 commits el día uno de usuarios reales, con la app mitad oscura y mitad clara y sin haber probado iOS jamás. Se mantiene el plan: P-01 y P-02 sobre BETA, y **un solo despliegue** con todo.
 
 ### Cola (orden decidido en `GestionGuardias_BACKLOG.md`)
-- [ ] **[P-01]** Bugs de `adminExpulsarUsuario`: falla en silencio (`app.js:5202` no lee `error`) y no degrada el rol del expulsado
+- [x] **[P-01]** Hecho — ver abajo
 - [ ] **[P-02]** Ámbito por plan y apertura de la gestión de roles — el grande
 - [ ] **[P-05]** D-06 ampliado
-- [ ] **[P-04]** Sucesión forzosa del Dueño al graduarse
+- [ ] **[P-04]** Sucesión forzosa del Dueño — **ampliado** por la auditoría de P-01: la sucesión automática puede coronar a alguien dado de baja, y un Dueño en solitario puede renunciar sin traspasar
+- [ ] **[P-07]** Perfiles históricos que conservan su rol — dato heredado, necesita migración en Supabase
 - [ ] **[P-03]** Las guardas son solo de cliente; RLS sin verificar
-- [ ] **[P-06]** `datalist` huérfano
+- [ ] **[P-06]** `datalist` huérfano · **[P-08]** dos valores para «sin rol»
+
+## 6-bis. P-01 — escrituras de gobierno (commits `6b9d718`, `1f70a2e`)
+
+El bug declarado era uno; la auditoría estática encontró que **cuatro de las seis** funciones de gobierno ignoraban el `error` de Supabase. Se arreglaron las cuatro, más una quinta que salió en la revisión.
+
+- **`adminExpulsarUsuario`**: comprueba el error, y el `return` va **antes** de tocar `historialEventos`. Antes, si la escritura fallaba, el estado local registraba una salida que en la base no había ocurrido. Además degrada `rol: null` en la misma escritura: un delegado dado de baja conservaba el rol y **volvía con privilegios** si se le readmitía.
+- **`adminTraspasarCorona`**: son tres escrituras sin transacción. Ahora se comprueban las tres, se aborta informando del estado resultante, y se **reordenaron** para que cualquier fallo parcial sea recuperable — promover → mover corona → degradarse. El orden viejo movía la corona primero y un fallo en el paso 2 la dejaba en alguien sin rol de admin.
+- **`adminRenunciarPrivilegios`** y **`adminRechazarUsuario`**: comprueban el error; el primero ya no recarga tapando el fallo.
+- **`adminAprobarUsuario`**: dejaba el status clavado en «Aprobando…».
+- **`renderAccountsList`**: guarda de sesión. Sin ella lanzaba tras crear la promesa de timeout y antes del `Promise.race`, dejando un rechazo sin capturar **en cada carga sin sesión**.
+- **`index.html`**: `?v=3.2` llevaba clavado desde el 15-jul con 18 commits tocando `app.js`, y `style.css` no tenía cache-busting. Al desplegar, quien ya hubiera entrado habría recibido el JS de julio con el CSS nuevo. Ambos a `3.3`, y regla añadida a `CLAUDE.md`.
+
+**Verificación:** 29 pruebas de comportamiento que ejecutan el código real extraído de `app.js` con dobles de Supabase — **22 fallan contra la versión previa**, así que discriminan. Más `node --check`, canario, y un listener de `unhandledrejection` confirmando que el rechazo desapareció. El fichero de pruebas quedó en el scratchpad; **no está en el repo** y conviene decidir si se adopta, porque hoy el proyecto no tiene tests.
 
 ### Paso 6 — vistas que faltan
 Por colores fijos: `renderAdminAjustes` (23), `renderRotationView` (18), `renderAdminCalendar` (16), `renderAdminHoras` (13), `renderAdminExceptions` (7), `renderAdminSeguridad` (2).

@@ -59,6 +59,7 @@ Las decisiones viven en `GestionGuardias_DECISIONES.md` y no se re-proponen. Per
 - Antes de modificar, auditoría estática de la zona: no dejes funciones muertas ni callbacks huérfanos.
 - Vigila mayúsculas/minúsculas: fuente recurrente de bugs aquí.
 - `node --check` no basta: un throw de nivel superior mata los `let`/`const` posteriores y el hoisting lo disimula. Comprobar consola del navegador y las utilidades `window.*` del final del archivo.
+- **Si tocas `app.js` o `style.css`, sube el `?v=` de los dos en `index.html`.** Es el único cache-busting que hay. Estuvo clavado en `3.2` durante 18 commits: al desplegar, quien ya hubiera entrado recibía el JS cacheado junto al CSS nuevo.
 
 ## UI
 
