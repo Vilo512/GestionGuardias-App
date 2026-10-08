@@ -146,6 +146,22 @@ Al empezar un punto de la cola se mueve a las pendientes del handover y se marca
 - **Veredicto:** entra.
 - **Anotada:** 2026-10-08
 
+### [P-14] El bottom sheet no se cierra arrastrando
+- **Qué:** los sheets de día (`app.js:2853`) y de mercadillo (`app.js:3178`) solo se cierran tocando fuera o con «Cerrar». Muestran un asa de arrastre (`.sheet__grip`) que en móvil promete el gesto de deslizar hacia abajo, pero el gesto no existe.
+- **¿Tarde?:** sí, era del paso del bottom sheet del rediseño, ya cerrado. Reabrirlo cuesta añadir un manejador táctil compartido. No reabre ningún motor.
+- **Impacto:** lógica nueva, unas 30–40 líneas (touchstart/move/end, translateY y umbral). Solo debe cerrar si el contenido está con scroll arriba o si se arrastra desde el asa o la cabecera, para no robarle el scroll al contenido. Lo ven todos los residentes. Suma líneas a un `app.js` que ya pasa de 8.000.
+- **Dónde:** final de cola, porque ningún punto encolado reabre el sheet. Por alcance es buena candidata a adelantarse si el usuario lo pide.
+- **Veredicto:** entra. No bloquea el merge a `main`: tocar fuera y «Cerrar» funcionan.
+- **Anotada:** 2026-10-08
+
+### [P-15] Zoom de iOS al tocar campos de la configuración de planes
+- **Qué:** los inputs de Ajustes (p. ej. `ventana_voluntaria_horas` en la configuración general y los campos de cada plan) están por debajo de 16px, y iOS hace zoom al enfocarlos. Lo vio el usuario en un dispositivo real.
+- **¿Tarde?:** no. Es la regla de 16px y 44px, que aún no se ha aplicado porque `renderAdminAjustes` está sin migrar.
+- **Impacto:** solo la plantilla de Ajustes, sin motor. Lo ve únicamente la gestión.
+- **Dónde:** **dentro** del Paso 6 · `renderAdminAjustes`, que ya rehace esos campos. No es un punto propio.
+- **Veredicto:** entra. No bloquea el merge a `main`.
+- **Anotada:** 2026-10-08
+
 ## Promovidas
 
 *(vacía)*
