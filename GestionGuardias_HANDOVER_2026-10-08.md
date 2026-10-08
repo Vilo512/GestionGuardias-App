@@ -98,6 +98,7 @@ No es bloqueante y no se tocó, pero ahora lo alcanza un admin nombrado: `adminR
 - [x] Paso 6 · `renderAccountsList` (`470d0df`, `636965b`, `ee216fd`)
 - [x] Paso 6 · **Rotación** (`renderRotationView` + `renderEditor` + `#pane-rot`), rama `feature/paso6-rotacion`. Ver §6-ter.
 - [x] Paso 6 · **Grupos** (`renderGruposView` + `#pane-grupos`), rama `feature/paso6-grupos`. Ver §6-quater.
+- [x] Paso 6 · **Horas** (`renderAdminHoras` + `#aview-horas`), rama `feature/paso6-horas`. Ver §6-quinquies.
 
 ### Inmediato
 - [x] **Push de BETA.** En sync con `origin/GestionGuardias-BETA`.
@@ -163,6 +164,16 @@ Clases `.grp-*`, mismas capas que Rotación (card `--surface` → fila `--surfac
 - `?v=` en **3.6**.
 - **Finales de línea:** `index.html` se guarda en el repo con CRLF y `core.autocrlf=true` lo convierte a LF al hacer `add` → el diff sale entero. Si se edita con `sed`, `unix2dos` + `git -c core.autocrlf=false add index.html`.
 
+## 6-quinquies. Paso 6 — Horas (rama `feature/paso6-horas`, commits `11ce18e`, `b2baf11`, merge `072aff4`)
+
+Clases `.hrs-*`, cero `style=`. En escritorio es una tabla con cabecera `--surface-2`. **En móvil, una tarjeta `--surface-2` por residente**: el nombre a ancho completo y las cuatro cifras en 2x2 con su etiqueta (`data-label` + `td::before`). La cabecera queda oculta solo a la vista, no a los lectores de pantalla. Antes era una tabla de 5 columnas con scroll horizontal a 375px.
+
+- El nombre pasa por `escapeHtml` y su celda pasa a `<th scope="row">`.
+- `testing-lead`: sin bloqueantes. Especificidad y escapado verificados.
+- `design-reviewer`: sin fallos AA. Aplicado: etiqueta en `--text-2` a 14px, valores a 16px (el de «Horas mes» a 1.05rem) sin partir, y estado vacío sin cursiva. **Queda abierto:** con `display:block` en la tabla, VoiceOver puede perder los roles de tabla en móvil. Se resolvería con `role=` explícitos; no se hizo porque es una vista de gestión de solo lectura.
+- `app.js` baja de 7.988 a **7.982 líneas**. `?v=` en **3.7**.
+- Sin verificar en WebKit/iOS, igual que el resto.
+
 ## 7. Método — lo que funcionó hoy
 
 1. **Medir antes de elegir.** «Empieza por el panel de admin» parecía un punto hasta que se contaron las líneas: eran seis sub-vistas. La medición cambió el plan.
@@ -172,16 +183,24 @@ Clases `.grp-*`, mismas capas que Rotación (card `--surface` → fila `--surfac
 
 ## 8. Arranque rápido de la próxima sesión
 
-**Grupos hecho (§6-quater).** Ya no quedan vistas de residente sin migrar. **Siguiente punto propuesto: Paso 6 — `renderAdminHoras` al tema oscuro**, la vista de gestión más acotada sin backlog dentro (Excepciones arrastra [P-11]). Medirla primero acotando por la siguiente declaración de función. El usuario puede cambiarlo al abrir.
+**Horas hecho (§6-quinquies).** **Siguiente punto propuesto: Paso 6 — `renderAdminSeguridad`**, la vista de gestión que queda más pequeña (33 líneas, 5 `style=`, solo la ve el Dueño). **Alternativa** si se prioriza alcance: `renderAdminCalendar` (275 líneas, 19 `style=`), que también usan los delegados.
 
-> **Alcance real de Horas:** no es solo de admin. El panel de gestión se abre con `isDelegado` (`rol` admin **o** delegado, `app.js:736`) y `navAdmin` solo reserva al Dueño Ajustes y Seguridad (`app.js:2175`). La ven admins y delegados; los residentes ven sus horas en Mi Perfil. **Alternativa** si se prioriza alcance: `renderAdminCalendar`, que desde B5 también usan los delegados, pero es mayor (16 colores frente a 13, cifras sin re-medir).
+Medición del 8-oct, contando `style="` hasta la siguiente declaración de función:
 
-> **Disparador al caer:** `app.js` tiene **7.988 líneas**. Cualquier vista que se abra lo cruza: **avisar y proponer el reparto por motores antes de empezar**, y que decida el usuario.
+| Vista | Líneas | `style=` | Nota |
+|---|---|---|---|
+| `renderAdminSeguridad` | 33 | 5 | Solo Dueño |
+| `renderAdminExceptions` | 37 | 28 | Arrastra [P-11] |
+| `renderPerfilUsuario` | 181 | 73 | **Ojo:** §8 decía que ya no quedaban vistas de residente. Comprobar si esos `style=` ya usan tokens o es una vista sin migrar |
+| `renderAdminAjustes` | 216 | 91 | Solo Dueño. Además, `index.html` tiene la zona de promoción con colores claros fijos (`:330-349`) |
+| `renderAdminCalendar` | 275 | 19 | Admins y delegados |
+
+> **Disparador:** `app.js` tiene **7.982 líneas** (umbral 8.000). Migrar a clases resta líneas, así que solo lo cruza un punto que **añada** lógica. Si pasa, avisar y proponer el reparto por motores antes de empezar.
 
 ### Recordatorios del ciclo
 
-- **Disparador cerca:** `app.js` tiene **7.988 líneas** y el umbral es 8.000. El punto que lo cruce debe avisar y proponer el reparto por motores.
-- Subir el `?v=` de `app.js` y `style.css` en `index.html`. Van por **`3.6`**.
+- **Disparador cerca:** `app.js` tiene **7.982 líneas** y el umbral es 8.000. El punto que lo cruce debe avisar y proponer el reparto por motores.
+- Subir el `?v=` de `app.js` y `style.css` en `index.html`. Van por **`3.7`**.
 - `node --check` no basta: canario en navegador.
 - Banco de pruebas de comportamiento en el scratchpad (`p01-test.js`). **No está en el repo**; pendiente de decidir si se adopta.
 - Servidor de pruebas: entrada `gg-harness` en `.claude/launch.json` (puerto 8126).
