@@ -4938,6 +4938,11 @@ function executeSwapRequestAjena(targetDk, targetSvc, targetUser) { const val = 
 async function renderAccountsList() {
   const el = document.getElementById('accounts-list');
   if (!el) return;
+  // Sin sesión no hay nada que listar. Sin esta guarda se lanzaba más abajo, en
+  // la línea del fetch, DESPUÉS de crear la promesa de timeout y antes del
+  // Promise.race: el timeout se quedaba sin nadie escuchando y reventaba sin
+  // capturar a los 5 segundos, en cada carga sin sesión.
+  if (!currentUserProfile?.promocion_id) { el.innerHTML = ''; return; }
   el.innerHTML = '<span class="accounts-note">Cargando lista de usuarios...</span>';
 
   // 1. Cargamos usuarios con timeout anti-congelamiento
@@ -5084,7 +5089,11 @@ function _bindAccountActions(root) {
 async function adminRenunciarPrivilegios() {
     if (!confirm("¿Seguro que quieres renunciar a tus privilegios de Administrador? Volverás a ser un residente normal y perderás el acceso a esta pestaña.")) return;
     setStatus('Renunciando...');
-    await supabaseClient.from('perfiles').update({ rol: null }).eq('id', currentUserProfile.id);
+    const { error } = await supabaseClient.from('perfiles').update({ rol: null }).eq('id', currentUserProfile.id);
+    if (error) {
+        setStatus('Conectado ✅');
+        return alert(`⚠️ No se ha podido renunciar a los privilegios.\n\n${error.message}\n\nSigues siendo administrador.`);
+    }
     window.location.reload();
 }
 
@@ -5110,9 +5119,26 @@ async function adminCambiarRol(userId, nuevoRol) {
 async function adminTraspasarCorona(userId, userName) {
     if (!confirm(`¿Estás seguro de que quieres ceder la corona a ${userName}? Perderás el control absoluto y pasarás a ser un Delegado normal.`)) return;
     setStatus('Traspasando corona...');
-    await supabaseClient.from('promociones').update({ creador_id: userId }).eq('id', currentUserProfile.promocion_id);
-    await supabaseClient.from('perfiles').update({ rol: 'admin' }).eq('id', userId);
-    await supabaseClient.from('perfiles').update({ rol: 'delegado' }).eq('id', currentUserProfile.id);
+
+    // Son tres escrituras sin transacción: Supabase no las agrupa desde el
+    // cliente. El orden está elegido para que CUALQUIER fallo parcial deje un
+    // estado recuperable, en vez del que había antes (creador_id primero), que
+    // podía mover la corona a alguien sin rol de admin y dejar la promoción
+    // sin nadie capaz de administrarla.
+    //   1. Promover al nuevo  → peor caso: dos admins. Inofensivo.
+    //   2. Mover la corona    → peor caso: sigues siendo Dueño. Reintentable.
+    //   3. Degradarte tú      → peor caso: eres un admin de más. Lo arregla él.
+    const abortar = (msg) => { setStatus('Conectado ✅'); alert(msg); };
+
+    const r1 = await supabaseClient.from('perfiles').update({ rol: 'admin' }).eq('id', userId);
+    if (r1.error) return abortar(`⚠️ No se ha podido dar rol de admin a ${userName}.\n\n${r1.error.message}\n\nNo se ha cambiado nada: sigues siendo el Dueño.`);
+
+    const r2 = await supabaseClient.from('promociones').update({ creador_id: userId }).eq('id', currentUserProfile.promocion_id);
+    if (r2.error) return abortar(`⚠️ No se ha podido traspasar la corona.\n\n${r2.error.message}\n\nSigues siendo el Dueño, pero ${userName} se ha quedado como admin. Quítaselo o reintenta el traspaso.`);
+
+    const r3 = await supabaseClient.from('perfiles').update({ rol: 'delegado' }).eq('id', currentUserProfile.id);
+    if (r3.error) return abortar(`⚠️ La corona YA es de ${userName}, pero no has podido degradarte a Delegado.\n\n${r3.error.message}\n\nSigues como admin. Pídele que te cambie el rol.`);
+
     alert(`La corona ha sido cedida a ${userName}. Ahora eres un Delegado.`);
     window.location.reload();
 }
@@ -5241,9 +5267,21 @@ async function adminAprobarUsuario(userId, userName) {
 async function adminExpulsarUsuario(userId, userName) {
     if(!confirm(`¿Seguro que quieres dar de baja a ${userName}? Pasará al histórico y ya no estará en futuras listas de rotación.`)) return;
     setStatus('Expulsando...');
-    
-    await supabaseClient.from('perfiles').update({ estado: 'historico' }).eq('id', userId);
-    
+
+    // Se degrada el rol en la MISMA escritura. Antes solo se ponía
+    // `estado: 'historico'`, así que un delegado dado de baja conservaba
+    // `rol: 'delegado'` y volvía con privilegios si se le readmitía.
+    const { error } = await supabaseClient.from('perfiles')
+        .update({ estado: 'historico', rol: null }).eq('id', userId);
+
+    // El return va ANTES de tocar historialEventos a propósito: si la escritura
+    // falla y seguimos, el estado local registra una salida que en la base no
+    // ha ocurrido, y la app cree que esa persona se fue cuando sigue activa.
+    if (error) {
+        setStatus('Conectado ✅');
+        return alert(`⚠️ No se ha podido dar de baja a ${userName}.\n\n${error.message}\n\nNo se ha cambiado nada: sigue activa en la promoción.`);
+    }
+
     if (!state.historialEventos) state.historialEventos = {};
     if (!state.historialEventos[userName]) state.historialEventos[userName] = {};
     const mStr = String(curDate.getMonth() + 1).padStart(2, '0');
@@ -5261,9 +5299,10 @@ async function adminExpulsarUsuario(userId, userName) {
 async function adminRechazarUsuario(userId) {
     if(!confirm("¿Rechazar solicitud?")) return;
     setStatus('Rechazando...');
-    await supabaseClient.from('perfiles').update({ promocion_id: null, estado: 'pendiente' }).eq('id', userId);
-    await renderAccountsList();
+    const { error } = await supabaseClient.from('perfiles').update({ promocion_id: null, estado: 'pendiente' }).eq('id', userId);
     setStatus('Conectado ✅');
+    if (error) return alert(`⚠️ No se ha podido rechazar la solicitud.\n\n${error.message}\n\nSigue pendiente.`);
+    await renderAccountsList();
 }
 
 /** Renderiza la vista de rotación con el selector de plan (para delegados) y el orden de grupos del mes. */
