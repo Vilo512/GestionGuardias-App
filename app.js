@@ -4788,37 +4788,31 @@ function renderAdminHoras() {
         })
         .sort((a, b) => b.horasMes - a.horasMes);
 
+    // data-label: en móvil cada fila se apila como tarjeta y la cabecera se oculta.
+    const cols = ['Horas mes', 'Completas / Partidas', `Total ${y}`, 'Histórico'];
     let tablaHtml = '';
     if (residentes.length > 0) {
         const filas = residentes.map(r =>
-            `<tr style="border-bottom:1px solid #f1f5f9;">
-                <td style="padding:10px 12px; font-weight:bold; color:var(--dark);">${r.nombre}</td>
-                <td style="padding:10px 12px; text-align:right; font-weight:bold;">${r.horasMes.toFixed(1)} h</td>
-                <td style="padding:10px 12px; text-align:right; color:#475569;">${r.completasMes} / ${r.partidasMes}</td>
-                <td style="padding:10px 12px; text-align:right; color:#475569;">${r.horasAnio.toFixed(1)} h</td>
-                <td style="padding:10px 12px; text-align:right; color:#94a3b8;">${r.horasTotal.toFixed(1)} h</td>
+            `<tr>
+                <th scope="row" class="hrs-name">${escapeHtml(r.nombre)}</th>
+                <td class="hrs-num hrs-num--main" data-label="${cols[0]}">${r.horasMes.toFixed(1)} h</td>
+                <td class="hrs-num" data-label="${cols[1]}">${r.completasMes} / ${r.partidasMes}</td>
+                <td class="hrs-num" data-label="${cols[2]}">${r.horasAnio.toFixed(1)} h</td>
+                <td class="hrs-num hrs-num--muted" data-label="${cols[3]}">${r.horasTotal.toFixed(1)} h</td>
             </tr>`).join('');
-        tablaHtml = `<div style="overflow-x:auto;">
-            <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
-                <thead>
-                    <tr style="background:#f1f5f9;">
-                        <th style="padding:10px 12px; font-size:0.78rem; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0; text-align:left;">RESIDENTE</th>
-                        <th style="padding:10px 12px; font-size:0.78rem; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0; text-align:right;">HORAS MES</th>
-                        <th style="padding:10px 12px; font-size:0.78rem; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0; text-align:right;">COMPLETAS / PARTIDAS</th>
-                        <th style="padding:10px 12px; font-size:0.78rem; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0; text-align:right;">TOTAL ${y}</th>
-                        <th style="padding:10px 12px; font-size:0.78rem; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0; text-align:right;">HISTÓRICO</th>
-                    </tr>
-                </thead>
+        tablaHtml = `<div class="hrs-wrap">
+            <table class="hrs-table">
+                <thead><tr><th scope="col">Residente</th>${cols.map(c => `<th scope="col" class="hrs-num">${c}</th>`).join('')}</tr></thead>
                 <tbody>${filas}</tbody>
             </table>
         </div>`;
     } else {
-        tablaHtml = '<p style="color:#94a3b8; font-style:italic;">No hay residentes aprobados.</p>';
+        tablaHtml = '<p class="hrs-empty">No hay residentes aprobados.</p>';
     }
     const _elHoras = document.getElementById('aview-horas');
     if (!_elHoras) return;
     _elHoras.innerHTML =
-        `<h3 style="margin-bottom:16px; font-size:1.1rem; color:var(--dark);">⏱️ Horas por Residente — ${MONTHS[m]} ${y}</h3>${tablaHtml}`;
+        `<h3 class="hrs-title">⏱️ Horas por Residente — ${MONTHS[m]} ${y}</h3>${tablaHtml}`;
 }
 
 /** Restaura todos los turnos saltados del mes, devolviendo al grupo su turno natural. */
