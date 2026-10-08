@@ -141,7 +141,8 @@ La sesión real del admin no se ve afectada: `loggedInUser`, `isAdmin` e `isDele
 - Puede haber **múltiples admins y múltiples delegados** por especialidad, y cada uno manda en **su** plan.
 - Un Admin designa y revoca delegados **de su plan**, y puede expulsarlos.
 - Un Delegado puede designar, revocar y expulsar a **otros delegados de su plan**. Lo único que no puede es destituir ni expulsar a un Admin.
-- El Dueño puede hacer todo lo anterior en **cualquier** plan, y es el único que puede destituir o expulsar a un Admin.
+- El Dueño puede hacer todo lo anterior en **cualquier** plan, y es el único que puede **nombrar**, destituir o expulsar a un Admin. Un Admin gestiona delegados, no otros admins.
+- **Lo que afecta a la especialidad entera es solo del Dueño**, nunca de un Admin: borrarla, y cambiar su hospital o su nombre — las pestañas Ajustes y Seguridad del panel. Un Admin manda sobre personas y configuración de su plan, no sobre la existencia de la especialidad.
 - Quien avanza de plan **se lleva el cargo consigo** (§3.2) y pierde el poder sobre el plan que deja atrás.
 - Objetivo: que la supervisión de cada año no dependa de que una persona concreta esté disponible, y que nadie tenga poder sobre una cohorte a la que ya no pertenece.
 

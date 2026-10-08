@@ -50,6 +50,14 @@ Al empezar un punto de la cola se mueve a las pendientes del handover y se marca
 - **Veredicto:** entra. Decidido con el usuario el 2026-10-08.
 - **Anotada:** 2026-10-08
 
+### [P-09] La sucesión automática no contempla que existan admins
+- **Qué:** `iniciarProcesoSalida` (`app.js:2016-2020`) elige sucesor entre `delegados` (solo `rol==='delegado'`) y `residentes` (que **excluye** explícitamente a los admin). Se escribió cuando el único admin era el Dueño.
+- **¿Tarde?:** sí — lo destapa «Hacer Admin», que hace que existan admins de verdad.
+- **Impacto:** dos fallos concretos. **(a)** Dueño + un único admin, sin delegados ni residentes: las dos listas quedan vacías, `sucesor` es `undefined` y `sucesor.nombre_mostrar` lanza un `TypeError` que nadie captura (`app.js:1966`). No se escribe nada, no se ve mensaje, y el Dueño **no puede salir**. **(b)** Con gente de sobra, la corona va al primer delegado o residente en vez de a un admin, que es quien ya tiene la confianza.
+- **Dónde:** con **[P-04]**, es la misma función. Orden correcto: admin → delegado → residente, y solo entre `aprobado`.
+- **Veredicto:** entra. Detectado por el `testing-lead` al auditar «Hacer Admin».
+- **Anotada:** 2026-10-08
+
 ### [P-07] Perfiles históricos que conservan su rol (dato heredado)
 - **Qué:** P-01 hace que las bajas futuras degraden el rol, pero **no corrige lo ya guardado**. Quien fue expulsado antes del 8-oct-2026 sigue con `rol: 'admin'` o `'delegado'` y `estado: 'historico'` en la base. Y `adminAprobarUsuario` solo cambia `estado`, nunca toca `rol`: readmitir a uno de esos perfiles **le devuelve los privilegios**. Es el mismo bug que P-01 cierra, pero por la puerta del dato viejo.
 - **¿Tarde?:** sí, en el sentido útil: P-01 selló la puerta y esto es lo que ya había entrado.
@@ -58,11 +66,12 @@ Al empezar un punto de la cola se mueve a las pendientes del handover y se marca
 - **Dónde:** detrás de **[P-01]**. No urge mientras no se readmita a nadie, y hoy la promoción es solo de R1.
 - **Veredicto:** entra. Detectado por el `testing-lead` al auditar P-01.
 - **Anotada:** 2026-10-08
+- **Ampliado el 2026-10-08:** no basta con migrar el dato viejo. `ejecutarSalidaFinal` (`app.js:2080-2085`) tampoco limpia el rol al abandonar un grupo, así que un admin que se va queda `pendiente` **conservando `rol:'admin'`**, y el Dueño de la especialidad a la que solicite entrar lo aprueba —`adminAprobarUsuario` solo toca `estado`— y entra ya como Admin, con insignia, **sin que nadie se lo haya concedido**. Antes era un borde improbable; con «Hacer Admin» es alcanzable por cualquier admin nombrado.
 
 ### [P-08] Dos valores distintos para «sin rol»
 - **Qué:** la columna `rol` guarda a la vez `null` (lo que usan `adminRenunciarPrivilegios` y ahora la expulsión) y la cadena `'residente'` (lo que pasa la UI al llamar a `adminCambiarRol`), pese a que el JSDoc de esa función declara `{'admin'|'delegado'|null}`.
 - **¿Tarde?:** no, preexistente.
-- **Impacto:** **ninguno hoy**, confirmado: todas las comparaciones del archivo son contra `'admin'` y `'delegado'`, así que los dos centinelas caen igual en la rama «sin privilegio». Es higiene de datos, no un bug.
+- **Impacto:** casi ninguno. Todas las lecturas de `.rol` comparan contra `'admin'` y `'delegado'`, así que los dos centinelas caen igual en la rama «sin privilegio». **Una excepción:** `app.js:4807` usa `.neq('rol','admin')`, y en SQL `NULL <> 'admin'` es `NULL`, no `true` — los de `rol = null` quedan fuera del `UPDATE` y los de `'residente'` dentro. Está en `adminVaciarGeneracion`, que **no tiene ningún llamador**, así que hoy no pasa nada; pero es la prueba de que los dos valores no son intercambiables en cuanto se toca SQL.
 - **Dónde:** final de cola. Conviene hacerlo con [P-07], que ya toca la misma columna.
 - **Veredicto:** entra como limpieza de baja prioridad.
 - **Anotada:** 2026-10-08
