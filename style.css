@@ -21,6 +21,9 @@
   --surface-2: #35363a;   /* elevación: hover, cabeceras  */
   --border:    #3c4043;   /* borde estándar              */
   --border-2:  #5f6368;   /* borde de énfasis            */
+  /* Contorno de campos: --border-2 da 2.25:1 sobre --surface y el relleno del
+     campo apenas se distingue de la card (1.13:1). Este pasa 3:1 (≈3.7:1). */
+  --border-input: #80868b;
   --text:      #e8eaed;   /* texto primario              */
   --text-2:    #9aa0a6;   /* texto secundario            */
   /* Terciario: #92979d es el SUELO para que siga pasando 4.5:1 sobre --surface.
@@ -746,6 +749,79 @@
   .hrs-num--muted { color: var(--text-2); }
 
   /* ============================================================
+     PASO 6 · Mi Perfil (vista de residente)
+     Capas: card --surface → bloques internos --surface-2. Texto
+     secundario a --text-2 (en --surface-2 --text-3 cae a 4.1:1).
+     Los colores del estado de carga usan los -d: los legacy son de
+     la paleta clara.
+     ============================================================ */
+  .prf-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--sp-3); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: var(--sp-4); margin-bottom: var(--sp-5); box-shadow: var(--shadow-1); }
+  .prf-head__info { min-width: 0; }
+  .prf-head__title { margin: 0; font-size: 1.5rem; color: var(--text); }
+  .prf-head__who { margin-top: var(--sp-1); color: var(--text-2); font-size: 0.95rem; overflow-wrap: anywhere; }
+  .prf-head__who strong { color: var(--text); }
+  .prf-plan { display: inline-block; padding: var(--sp-1) var(--sp-3); border: 1px solid var(--adu-d); border-radius: var(--r-pill); color: var(--adu-d); font-weight: 700; font-size: 0.9rem; overflow-wrap: anywhere; }
+
+  /* min(): con 320px a secas, en móviles de 320px la columna desborda. */
+  .prf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: var(--sp-5); }
+  .prf-card { display: flex; flex-direction: column; justify-content: space-between; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: var(--sp-5); box-shadow: var(--shadow-1); min-width: 0; }
+  /* 1 / -1 y no `span 2`: en una rejilla de una columna, span 2 crea una
+     columna implícita y la página entera hace scroll horizontal. */
+  .prf-card--wide { grid-column: 1 / -1; }
+  .prf-card__title { margin-bottom: var(--sp-3); font-size: 1.1rem; color: var(--text); }
+  .prf-card__title--flush { margin: 0; }
+
+  .prf-label { display: block; margin-bottom: var(--sp-1); font-size: 0.875rem; font-weight: 600; color: var(--text-2); }
+  .prf-sublabel { display: block; margin-bottom: var(--sp-1); font-size: 0.875rem; color: var(--text-2); }
+  .prf-input { margin: 0; min-height: 44px; font-size: 16px; border-color: var(--border-input); }
+  .prf-input::placeholder { color: var(--text-2); opacity: 1; }
+  .prf-readonly { padding: var(--sp-2) var(--sp-3); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); color: var(--text); font-size: 1rem; overflow-wrap: anywhere; }
+  .prf-note { margin-top: var(--sp-3); font-size: 0.875rem; line-height: 1.45; color: var(--text-2); }
+  .prf-intro { margin-bottom: var(--sp-4); font-size: 0.95rem; line-height: 1.45; color: var(--text-2); }
+  .prf-action { width: 100%; min-height: 44px; margin-top: var(--sp-4); }
+
+  .prf-bajas { display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-4); }
+  .prf-empty { color: var(--text-2); font-size: 0.95rem; }
+  .prf-baja { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-3); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-2) var(--sp-3); }
+  .prf-baja__info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .prf-baja__motivo { color: var(--text); font-size: 1rem; overflow-wrap: anywhere; }
+  .prf-baja__fechas { color: var(--text-2); font-size: 0.875rem; }
+  /* Fondo --bg: --fest-d no llega a 4.5:1 sobre --surface-2 (4.36). */
+  button.prf-baja__del { flex: 0 0 44px; min-height: 44px; padding: 0; background: var(--bg); font-size: 1rem; }
+
+  .prf-new { padding-top: var(--sp-3); border-top: 1px dashed var(--border-2); }
+  .prf-new__dates { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+  .prf-new__field { flex: 1 1 140px; min-width: 0; }
+
+  .prf-hours-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--sp-3); margin-bottom: var(--sp-4); }
+  .prf-filters { display: flex; gap: var(--sp-2); }
+  .prf-filters .prf-input { width: auto; }
+
+  .prf-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: var(--sp-3); margin-bottom: var(--sp-4); }
+  .prf-stat { display: flex; flex-direction: column; gap: var(--sp-1); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-3); }
+  .prf-stat__label { font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; color: var(--text-2); }
+  .prf-stat__value { font-size: 1.8rem; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+  .prf-stat__value--adu { color: var(--adu-d); }
+  .prf-stat__value--merc { color: var(--merc-d); }
+  .prf-totals { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-6); margin-bottom: var(--sp-5); font-size: 0.95rem; color: var(--text-2); }
+  .prf-totals strong { color: var(--text); font-variant-numeric: tabular-nums; }
+
+  .prf-load { --load: var(--pac-d); }
+  .prf-load--ok { --load: var(--ped-d); }
+  .prf-load--exceso { --load: var(--fest-d); }
+  .prf-load__head { display: flex; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); margin-bottom: var(--sp-2); font-size: 0.95rem; font-weight: 700; }
+  .prf-load__state { color: var(--load); }
+  .prf-load__count { color: var(--text); font-variant-numeric: tabular-nums; }
+  .prf-load__track { position: relative; width: 100%; height: 12px; background: var(--surface-2); border: 1px solid var(--border-input); border-radius: var(--r-pill); overflow: hidden; }
+  .prf-load__fill { width: var(--w, 0%); height: 100%; background: var(--load); transition: width 0.3s ease; }
+  /* Halo --bg: sin él, la marca de máximo (--fest-d) desaparece justo en
+     «exceso», cuando el relleno es del mismo rojo, y la de mínimo cae a 1.6:1
+     sobre el verde. */
+  .prf-load__mark { position: absolute; top: 0; left: var(--x); width: 3px; height: 100%; z-index: 2; box-shadow: 0 0 0 1px var(--bg); }
+  .prf-load__mark--min { background: var(--text); }
+  .prf-load__mark--max { background: var(--fest-d); }
+
+  /* ============================================================
      RESPONSIVE — el calendario se juzga primero en móvil
      ============================================================ */
   @media (max-width: 640px) {
@@ -838,4 +914,16 @@
     .hrs-table .hrs-num--main { font-size: 1.05rem; }
     .hrs-table td.hrs-num::before { content: attr(data-label); display: block; font-size: 0.875rem; font-weight: 400; color: var(--text-2); white-space: normal; }
     .hrs-table .hrs-num--muted { color: var(--text); }
+
+    /* Mi Perfil: menos aire en las cards, y cada cifra del mes en una fila
+       etiqueta–valor en vez de tres bloques de 1.8rem apilados. */
+    .prf-head { padding: var(--sp-3); margin-bottom: var(--sp-3); }
+    .prf-head__title { font-size: 1.4rem; }
+    .prf-grid { gap: var(--sp-3); }
+    .prf-card { padding: var(--sp-4); }
+    .prf-filters { width: 100%; }
+    .prf-filters .prf-input { flex: 1; }
+    .prf-stats { gap: var(--sp-2); }
+    .prf-stat { flex-direction: row; justify-content: space-between; align-items: center; gap: var(--sp-3); }
+    .prf-stat__value { font-size: 1.4rem; white-space: nowrap; }
   }
