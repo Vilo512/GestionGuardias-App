@@ -4956,15 +4956,21 @@ async function renderAccountsList() {
   if (!usuarios || usuarios.length === 0) return el.innerHTML = `<span class="accounts-note">No hay NADIE vinculado a esta promoción aún.</span>`;
 
   // 2. Comprobamos si somos el "Dueño" legítimo del contenedor
-  const { data: promo } = await supabaseClient.from('promociones').select('creador_id').eq('id', currentUserProfile.promocion_id).single();
+  const { data: promo, error: errPromo } = await supabaseClient.from('promociones').select('creador_id').eq('id', currentUserProfile.promocion_id).single();
   const isDueño = promo && promo.creador_id === currentUserProfile.id;
+  // Sin `promo` no hay forma de distinguir al Dueño de un Admin, y tanto las
+  // etiquetas como los botones se degradan. Antes esto fallaba en silencio:
+  // ahora se avisa, en vez de mostrar una lista que parece completa y no lo está.
+  const avisoPromo = (errPromo || !promo)
+      ? `<p class="accounts-error">⚠️ No se ha podido comprobar quién es el Dueño de la especialidad${errPromo ? `: ${escapeHtml(errPromo.message)}` : ''}. Las etiquetas de rango y las acciones disponibles pueden estar incompletas — recarga antes de actuar.</p>`
+      : '';
 
   // === LA MAGIA DEL DATALIST ===
   const datalist = document.getElementById('lista-usuarios-aprobados');
-  if (datalist) datalist.innerHTML = usuarios.filter(u => u.estado === 'aprobado').map(u => `<option value="${u.nombre_mostrar}">`).join('');
+  if (datalist) datalist.innerHTML = usuarios.filter(u => u.estado === 'aprobado').map(u => `<option value="${escapeHtml(u.nombre_mostrar)}">`).join('');
 
   // --- RENDER DE SOLICITUDES PENDIENTES ---
-  let html = `<h4 class="accounts-title">🔔 Solicitudes Pendientes</h4>`;
+  let html = avisoPromo + `<h4 class="accounts-title">🔔 Solicitudes Pendientes</h4>`;
   const pendientes = usuarios.filter(u => u.estado === 'pendiente');
 
   if(pendientes.length === 0) {
