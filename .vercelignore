@@ -1,0 +1,11 @@
+# Lista blanca: Vercel solo publica lo que la app carga.
+# Sin este archivo se servía el repo entero, y el backlog, los handovers,
+# el PRD y el AUDIT (que describen los huecos de permisos) eran públicos
+# en la URL del despliegue. Todo lo que se añada al repo queda fuera por
+# defecto: si la app empieza a cargar un recurso nuevo (iconos, manifest
+# de la PWA...), hay que añadirlo aquí abajo.
+/*
+!/index.html
+!/app.js
+!/style.css
+!/LICENSE
