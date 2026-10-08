@@ -4938,7 +4938,7 @@ function executeSwapRequestAjena(targetDk, targetSvc, targetUser) { const val = 
 async function renderAccountsList() {
   const el = document.getElementById('accounts-list');
   if (!el) return;
-  el.innerHTML = '<span style="color:#64748b;">Cargando lista de usuarios...</span>';
+  el.innerHTML = '<span class="accounts-note">Cargando lista de usuarios...</span>';
 
   // 1. Cargamos usuarios con timeout anti-congelamiento
   const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout de red")), 5000));
@@ -4950,91 +4950,134 @@ async function renderAccountsList() {
       if (error) throw error;
       usuarios = data;
   } catch (err) {
-      return el.innerHTML = `<span style="color:var(--fest); font-weight:bold;">Error de red: ${err.message}</span>`;
+      return el.innerHTML = `<span class="accounts-error">Error de red: ${escapeHtml(err.message)}</span>`;
   }
 
-  if (!usuarios || usuarios.length === 0) return el.innerHTML = `<span style="color:#854d0e;">No hay NADIE vinculado a esta promoción aún.</span>`;
+  if (!usuarios || usuarios.length === 0) return el.innerHTML = `<span class="accounts-note">No hay NADIE vinculado a esta promoción aún.</span>`;
 
   // 2. Comprobamos si somos el "Dueño" legítimo del contenedor
-  const { data: promo } = await supabaseClient.from('promociones').select('creador_id').eq('id', currentUserProfile.promocion_id).single();
+  const { data: promo, error: errPromo } = await supabaseClient.from('promociones').select('creador_id').eq('id', currentUserProfile.promocion_id).single();
   const isDueño = promo && promo.creador_id === currentUserProfile.id;
+  // Sin `promo` no hay forma de distinguir al Dueño de un Admin, y tanto las
+  // etiquetas como los botones se degradan. Antes esto fallaba en silencio:
+  // ahora se avisa, en vez de mostrar una lista que parece completa y no lo está.
+  const avisoPromo = (errPromo || !promo)
+      ? `<p class="accounts-error">⚠️ No se ha podido comprobar quién es el Dueño de la especialidad${errPromo ? `: ${escapeHtml(errPromo.message)}` : ''}. Las etiquetas de rango y las acciones disponibles pueden estar incompletas — recarga antes de actuar.</p>`
+      : '';
 
   // === LA MAGIA DEL DATALIST ===
   const datalist = document.getElementById('lista-usuarios-aprobados');
-  if (datalist) datalist.innerHTML = usuarios.filter(u => u.estado === 'aprobado').map(u => `<option value="${u.nombre_mostrar}">`).join('');
+  if (datalist) datalist.innerHTML = usuarios.filter(u => u.estado === 'aprobado').map(u => `<option value="${escapeHtml(u.nombre_mostrar)}">`).join('');
 
   // --- RENDER DE SOLICITUDES PENDIENTES ---
-  let html = `<h4 style="margin-bottom:10px; color:var(--dark);">🔔 Solicitudes Pendientes</h4>`;
+  let html = avisoPromo + `<h4 class="accounts-title">🔔 Solicitudes Pendientes</h4>`;
   const pendientes = usuarios.filter(u => u.estado === 'pendiente');
-  
+
   if(pendientes.length === 0) {
-      html += `<p style="font-size:0.85rem; color:#64748b; margin-bottom:20px;">No hay nadie en la sala de espera.</p>`;
+      html += `<p class="accounts-note">No hay nadie en la sala de espera.</p>`;
   } else {
       pendientes.forEach(u => {
-         html += `<div class="account-row" style="background:#fffbeb; border:1px solid #fde047; border-radius:8px; margin-bottom:8px; padding:10px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-            <div><strong>${u.nombre_mostrar}</strong> <span style="font-size:0.8rem; color:#854d0e; margin-left:10px;">⏳ Esperando acceso</span></div>
-            <div style="display:flex; gap:8px;">
-              <button class="primary icon-btn" style="background:var(--ped); border:none; color:white;" onclick="adminAprobarUsuario('${u.id}', '${u.nombre_mostrar}')">✅ Aprobar</button>
-              <button class="danger icon-btn" onclick="adminRechazarUsuario('${u.id}')">❌ Rechazar</button>
+         const n = escapeHtml(u.nombre_mostrar);
+         html += `<div class="account-row account-row--pending">
+            <div><strong>${n}</strong> <span class="account-row__wait">⏳ Esperando acceso</span></div>
+            <div class="account-row__actions">
+              <button class="primary icon-btn btn-approve" data-acc-act="aprobar" data-acc-id="${u.id}" data-acc-nombre="${n}">✅ Aprobar</button>
+              <button class="danger icon-btn" data-acc-act="rechazar" data-acc-id="${u.id}">❌ Rechazar</button>
             </div>
          </div>`;
       });
   }
   
   // --- RENDER DE MIEMBROS APROBADOS (LA ABDICACIÓN Y DELEGADOS) ---
-  html += `<h4 style="margin-top:20px; margin-bottom:10px; color:var(--dark);">🏥 Miembros de la Promoción</h4>`;
+  html += `<h4 class="accounts-title accounts-title--spaced">🏥 Miembros de la Promoción</h4>`;
   const aprobados = usuarios.filter(u => u.estado === 'aprobado');
-  
+
   aprobados.forEach(u => {
-      // Etiquetas visuales de Rango
+      // Etiquetas de rango. El Dueño NO es un rol: es `creador_id` de la
+      // especialidad (PRD §3.2). Antes se etiquetaba `rol==='admin'` como
+      // «Dueño», que confundía dos niveles distintos.
+      const esDueñoFila = promo && promo.creador_id === u.id;
       let rolBadge = '✅ Residente';
-      if (u.rol === 'admin') rolBadge = '👑 Dueño';
+      if (esDueñoFila) rolBadge = '👑 Dueño';
+      else if (u.rol === 'admin') rolBadge = '🛡 Admin';
       else if (u.rol === 'delegado') rolBadge = '⭐ Delegado';
-      
+
+      const n = escapeHtml(u.nombre_mostrar);
       let acciones = '';
 
       if (u.id === currentUserProfile.id) {
           // Acciones para TI MISMO
           if (isDueño && aprobados.length > 1) {
-              acciones = `<span style="font-size:0.75rem; color:#854d0e;">No puedes abdicar sin traspasar la corona primero.</span>`;
+              acciones = `<span class="account-row__locked">No puedes abdicar sin traspasar la corona primero.</span>`;
           } else {
-              acciones = `<button class="danger icon-btn" style="border:1px solid var(--fest);" onclick="adminRenunciarPrivilegios()">Renunciar a Admin</button>`;
+              acciones = `<button class="danger icon-btn" data-acc-act="renunciar">Renunciar a Admin</button>`;
           }
       } else {
           // Acciones sobre TUS COMPAÑEROS
+          // NOTA: el reparto de poderes es el de hoy, sin tocar. Abrirlo al
+          // modelo de PRD §3.5 es [P-02] del backlog, no este punto.
           if (isDueño) {
               // El Dueño puede expulsar a cualquiera
-              acciones += `<button class="danger icon-btn" style="margin-right:4px;" onclick="adminExpulsarUsuario('${u.id}', '${u.nombre_mostrar}')">Expulsar</button>`;
-              
+              acciones += `<button class="danger icon-btn" data-acc-act="expulsar" data-acc-id="${u.id}" data-acc-nombre="${n}">Expulsar</button>`;
+
               if (u.rol === 'delegado') {
-                  acciones += `<button class="danger icon-btn" style="margin-right:4px;" onclick="adminCambiarRol('${u.id}', 'residente')">Quitar Delegado</button>`;
+                  acciones += `<button class="danger icon-btn" data-acc-act="rol" data-acc-id="${u.id}" data-acc-rol="residente">Quitar Delegado</button>`;
               } else if (u.rol !== 'admin') {
-                  acciones += `<button class="primary icon-btn" style="margin-right:4px; background:var(--dark);" onclick="adminCambiarRol('${u.id}', 'delegado')">Hacer Delegado</button>`;
+                  acciones += `<button class="primary icon-btn" data-acc-act="rol" data-acc-id="${u.id}" data-acc-rol="delegado">Hacer Delegado</button>`;
               }
-              acciones += `<button class="primary icon-btn" style="background:var(--adu);" onclick="adminTraspasarCorona('${u.id}', '${u.nombre_mostrar}')">Coronar Dueño</button>`;
+              acciones += `<button class="primary icon-btn btn-crown" data-acc-act="coronar" data-acc-id="${u.id}" data-acc-nombre="${n}">Coronar Dueño</button>`;
           } else {
               // Delegado: solo puede expulsar residentes, no a admins ni a otros delegados.
               if (u.rol !== 'admin' && u.rol !== 'delegado') {
-                  acciones += `<button class="danger icon-btn" style="margin-right:4px;" onclick="adminExpulsarUsuario('${u.id}', '${u.nombre_mostrar}')">Expulsar</button>`;
+                  acciones += `<button class="danger icon-btn" data-acc-act="expulsar" data-acc-id="${u.id}" data-acc-nombre="${n}">Expulsar</button>`;
               }
           }
       }
 
-      let escapedName = u.nombre_mostrar.replace(/'/g, "\\'");
-      let ev = state.historialEventos && state.historialEventos[u.nombre_mostrar] ? state.historialEventos[u.nombre_mostrar] : {};
-      html += `<div class="account-row" style="border:1px solid #e2e8f0; border-radius:8px; margin-bottom:8px; padding:10px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+      const fIni = escapeHtml(u.fecha_inicio_residencia || 'No definido');
+      const fCam = u.fecha_cambio_contrato ? escapeHtml(u.fecha_cambio_contrato.substring(0,7)) : 'No definido';
+      html += `<div class="account-row">
          <div>
-            <strong>${u.nombre_mostrar}</strong> <span style="font-size:0.8rem; color:#64748b; margin-left:10px;">${rolBadge}</span>
-            <div style="font-size:0.8rem; color:#475569; margin-top:4px;">
-               Inicio: <strong>${u.fecha_inicio_residencia || 'No definido'}</strong> | Mes cambio contrato: <strong>${u.fecha_cambio_contrato ? u.fecha_cambio_contrato.substring(0,7) : 'No definido'}</strong>
-               <br>${isDueño ? `<button class="secondary" style="font-size:0.7rem; padding:2px 6px; margin-left:8px;" onclick="window.adminEditarFechas('${u.id}', '${escapedName}', '${u.fecha_inicio_residencia || ''}', '${u.fecha_cambio_contrato || ''}')">✏️ Editar</button>` : ''}
+            <strong>${n}</strong> <span class="account-row__role">${rolBadge}</span>
+            <div class="account-row__meta">
+               Inicio: <strong>${fIni}</strong> | Mes cambio contrato: <strong>${fCam}</strong>
+               ${isDueño ? `<br><button class="secondary icon-btn" data-acc-act="fechas" data-acc-id="${u.id}" data-acc-nombre="${n}" data-acc-ini="${escapeHtml(u.fecha_inicio_residencia || '')}" data-acc-cam="${escapeHtml(u.fecha_cambio_contrato || '')}">✏️ Editar</button>` : ''}
             </div>
          </div>
-         <div style="display:flex; align-items:center;">${acciones}</div>
+         <div class="account-row__actions">${acciones}</div>
       </div>`;
   });
-  
+
   el.innerHTML = html;
+  _bindAccountActions(el);
+}
+
+/**
+ * Dispatcher de la lista de cuentas: un solo listener delegado en el
+ * contenedor, en vez de `onclick` con el nombre interpolado.
+ *
+ * Los nombres de residente son texto libre del admin, y la regla del Paso 6
+ * dice que cualquier `onclick` que los interpole es un bug latente: un
+ * `O'Brien` rompía el atributo. Los datos viajan en `data-*` escapado y se
+ * leen del dataset, donde las comillas ya no significan nada.
+ */
+function _bindAccountActions(root) {
+    if (!root || root._accBound) return;
+    root._accBound = true;
+    root.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-acc-act]');
+        if (!btn || !root.contains(btn)) return;
+        const d = btn.dataset;
+        switch (d.accAct) {
+            case 'aprobar':   return adminAprobarUsuario(d.accId, d.accNombre);
+            case 'rechazar':  return adminRechazarUsuario(d.accId);
+            case 'expulsar':  return adminExpulsarUsuario(d.accId, d.accNombre);
+            case 'rol':       return adminCambiarRol(d.accId, d.accRol);
+            case 'coronar':   return adminTraspasarCorona(d.accId, d.accNombre);
+            case 'renunciar': return adminRenunciarPrivilegios();
+            case 'fechas':    return window.adminEditarFechas(d.accId, d.accNombre, d.accIni, d.accCam);
+        }
+    });
 }
 
 /** Degrada al admin actual a residente normal, renunciando a todos los privilegios. */

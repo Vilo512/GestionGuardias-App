@@ -133,6 +133,8 @@ La sesión real del admin no se ve afectada: `loggedInUser`, `isAdmin` e `isDele
 > El bloqueo se implementa repitiendo `if (simulatedViewUser !== null) { alert(...); return; }` en cada punto de escritura, y **ninguno de los del mercadillo lo tiene**: `openMercadoModal`, `executeBuyRequest`, `executeSellRequest`, `executeSwapRequestDirect`, `processTrade` ni `requestTradeUndo`.
 >
 > El efecto no es una suplantación de identidad —el trade se graba con el `loggedInUser` real, es decir el admin—, sino una incoherencia entre lo que se ve y lo que se escribe: la rejilla está filtrada por el residente simulado, pero la operación que se cree hacer «en su nombre» acaba siendo del admin. Detectado en la auditoría del Paso 5 (ago-2026); pendiente de decidir si el mercadillo se bloquea en simulación o si se habilita explícitamente la operación en nombre de otro.
+>
+> **Ampliación (oct-2026): no es solo el mercadillo.** El **panel de Cuentas** tampoco comprueba `simulatedViewUser` en ninguna de sus seis acciones — `adminAprobarUsuario`, `adminExpulsarUsuario`, `adminCambiarRol`, `adminTraspasarCorona`, `adminRenunciarPrivilegios` y `adminEditarFechas`. Y la pestaña de Admin no se oculta al entrar en simulación: su visibilidad se fija una sola vez al iniciar sesión (`app.js:731-732`, `app.js:2110-2124`) según el rol **real**, y `activateSimulationMode` (`app.js:908-916`) no la toca. Un admin en modo simulación puede ir a Admin → Cuentas y pulsar «Expulsar» o «Coronar Dueño» con efecto real. A diferencia del mercadillo, aquí sí hay consecuencias de gobierno, no solo incoherencia de vista. Detectado por el `testing-lead` en la auditoría del Paso 6.
 
 ### 3.4 Admins y Delegados
 

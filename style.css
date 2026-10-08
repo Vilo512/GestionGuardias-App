@@ -246,7 +246,6 @@
 
   .rot-group { background: var(--light); padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border: 1px solid #e2e8f0; }
   .editor-row { display: flex; align-items: center; gap: 4px; margin-bottom: 6px; }
-  .account-row { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; border-bottom: 1px solid #e2e8f0; }
   /* Buzón y log del mercadillo (Paso 5) */
   .trade-row { display: flex; flex-direction: column; gap: 6px; padding: var(--sp-3); background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-md); margin-bottom: var(--sp-2); font-size: 0.85rem; }
   .trade-row--inbox { border-left: 3px solid var(--merc-d); }
@@ -583,6 +582,48 @@
   }
 
   /* ============================================================
+     PASO 6 · Lista de cuentas del panel de admin
+     Las filas se elevan a --surface-2 sobre la --surface de la card, así
+     que todo texto secundario va a --text-2: --text-3 cae a 4.1:1 ahí.
+     La fila pendiente NO lleva tinte ámbar translúcido — aclararía el
+     fondo y hundiría el contraste. Se hunde a --bg y avisa por el borde,
+     igual que button.danger.
+     ============================================================ */
+  .accounts-title { margin-bottom: var(--sp-3); color: var(--text); }
+  .accounts-title--spaced { margin-top: var(--sp-5); }
+  .accounts-note { display: block; font-size: 0.85rem; color: var(--text-2); margin-bottom: var(--sp-5); }
+  .accounts-error { color: var(--fest-d); font-weight: bold; }
+
+  .account-row {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    margin-bottom: var(--sp-2);
+    padding: var(--sp-3);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+  }
+  .account-row--pending { background: var(--bg); border-color: var(--pac-d); }
+
+  .account-row__actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); }
+  /* Mínimo táctil: aquí viven Expulsar, Quitar Delegado y Coronar Dueño.
+     Con el .icon-btn de serie se quedaban en 26-27px de alto, y un toque
+     mal dado en el móvil expulsa a alguien. Mismo patrón que
+     .trade-row__actions button del mercadillo. */
+  .account-row__actions button { min-height: 44px; padding: 0 var(--sp-3); font-size: 0.75rem; white-space: nowrap; }
+  .account-row__role { font-size: 0.8rem; color: var(--text-2); margin-left: var(--sp-3); }
+  .account-row__wait { font-size: 0.8rem; color: var(--pac-d); font-weight: 600; margin-left: var(--sp-3); }
+  .account-row__meta { font-size: 0.8rem; color: var(--text-2); margin-top: var(--sp-1); }
+  .account-row__meta strong { color: var(--text); font-weight: 600; }
+  .account-row__locked { font-size: 0.75rem; color: var(--pac-d); }
+
+  button.btn-approve { background: var(--ped-d); color: var(--bg); border-color: transparent; font-weight: 600; }
+  button.btn-crown { background: var(--adu-d); color: var(--bg); border-color: transparent; font-weight: 600; }
+
+  /* ============================================================
      RESPONSIVE — el calendario se juzga primero en móvil
      ============================================================ */
   @media (max-width: 640px) {
@@ -649,6 +690,6 @@
        en vez de quedar dos botones estrechos pegados al borde derecho. */
     .merc-row { flex-direction: column; align-items: stretch; }
     .merc-actions { width: 100%; }
-    .merc-actions button, .trade-row__actions button { flex: 1; }
+    .merc-actions button, .trade-row__actions button, .account-row__actions button { flex: 1; }
     .merc-ext__grid button { flex: 1 1 100%; }
   }
