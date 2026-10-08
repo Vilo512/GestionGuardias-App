@@ -624,6 +624,69 @@
   button.btn-crown { background: var(--adu-d); color: var(--bg); border-color: transparent; font-weight: 600; }
 
   /* ============================================================
+     PASO 6 · Rotación (vista + editor manual de órdenes)
+     Clases propias: .rot-group y .editor-row siguen en uso en Excepciones
+     y migran con esa vista.
+     Capas: card --surface → grupo --surface-2 → fila --bg. Los botones de
+     acento van sobre --bg porque --fest-d no llega a 4.5:1 sobre --surface-2.
+     El color significa: ámbar = fijos, rojo = excluido de subastas,
+     azul = grupo anterior / fusionar, verde = grupo siguiente.
+     ============================================================ */
+  .rot-intro { color: var(--text-2); font-size: 0.9rem; margin-bottom: var(--sp-4); }
+  .rot-plan-note { margin-bottom: var(--sp-4); font-size: 0.9rem; color: var(--text-2); }
+  .rot-plan-note strong { color: var(--text); }
+  .rot-plan-bar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-4); padding: var(--sp-3); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); }
+  .rot-plan-bar label { font-weight: 600; font-size: 0.9rem; color: var(--text); }
+  /* 16px: por debajo, iOS Safari hace zoom al enfocar el control. */
+  .rot-plan-bar select, .rot-add select { flex: 1 1 200px; width: auto; margin: 0; min-height: 44px; font-size: 16px; border-color: var(--border-2); }
+
+  .rot-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-3); margin-bottom: var(--sp-3); }
+  .rot-card--fijos { border: 2px solid var(--pac-d); }
+  .rot-card__title { margin-bottom: var(--sp-2); color: var(--text); }
+  .rot-card__head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-2); padding-bottom: var(--sp-2); border-bottom: 1px solid var(--border-2); }
+  .rot-card--fijos .rot-card__head { border-bottom-color: var(--pac-d); }
+  .rot-card__count { font-size: 0.85rem; font-weight: 400; color: var(--text-2); }
+  .rot-card__count--fijos { color: var(--pac-d); }
+  .rot-card__actions { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+  .rot-line { padding: var(--sp-1) 0; border-bottom: 1px dashed var(--border); font-size: 0.9rem; color: var(--text); }
+  .rot-line:last-child { border-bottom: none; }
+
+  .rot-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-1) var(--sp-2); background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-1) var(--sp-2); margin-bottom: var(--sp-1); }
+  .rot-row--fijo { border-color: var(--pac-d); }
+  /* Antes era opacity:0.7, que apagaba también los botones. El aviso lo da el borde. */
+  .rot-row--excluido { border-style: dashed; border-color: var(--fest-d); }
+  .rot-row--excluido .rot-row__name { color: var(--text-2); }
+  .rot-row__name { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; font-weight: 500; font-size: 1rem; color: var(--text); overflow-wrap: anywhere; }
+  .rot-row__spacer { display: inline-block; width: 44px; flex-shrink: 0; }
+  .rot-row__actions { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+
+  /* Mínimo táctil: con el .icon-btn de serie estos controles medían 18-27px,
+     y son los que reordenan la fila india de toda la promoción. */
+  /* Borde --border-2: con el --border global, los neutros (↑ ↓ ⬆️ ✂️) eran
+     surface-2 sobre surface-2 a 1.15:1 y parecían texto suelto. */
+  .rot-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; padding: 0 var(--sp-2); font-size: 0.85rem; border-radius: var(--r-md); border-color: var(--border-2); white-space: nowrap; flex-shrink: 0; }
+  /* ✕ quita de la rotación sin confirmación: tamaño fijo, separado del resto
+     y empujado a la derecha, para que no herede el ancho sobrante de la línea. */
+  .rot-row__actions .rot-btn.danger { flex: 0 0 44px; margin-left: auto; }
+  .rot-btn--adu { background: var(--bg); color: var(--adu-d); border-color: var(--adu-d); }
+  .rot-btn--ped { background: var(--bg); color: var(--ped-d); border-color: var(--ped-d); }
+  .rot-btn--pac { background: var(--bg); color: var(--pac-d); border-color: var(--pac-d); }
+  .rot-btn--toggle-fest.is-on { background: var(--fest-d); color: var(--bg); border-color: var(--fest-d); }
+  .rot-btn--toggle-pac.is-on  { background: var(--pac-d);  color: var(--bg); border-color: var(--pac-d); }
+
+  .rot-add { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin: var(--sp-3) 0 var(--sp-4); }
+  .rot-add button { min-height: 44px; }
+  .rot-danger-zone { margin-top: var(--sp-5); padding-top: var(--sp-4); border-top: 2px dashed var(--border-2); }
+  .rot-danger-zone__label { display: block; margin-bottom: var(--sp-2); font-size: 0.85rem; color: var(--text-2); }
+  .rot-danger-zone button { width: 100%; min-height: 44px; font-size: 0.85rem; }
+
+  .rot-tools { margin-top: var(--sp-6); padding-top: var(--sp-4); border-top: 2px dashed var(--border-2); }
+  .rot-tools__title { margin-bottom: var(--sp-2); color: var(--text); }
+  .rot-tools__add-group { min-height: 44px; margin-bottom: var(--sp-4); }
+  .rot-save-bar { display: flex; flex-wrap: wrap; gap: var(--sp-2); padding: var(--sp-3); background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); }
+  .rot-save-bar button { min-height: 44px; }
+
+  /* ============================================================
      RESPONSIVE — el calendario se juzga primero en móvil
      ============================================================ */
   @media (max-width: 640px) {
@@ -692,4 +755,14 @@
     .merc-actions { width: 100%; }
     .merc-actions button, .trade-row__actions button, .account-row__actions button { flex: 1; }
     .merc-ext__grid button { flex: 1 1 100%; }
+
+    /* Rotación: el nombre ocupa su línea y los controles se reparten debajo
+       a ancho completo, en vez de quedar 7 botones apiñados a la derecha. */
+    .rot-row { flex-direction: column; align-items: stretch; }
+    /* Gap de 8px: el ✕ sin confirmación no puede quedar a 4px de Grp ▶ / ↓. */
+    .rot-row__actions { gap: var(--sp-2); }
+    .rot-row__actions .rot-btn { flex: 1 0 auto; }
+    .rot-row__actions .rot-btn.danger { flex: 0 0 44px; }
+    .rot-card__actions { width: 100%; }
+    .rot-card__actions .rot-btn, .rot-save-bar button { flex: 1 1 auto; }
   }

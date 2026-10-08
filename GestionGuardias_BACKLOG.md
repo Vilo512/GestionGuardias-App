@@ -121,6 +121,14 @@ Al empezar un punto de la cola se mueve a las pendientes del handover y se marca
 - **Veredicto:** entra, sin estimar. Requiere primero leer el estado real de RLS en Supabase, lo que necesita autorización del usuario.
 - **Anotada:** 2026-10-08
 
+### [P-11] Excepciones pinta nombres y motivos sin escapar
+- **Qué:** `renderAdminExceptions` interpola motivos (`app.js:~4702`) y usuarios del log (`~4730`) en `innerHTML` sin `escapeHtml`. Es el mismo defecto que se cerró en Cuentas y en Rotación.
+- **¿Tarde?:** no. Lo detectó el `testing-lead` al revisar Rotación (Paso 6).
+- **Impacto:** solo plantillas de Excepciones. No toca motores. Es la misma zona que su migración visual (7 colores, y además usa `.rot-group`/`.editor-row`, que siguen vivos por ella).
+- **Dónde:** **dentro** del Paso 6 · `renderAdminExceptions`, que ya abre esa plantilla. No es un punto propio.
+- **Veredicto:** entra.
+- **Anotada:** 2026-10-08
+
 ## Promovidas
 
 *(vacía)*

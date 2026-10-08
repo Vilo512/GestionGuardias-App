@@ -96,6 +96,7 @@ No es bloqueante y no se tocó, pero ahora lo alcanza un admin nombrado: `adminR
 - [x] Constitución del workflow (`4e0b33b`, `f013376`)
 - [x] PRD v1.6 y backlog de permisos (`0d0eff3`)
 - [x] Paso 6 · `renderAccountsList` (`470d0df`, `636965b`, `ee216fd`)
+- [x] Paso 6 · **Rotación** (`renderRotationView` + `renderEditor` + `#pane-rot`), rama `feature/paso6-rotacion`. Ver §6-ter.
 
 ### Inmediato
 - [x] **Push de BETA.** En sync con `origin/GestionGuardias-BETA`.
@@ -132,9 +133,18 @@ El bug declarado era uno; la auditoría estática encontró que **cuatro de las 
 **Verificación:** 29 pruebas de comportamiento que ejecutan el código real extraído de `app.js` con dobles de Supabase — **22 fallan contra la versión previa**, así que discriminan. Más `node --check`, canario, y un listener de `unhandledrejection` confirmando que el rechazo desapareció. El fichero de pruebas quedó en el scratchpad; **no está en el repo** y conviene decidir si se adopta, porque hoy el proyecto no tiene tests.
 
 ### Paso 6 — vistas que faltan
-`renderAdminAjustes` (23 colores), **rotación** (34, medido abajo), `renderAdminCalendar` (16), `renderGruposView` (18), `renderAdminHoras` (13), `renderAdminExceptions` (7), `renderAdminSeguridad` (2).
+`renderAdminAjustes` (23 colores), ~~rotación~~ (hecha), `renderAdminCalendar` (16), `renderGruposView` (18), `renderAdminHoras` (13), `renderAdminExceptions` (7, **lleva dentro [P-11]**), `renderAdminSeguridad` (2).
 
 > Las cifras de esta tabla salieron de rangos de líneas estimados a ojo y **algunas estaban mal**: «rotación» se midió como 274 líneas y son 143 repartidas en dos funciones. Antes de abrir cada vista, medirla de verdad acotando por la siguiente declaración de función.
+
+## 6-ter. Paso 6 — Rotación (rama `feature/paso6-rotacion`)
+
+Clases propias `.rot-*`. **`.rot-group` y `.editor-row` no se tocaron**, porque Excepciones también las usa y migrarán con ella. Las capas son card `--surface` → grupo `--surface-2` → fila `--bg`. Los botones de acento van en outline sobre `--bg`. El color significa: ámbar = fijos, rojo = excluido, azul = grupo anterior / fusionar, verde = grupo siguiente. Todos los controles miden al menos 44px. El ✕ (quitar, sin confirmación) tiene tamaño fijo, va a la derecha y lleva un gap de 8px en móvil.
+
+- **El handover anterior se equivocaba:** «cero `onclick` con nombres interpolados» no era cierto. 👻 y 📌 hacían `toggleResidente*('${res}')`. Pasaron a `data-rot-*` con el delegado `_bindRotEditorActions`, y además se escapan los nombres y los `<option>`. Se probó con `D'Angelo` y `Plan <b>O'Neil</b>`.
+- `testing-lead`: sin bloqueantes. Su único hallazgo de fondo es preexistente y fue al backlog como **[P-11]**.
+- `design-reviewer`: aplicados ✕ separado, borde `--border-2` en botones neutros y selects, ✂️ sin el ámbar de «fijo» y tipografía de nombres a 16px y de la zona de peligro a 0.85rem. **Quedan abiertos:** emoji sobre relleno activo a ~2.8:1, estimado y dependiente de plataforma (verificar en iOS/Android), y `button:hover` pegajoso en táctil (global, no de esta vista).
+- `?v=` en **3.5**.
 
 ### Sin verificar (límite del entorno)
 - [ ] **WebKit / iOS Safari.** Todo se validó en Chromium. Sigue igual que en agosto.
@@ -148,38 +158,22 @@ El bug declarado era uno; la auditoría estática encontró que **cuatro de las 
 
 ## 8. Arranque rápido de la próxima sesión
 
-**El punto es: Paso 6 — vista de Rotación al tema oscuro.** Decidido con el usuario. Solo visual: cero lógica, cero permisos.
-
-```bash
-git log --oneline -1   # deberia ser 3ecf51a, y BETA en sync con origin
-```
+**Siguiente punto propuesto: Paso 6 — pestaña Grupos (`renderGruposView`) al tema oscuro.** Es la vista de cara al residente que queda; las demás son de admin. El usuario puede cambiarlo al abrir.
 
 ### Lo que hay que migrar, ya medido
 
-| Función | Líneas | Colores fijos | `style=` | Botones |
-|---|---|---|---|---|
-| `renderRotationView` (`app.js:5360`) | 49 | 5 | 5 | — |
-| `renderEditor` (`app.js:5471`) | 94 | 29 | 23 | 13 |
+`renderGruposView` (`app.js:1861`): 79 líneas, 13 colores fijos, 20 `style=`, 2 botones. Hay que **medir cada vista acotando por la siguiente declaración de función**, no a ojo.
 
-### Lo que diferencia esta vista de la de Cuentas
-
-**Aquí el color significa cosas.** Entre los 29 de `renderEditor` hay amarillos (`#fef08a`, `#fef9c3`, `#fffdf5` — estás editando), rojos (`#fecaca`, `#ef4444`), azules (`#dbeafe`, `#e0f2fe`) y verdes (`#dcfce7`). No basta con oscurecer: hay que mapear cada **significado** a su token de acento (`--pac-d`, `--fest-d`, `--adu-d`, `--ped-d`).
-
-Y aplica la lección de agosto, ya usada en la fila pendiente de Cuentas: **nada de tintes translúcidos** — aclaran el fondo y hunden el contraste. Se hunde a `--bg` y el aviso lo da el borde.
-
-Los 13 botones son los controles de mover, partir y fusionar grupos: medirlos, que los de Cuentas estaban a 27px y el mínimo es 44.
-
-**A favor:** cero `onclick` con nombres interpolados — usan índices (`gIdx`, `rIdx`), así que la regla del Paso 6 que nos mordió en Cuentas no aplica aquí.
-
-**No entra en este punto:** `renderGruposView` (`app.js:1861`, 79 líneas, 18 colores) es la pestaña **Grupos**, una vista distinta.
+- **Sí hay un `onclick` interpolado:** `solicitarCambioGrupo('${p.id}')`. Es un id y no un nombre, así que el riesgo es menor, pero aplica la regla: `data-*` + delegación.
+- Ese botón lleva `background:white; color:var(--adu)`, que en tema oscuro es una caja blanca. Pasa a outline `--adu-d` sobre `--bg`.
+- La card usa `border-left: 4px solid var(--adu)` en `index.html` (`#pane-grupos`), el token legacy. Pasa a `--adu-d`.
 
 ### Recordatorios del ciclo
 
-- Subir el `?v=` de `app.js` y `style.css` en `index.html` — van por `3.4`.
+- **Disparador cerca:** `app.js` tiene **7.962 líneas** y el umbral es 8.000. El punto que lo cruce debe avisar y proponer el reparto por motores.
+- Subir el `?v=` de `app.js` y `style.css` en `index.html`. Van por **`3.5`**.
 - `node --check` no basta: canario en navegador.
-- Banco de pruebas de comportamiento en el scratchpad (`p01-test.js`, 35 pruebas). **No está en el repo**; pendiente de decidir si se adopta.
+- Banco de pruebas de comportamiento en el scratchpad (`p01-test.js`). **No está en el repo**; pendiente de decidir si se adopta.
 - Servidor de pruebas: entrada `gg-harness` en `.claude/launch.json` (puerto 8126).
 
-Servidor de pruebas: entrada `gg-harness` en `.claude/launch.json` (puerto 8126).
-
-> **Para probar esta vista sin sesión de Supabase:** `currentUserProfile` es un `let` de nivel superior y **no** se puede inyectar desde la consola. Hay que montar el marcado a mano y llamar a `_bindAccountActions(el)`, que sí está en `window`. Las utilidades `window.*` del final del archivo y `escapeHtml` también lo están.
+> **Para probar vistas sin sesión de Supabase (corrige lo que decía antes):** los `let` de nivel superior **sí** se pueden asignar desde `javascript_tool` (`currentUserProfile`, `isAdmin`, `isDelegado`, `editingGroups`, `state`…). Lo que hay que hacer siempre es **anular `saveState = async () => {}` antes de pulsar nada**: si no, se escribiría en el Supabase real.
