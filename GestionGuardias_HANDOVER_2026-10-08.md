@@ -17,7 +17,7 @@
 | E | Push a `origin/GestionGuardias-BETA` | ✅ En sync |
 | F | AUDIT al día: MVP cerrado, W12 y W13 nuevas | ✅ En BETA |
 | G | Limpieza de ramas: 7 locales → 3, 8 remotas → 3 | ✅ Hecho |
-| H | Merge a `main` | ⛔ **Descartado hoy a propósito** — ver §2 |
+| H | Merge a `main` | ⛔ Descartado por la mañana (§2). **Reevaluado al final del día: listo, aplazado a la próxima sesión por decisión del usuario** — ver §6-septies |
 | I | **[P-01]** Las escrituras de gobierno dejan de fallar en silencio | ✅ En BETA, auditado |
 | J | **«Hacer Admin»** + cierre de la Zona de Peligro | ✅ En BETA, auditado dos veces |
 | K | **Paso 6 · Horas** al tema oscuro + tarjetas en móvil | ✅ En BETA y en origin, auditado |
@@ -186,7 +186,30 @@ Clases `.prf-*`. Capas: card `--surface` → bloques `--surface-2`. Los 73 `styl
 - **Token nuevo `--border-input` (#80868b):** `--border-2` daba 2.25:1 como contorno de campo sobre `--surface`. Solo lo usa Perfil. Candidato a generalizarse en el resto de inputs.
 - `testing-lead`: sin bloqueantes. El menor del id está aplicado. Mandó al backlog la doble pulsación de «Añadir ausencia» (**[P-12]**) y amplió **[P-05]** con las escrituras de Perfil en modo simulación.
 - `design-reviewer`: aplicados sus dos fallos AA. Las marcas de la barra desaparecían en «exceso» (rojo sobre rojo) y ahora llevan halo `--bg` y 3px. El contorno de los campos y la pista pasan a `--border-input`. También el título de página a 1.4rem en móvil y el placeholder a `--text-2`. La falta de `:focus-visible` global va a **[P-13]**.
-- `?v=` en **3.8**. Sin verificar en WebKit/iOS.
+- `?v=` en **3.8**. ~~Sin verificar en WebKit/iOS~~ → el usuario lo probó en Safari/iPhone (ver §6-septies).
+
+## 6-septies. Merge a `main` — reevaluado y listo (sin ejecutar)
+
+El usuario planteó si se podía subir ya, porque lo que queda es casi todo invisible para el residente. Repasamos los tres motivos del descarte de la mañana:
+
+| Motivo | Estado |
+|---|---|
+| App mitad oscura, mitad clara | **Resuelto para el residente.** Calendario, sheets, mercadillo, Grupos y Perfil son oscuros. Lo que queda claro es de gestión: Calendario admin, Excepciones, Ajustes, Seguridad y los `.modal:not(.sheet)` (exportar, propuesta de mes, importar festivos, crear promoción). |
+| 43 commits el día uno de usuarios reales | Ese día ya pasó. Esperar solo agranda el salto, y producción sigue **sin `escapeHtml`** (§2). |
+| iOS nunca probado | **Hecho el 8-oct.** El usuario probó en Safari/iPhone: el flujo del residente funciona. Dos hallazgos, ninguno bloqueante: [P-14] y [P-15]. |
+
+**Comprobado en el código (sin tocar Supabase):** `main` y BETA usan el **mismo proyecto** (`elmpelhplacgkgfuiwno`) y las mismas 4 tablas. BETA no usa columnas nuevas ni RPC, y no hay service worker. ggsbeta lleva semanas leyendo datos escritos por producción, así que la compatibilidad ya está probada en la práctica. `main` no tiene commits propios (0 en `BETA..origin/main`), así que el merge sale sin conflictos.
+
+**Bloqueante encontrado y cerrado: el despliegue incluía el repo entero.** No había `.vercelignore`, así que backlog, handovers, PRD y AUDIT, con la descripción de los huecos de permisos ([P-03]), entraban en cada despliegue. **Corrección de un diagnóstico mío:** dije que en ggsbeta estaban públicos porque respondían 200, pero ese 200 era la página de login de Vercel, porque `Invoke-WebRequest` sigue las redirecciones. Con `curl` se ve un **302 al SSO de Vercel en todas las rutas**, `/` incluida: staging está detrás de Vercel Authentication y nunca fue público. El riesgo real era **producción**, cuyo dominio normalmente no está protegido. Arreglado con un **`.vercelignore` en lista blanca** (`index.html`, `app.js`, `style.css`, `LICENSE`), commit `b98d9b9`, ya en `origin`. Todo lo nuevo queda fuera por defecto. **Si la app empieza a cargar un recurso nuevo (iconos o manifest de la PWA), hay que añadirlo ahí**, o se publicará roto.
+
+**Sin verificar todavía:** por la protección no pude comprobar el despliegue desde fuera. Lo tiene que mirar el usuario con sesión de Vercel: `ggsbeta.vercel.app/` debe cargar la app y `ggsbeta.vercel.app/CLAUDE.md` debe dar 404. **Hacerlo antes del merge**: si la lista blanca fallara, el fallo pasaría a producción.
+
+**Condiciones acordadas para el merge:**
+1. ✅ Prueba en iPhone real.
+2. **No nombrar ningún admin hasta cerrar [P-02].** Con «Hacer Admin» ya disponible, un admin nombrado alcanza `adminResetMonth` y compañía, y además dispara [P-09]. Los delegados no tienen ese problema.
+3. ⏳ `.vercelignore` desplegado en staging. **Falta comprobarlo** con sesión de Vercel (ver arriba).
+
+**Lo que queda:** el merge en sí, con la **confirmación triple** de `CLAUDE.md`. Después, comprobar en producción que los `.md` dan 404 y que la app carga con `?v=3.8`.
 
 ## 7. Método — lo que funcionó hoy
 
@@ -197,7 +220,7 @@ Clases `.prf-*`. Capas: card `--surface` → bloques `--surface-2`. Los 73 `styl
 
 ## 8. Arranque rápido de la próxima sesión
 
-**Mi Perfil hecho (§6-sexies). Siguiente: `renderAdminSeguridad`, pero antes decidir el disparador de las 8.000 líneas (abajo).**
+**Mi Perfil hecho (§6-sexies). La próxima sesión es el merge a `main` (§6-septies): está listo y solo falta la confirmación triple. Después, decidir el disparador de las 8.000 líneas (abajo) y seguir con `renderAdminSeguridad`.**
 
 ### Cola del Paso 6 — decidida por el usuario el 8-oct
 
