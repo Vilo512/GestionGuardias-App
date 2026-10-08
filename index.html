@@ -7,7 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-<link rel="stylesheet" href="style.css?v=3.5">
+<link rel="stylesheet" href="style.css?v=3.6">
 </head>
 <body>
 
@@ -155,17 +155,17 @@
   </div>
   
 <div id="pane-grupos" style="display:none;">
-    <div class="card" style="border-left: 4px solid var(--adu);">
-      <h3>Mi Grupo Actual</h3>
+    <div class="card grp-card--current">
+      <h3 class="grp-card__title">Mi Grupo Actual</h3>
       <div id="grupos-current-info"></div>
     </div>
-    
+
     <div class="card">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:10px;">
-          <h3 style="margin:0;">Explorar Otros Grupos</h3>
-          <button class="primary icon-btn" style="background:var(--adu); font-size:0.9rem; padding:8px 12px;" onclick="abrirCrearPromocion()">+ Crear Nueva Promoción</button>
+      <div class="grp-head">
+          <h3 class="grp-head__title">Explorar Otros Grupos</h3>
+          <button class="primary grp-create" onclick="abrirCrearPromocion()">+ Crear Nueva Promoción</button>
       </div>
-      <p style="color:#64748b; font-size:0.9rem; margin-bottom:1.5rem;">Busca tu hospital y servicio para solicitar acceso. Si cambias de grupo, perderás acceso a tu calendario actual.</p>
+      <p class="grp-intro">Busca tu hospital y servicio para solicitar acceso. Si cambias de grupo, perderás acceso a tu calendario actual.</p>
       <div id="grupos-list-container"></div>
     </div>
   </div>
@@ -388,6 +388,6 @@
         </div>
     </div>
 
-    <script src="app.js?v=3.5"></script>
+    <script src="app.js?v=3.6"></script>
 </body>
 </html>

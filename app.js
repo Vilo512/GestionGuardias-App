@@ -1861,49 +1861,61 @@ function checkTradeConflicts(newTrade) {
 async function renderGruposView() {
     const currentContainer = document.getElementById('grupos-current-info');
     const listContainer = document.getElementById('grupos-list-container');
-    
-    currentContainer.innerHTML = '<p style="color:#64748b;">Cargando...</p>';
-    listContainer.innerHTML = '<p style="color:#64748b;">Cargando...</p>';
+    // Guarda de sesión: el visibilitychange de initApp puede llamar aquí sin perfil cargado.
+    if (!currentContainer || !listContainer || !currentUserProfile) return;
+    _bindGruposActions(document.getElementById('pane-grupos'));
+
+    currentContainer.innerHTML = '<p class="grp-muted">Cargando...</p>';
+    listContainer.innerHTML = '<p class="grp-muted">Cargando...</p>';
 
     const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout de red")), 5000));
     const fetchPromos = supabaseClient.from('promociones').select('*');
-    
+
     let promos;
     try {
         const { data, error } = await Promise.race([fetchPromos, timeout]);
         if (error) throw error;
-        promos = data;
+        promos = data || [];
     } catch (err) {
-        return currentContainer.innerHTML = `<p style="color:red;">Error de conexión: ${err.message}</p>`;
+        const msg = `<p class="grp-error">Error de conexión: ${escapeHtml(err.message)}</p>`;
+        currentContainer.innerHTML = msg;
+        listContainer.innerHTML = '';
+        return;
     }
 
     // 1. DIBUJAR GRUPO ACTUAL
-    if (currentUserProfile.promocion_id) {
-        const myPromo = promos.find(p => p.id === currentUserProfile.promocion_id);
-        if (myPromo) {
-            let statusBadge = currentUserProfile.estado === 'aprobado' 
-                ? `<span style="background:var(--ped); color:white; padding:4px 10px; border-radius:12px; font-size:0.8rem; font-weight:bold;">✅ Acceso Activo</span>`
-                : `<span style="background:#f59e0b; color:white; padding:4px 10px; border-radius:12px; font-size:0.8rem; font-weight:bold;">⏳ Pendiente de aprobación</span>`;
+    const myPromo = currentUserProfile.promocion_id
+        ? promos.find(p => p.id === currentUserProfile.promocion_id)
+        : null;
+    if (myPromo) {
+        const statusBadge = currentUserProfile.estado === 'aprobado'
+            ? `<span class="grp-badge grp-badge--ok">✅ Acceso activo</span>`
+            : `<span class="grp-badge grp-badge--wait">⏳ Pendiente de aprobación</span>`;
 
-            currentContainer.innerHTML = `
-                <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:15px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom: 15px;">
-                    <div>
-                        <h4 style="margin:0; color:var(--dark); font-size:1.1rem;">${myPromo.hospital}</h4>
-                        <div style="color:#475569; font-size:0.95rem; margin-top:4px;">${myPromo.servicio} <span style="color:#94a3b8;">(${myPromo.nombre})</span></div>
-                        <div style="margin-top:10px;">${statusBadge}</div>
-                    </div>
-                    <button class="danger" style="background:white;" onclick="abandonarGrupo()">🚪 Salir de este grupo</button>
+        currentContainer.innerHTML = `
+            <div class="grp-current">
+                <div class="grp-current__info">
+                    <h4 class="grp-current__hosp">${escapeHtml(myPromo.hospital)}</h4>
+                    <div class="grp-current__svc">${escapeHtml(myPromo.servicio)} <span class="grp-current__name">(${escapeHtml(myPromo.nombre)})</span></div>
+                    <div class="grp-current__status">${statusBadge}</div>
                 </div>
-                `;
-        	}
+                <button class="danger grp-leave" data-grp-act="salir">🚪 Salir de este grupo</button>
+            </div>`;
+    } else if (currentUserProfile.promocion_id) {
+        // El id apunta a una promoción que ya no existe: antes se quedaba en «Cargando...».
+        currentContainer.innerHTML = `
+            <div class="grp-current">
+                <p class="grp-muted">Tu grupo ya no figura en el sistema.</p>
+                <button class="danger grp-leave" data-grp-act="salir">🚪 Salir de este grupo</button>
+            </div>`;
     } else {
-        currentContainer.innerHTML = `<p style="color:#64748b; font-style:italic;">No estás en ningún grupo actualmente.</p>`;
+        currentContainer.innerHTML = `<p class="grp-muted grp-muted--italic">No estás en ningún grupo actualmente.</p>`;
     }
 
     // 2. DIBUJAR LISTA DE OTROS GRUPOS (las especialidades cerradas no admiten solicitudes)
     const otherPromos = promos.filter(p => p.id !== currentUserProfile.promocion_id && p.activa !== false);
     if (otherPromos.length === 0) {
-        listContainer.innerHTML = `<p style="color:#64748b; background:#f1f5f9; padding:15px; border-radius:8px;">No hay otros grupos registrados en el sistema.</p>`;
+        listContainer.innerHTML = `<p class="grp-empty">No hay otros grupos registrados en el sistema.</p>`;
         return;
     }
 
@@ -1915,22 +1927,36 @@ async function renderGruposView() {
 
     let html = '';
     for (const hosp in byHospital) {
-        html += `<div style="margin-bottom:1.5rem;">
-            <h4 style="color:var(--dark); border-bottom:2px solid #e2e8f0; padding-bottom:6px; margin-bottom:10px;">🏥 ${hosp}</h4>
-            <div style="display:flex; flex-direction:column; gap:8px;">`;
-        
+        html += `<div class="grp-hosp">
+            <h4 class="grp-hosp__title">🏥 ${escapeHtml(hosp)}</h4>
+            <div class="grp-hosp__list">`;
+
         byHospital[hosp].forEach(p => {
-            html += `<div style="background:white; border:1px solid #e2e8f0; border-radius:8px; padding:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-                <div>
-                    <strong style="color:var(--adu); font-size:1rem;">${p.servicio}</strong>
-                    <span style="color:#64748b; font-size:0.85rem; margin-left:6px;">Contenedor: ${p.nombre}</span>
+            html += `<div class="grp-row">
+                <div class="grp-row__info">
+                    <strong class="grp-row__svc">${escapeHtml(p.servicio)}</strong>
+                    <span class="grp-row__name">Contenedor: ${escapeHtml(p.nombre)}</span>
                 </div>
-                <button class="primary icon-btn" style="background:white; color:var(--adu); border:1px solid var(--adu);" onclick="solicitarCambioGrupo('${p.id}')">Solicitar Acceso</button>
+                <button class="grp-request" data-grp-act="solicitar" data-grp-id="${escapeHtml(p.id)}">Solicitar acceso</button>
             </div>`;
         });
         html += `</div></div>`;
     }
     listContainer.innerHTML = html;
+}
+
+/** Delegado de clics de la pestaña Grupos: los botones llevan data-grp-act, sin onclick interpolado. */
+function _bindGruposActions(root) {
+    if (!root || root._grpBound) return;
+    root._grpBound = true;
+    root.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-grp-act]');
+        if (!btn || !root.contains(btn)) return;
+        switch (btn.dataset.grpAct) {
+            case 'salir':     return abandonarGrupo();
+            case 'solicitar': return solicitarCambioGrupo(btn.dataset.grpId);
+        }
+    });
 }
 
 /**

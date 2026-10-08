@@ -687,6 +687,46 @@
   .rot-save-bar button { min-height: 44px; }
 
   /* ============================================================
+     PASO 6 · Grupos (pestaña del residente)
+     Mismas capas que Rotación: card --surface → fila --surface-2, y los
+     botones de acento en outline sobre --bg (--fest-d no llega a 4.5:1
+     sobre --surface-2). Texto secundario a --text-2 por la misma razón
+     que en Cuentas.
+     ============================================================ */
+  .grp-card--current { border-left: 4px solid var(--adu-d); }
+  .grp-card__title { color: var(--text); margin-bottom: var(--sp-3); }
+  .grp-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-3); }
+  .grp-head__title { margin: 0; color: var(--text); }
+  .grp-create { min-height: 44px; font-size: 0.9rem; }
+  .grp-intro { color: var(--text-2); font-size: 0.9rem; margin-bottom: var(--sp-5); }
+
+  .grp-muted { color: var(--text-2); }
+  .grp-muted--italic { font-style: italic; }
+  .grp-error { color: var(--fest-d); font-weight: 600; }
+  .grp-empty { color: var(--text-2); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-4); }
+
+  .grp-current { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--sp-3); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-4); }
+  .grp-current__info { min-width: 0; }
+  .grp-current__hosp { margin: 0; color: var(--text); font-size: 1.1rem; overflow-wrap: anywhere; }
+  .grp-current__svc { margin-top: var(--sp-1); color: var(--text); font-size: 0.95rem; overflow-wrap: anywhere; }
+  .grp-current__name { color: var(--text-2); }
+  .grp-current__status { margin-top: var(--sp-3); }
+  /* Rellenos con texto --bg: el blanco sobre --ped/--pac de antes no pasaba de 2.5:1. */
+  .grp-badge { display: inline-block; padding: var(--sp-1) var(--sp-3); border-radius: var(--r-pill); font-size: 0.8rem; font-weight: 700; color: var(--bg); }
+  .grp-badge--ok { background: var(--ped-d); }
+  .grp-badge--wait { background: var(--pac-d); }
+  button.grp-leave { background: var(--bg); min-height: 44px; }
+
+  .grp-hosp { margin-bottom: var(--sp-5); }
+  .grp-hosp__title { color: var(--text); border-bottom: 1px solid var(--border-2); padding-bottom: var(--sp-2); margin-bottom: var(--sp-3); overflow-wrap: anywhere; }
+  .grp-hosp__list { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .grp-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--sp-2) var(--sp-3); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-3); }
+  .grp-row__info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .grp-row__svc { color: var(--adu-d); font-size: 1rem; overflow-wrap: anywhere; }
+  .grp-row__name { color: var(--text-2); font-size: 0.85rem; overflow-wrap: anywhere; }
+  .grp-request { background: var(--bg); color: var(--adu-d); border-color: var(--adu-d); min-height: 44px; font-weight: 600; white-space: nowrap; }
+
+  /* ============================================================
      RESPONSIVE — el calendario se juzga primero en móvil
      ============================================================ */
   @media (max-width: 640px) {
