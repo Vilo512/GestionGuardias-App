@@ -735,7 +735,7 @@
      una tabla de 5 columnas con scroll horizontal.
      ============================================================ */
   .hrs-title { margin-bottom: var(--sp-4); font-size: 1.1rem; color: var(--text); }
-  .hrs-empty { color: var(--text-2); font-style: italic; }
+  .hrs-empty { color: var(--text-2); }
   .hrs-wrap { overflow-x: auto; }
   .hrs-table { width: 100%; border-collapse: collapse; font-size: 0.95rem; color: var(--text); }
   .hrs-table thead th { background: var(--surface-2); color: var(--text); font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; text-align: left; padding: var(--sp-3); border-bottom: 2px solid var(--border-2); }
@@ -832,8 +832,10 @@
     .hrs-table tr { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2) var(--sp-3); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-3); margin-bottom: var(--sp-2); }
     .hrs-table td, .hrs-table tbody th { display: block; padding: 0; border: none; }
     .hrs-table .hrs-name { grid-column: 1 / -1; font-size: 1rem; padding-bottom: var(--sp-2); border-bottom: 1px solid var(--border-2); }
-    .hrs-table .hrs-num { text-align: left; white-space: normal; }
-    .hrs-table .hrs-num::before { content: attr(data-label); display: block; font-size: 0.8rem; font-weight: 400; color: var(--text); }
-    /* --text-2 sobre --surface-2 se queda en 4.57:1: el histórico va en --text. */
+    /* Valor a 16px y en --text; la etiqueta se atenúa a --text-2 (4.57:1 sobre
+       --surface-2) y sube a 14px para compensar. */
+    .hrs-table .hrs-num { text-align: left; font-size: 1rem; }
+    .hrs-table .hrs-num--main { font-size: 1.05rem; }
+    .hrs-table td.hrs-num::before { content: attr(data-label); display: block; font-size: 0.875rem; font-weight: 400; color: var(--text-2); white-space: normal; }
     .hrs-table .hrs-num--muted { color: var(--text); }
   }
