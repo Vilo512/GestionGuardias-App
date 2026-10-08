@@ -59,6 +59,22 @@ Al empezar un punto de la cola se mueve a las pendientes del handover y se marca
 - **Veredicto:** entra. Riesgo de bloqueo permanente de una especialidad si no se hace, aunque no es urgente mientras el Dueño siga en activo.
 - **Anotada:** 2026-10-08
 
+### [P-05] D-06 ampliado — el panel de Cuentas escribe en modo simulación
+- **Qué:** un admin en modo simulación puede expulsar, cambiar roles o coronar desde Admin → Cuentas, con efecto real. Ninguna de las seis acciones comprueba `simulatedViewUser`, y la pestaña de Admin no se oculta al simular: su visibilidad se fija al iniciar sesión según el rol real (`app.js:731-732`, `app.js:2110-2124`) y `activateSimulationMode` (`app.js:908-916`) no la toca.
+- **¿Tarde?:** no — preexistente. D-06 se documentó en agosto como desviación **del mercadillo**; la auditoría del Paso 6 descubre que el alcance era mayor.
+- **Impacto:** `adminAprobarUsuario`, `adminExpulsarUsuario`, `adminCambiarRol`, `adminTraspasarCorona`, `adminRenunciarPrivilegios`, `adminEditarFechas`. Sin efecto visual. Más grave que el caso del mercadillo: allí era incoherencia entre lo que se ve y lo que se escribe, aquí son consecuencias de gobierno.
+- **Dónde:** detrás de **[P-01]**, misma zona. Conviene cerrarlo junto con la decisión D-06 del PRD §3.3, que sigue abierta.
+- **Veredicto:** entra.
+- **Anotada:** 2026-10-08
+
+### [P-06] `datalist` huérfano `lista-usuarios-aprobados`
+- **Qué:** existe el `<datalist>` (`index.html:363`) y el JS que lo rellena en cada render (`app.js:4963-4964`), pero **ningún `<input list=...>` lo consume**. Se construye marcado en cada pintado para nada.
+- **¿Tarde?:** no — resto antiguo, detectado al migrar la vista.
+- **Impacto:** trivial. O se borra, o se conecta al input al que iba destinado.
+- **Dónde:** final de cola. No comparte urgencia con nada.
+- **Veredicto:** entra como limpieza, pero **lo decide el usuario**: borrar marcado de UI que alguien pudo dejar a medias no es una llamada mía.
+- **Anotada:** 2026-10-08
+
 ### [P-03] Las guardas de permisos son solo de cliente
 - **Qué:** las 88 comprobaciones de rol viven en el navegador; los 28 puntos de escritura a Supabase no están protegidos por RLS verificado. Un residente con devtools se las salta todas.
 - **¿Tarde?:** no — nunca se especificó. Sale a la luz al abrir permisos (P-02) y al entrar usuarios reales.
