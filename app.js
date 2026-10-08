@@ -5365,16 +5365,16 @@ function renderRotationView() {
     const containerTop = document.getElementById('rot-content');
     let planSelectorHtml = '';
     if (isDelegado && promoConfig.planes) {
-        planSelectorHtml = `<div style="margin-bottom:15px; padding:10px; background:#f8fafc; border-radius:8px; display:flex; align-items:center; gap:10px;">
-            <label style="font-weight:bold; font-size:0.9rem;">Viendo Rotacin de:</label>
-            <select id="rot-plan-select" style="padding:5px; border-radius:5px; border:1px solid #cbd5e1;" onchange="selectedRotPlan = this.value; editingGroups = null; renderAll();">
-                <option value="AUTO" ${!selectedRotPlan || selectedRotPlan === 'AUTO' ? 'selected' : ''}>Mi Plan Actual (Automtico)</option>
-                ${promoConfig.planes.map(p => `<option value="${p.nombre}" ${selectedRotPlan === p.nombre ? 'selected' : ''}>${p.nombre}</option>`).join('')}
+        planSelectorHtml = `<div class="rot-plan-bar">
+            <label for="rot-plan-select">Viendo Rotación de:</label>
+            <select id="rot-plan-select" onchange="selectedRotPlan = this.value; editingGroups = null; renderAll();">
+                <option value="AUTO" ${!selectedRotPlan || selectedRotPlan === 'AUTO' ? 'selected' : ''}>Mi Plan Actual (Automático)</option>
+                ${promoConfig.planes.map(p => `<option value="${escapeHtml(p.nombre)}" ${selectedRotPlan === p.nombre ? 'selected' : ''}>${escapeHtml(p.nombre)}</option>`).join('')}
             </select>
         </div>`;
     } else {
         const myPlan = getPlanForUserOnDate(currentUserProfile, dk);
-        planSelectorHtml = `<div style="margin-bottom:15px; font-size:0.9rem; color:#64748b;">Mostrando Fila India para: <strong>${myPlan ? myPlan.nombre : 'Plan Base'}</strong></div>`;
+        planSelectorHtml = `<div class="rot-plan-note">Mostrando Fila India para: <strong>${escapeHtml(myPlan ? myPlan.nombre : 'Plan Base')}</strong></div>`;
     }
     
     const groups = getRotation(y, m);
@@ -5386,8 +5386,8 @@ function renderRotationView() {
     /* container.innerHTML = ''; */ 
     let order = 1; 
     groups.forEach((g, i) => {
-        const div = document.createElement('div'); div.className = 'rot-group'; 
-        div.innerHTML = `<h4 style="margin-bottom:0.5rem; color:var(--dark);">Grupo ${i+1}</h4>` + g.map(res => `<div style="padding:4px 0; border-bottom:1px dashed #e2e8f0; font-size:0.9rem;"><strong>${order++}.</strong> ${res}</div>`).join(''); 
+        const div = document.createElement('div'); div.className = 'rot-card';
+        div.innerHTML = `<h4 class="rot-card__title">Grupo ${i+1}</h4>` + g.map(res => `<div class="rot-line"><strong>${order++}.</strong> ${escapeHtml(res)}</div>`).join('');
         listDiv.appendChild(div); 
     }); 
     containerTop.appendChild(listDiv);
@@ -5485,23 +5485,21 @@ function renderEditor() {
 
     editingGroups.forEach((g, i) => {
         const esGrupoDeFijos = (i === 0 && tieneGrupoFijos);
-        const tituloGrupo = esGrupoDeFijos 
-            ? `👑 Grupo Especial: Rotantes Fijos <span style="color:#a16207; font-size:0.85rem;">(${g.length} personas)</span>` 
-            : `Hospital Grupo ${grupoMovilContador++} <span style="color:#64748b; font-size:0.85rem;">(${g.length} personas)</span>`;
+        const tituloGrupo = esGrupoDeFijos
+            ? `👑 Grupo Especial: Rotantes Fijos <span class="rot-card__count rot-card__count--fijos">(${g.length} personas)</span>`
+            : `Hospital Grupo ${grupoMovilContador++} <span class="rot-card__count">(${g.length} personas)</span>`;
 
-        const gdiv = document.createElement('div'); 
-        gdiv.className = 'rot-group';
-        gdiv.style.border = esGrupoDeFijos ? '2px solid #f59e0b' : '1px solid #e2e8f0';
-        gdiv.style.background = esGrupoDeFijos ? '#fffdf5' : 'var(--light)';
+        const gdiv = document.createElement('div');
+        gdiv.className = esGrupoDeFijos ? 'rot-card rot-card--fijos' : 'rot-card';
 
         // Cabecera del grupo con acciones de grupo
-        let groupHeaderHtml = `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; border-bottom:2px solid ${esGrupoDeFijos ? '#f59e0b' : '#cbd5e1'}; padding-bottom:4px;">
+        let groupHeaderHtml = `<div class="rot-card__head">
             <strong>${tituloGrupo}</strong>
             ${!esGrupoDeFijos ? `
-            <div style="display:flex; gap: 4px; flex-wrap:wrap;">
-                <button class="icon-btn" style="padding:2px 6px; font-size:0.75rem; height:24px;" onclick="moveGroupEntirely(${i}, 'up')" title="Subir Grupo Entero">⬆️ Grupo</button>
-                <button class="icon-btn" style="padding:2px 6px; font-size:0.75rem; height:24px;" onclick="moveGroupEntirely(${i}, 'down')" title="Bajar Grupo Entero">⬇️ Grupo</button>
-                <button class="icon-btn" style="padding:2px 6px; font-size:0.75rem; height:24px; background:#e0f2fe;" onclick="mergeGroupWithNext(${i})" title="Fusionar con el siguiente grupo">🔗 Fusionar▼</button>
+            <div class="rot-card__actions">
+                <button class="rot-btn" onclick="moveGroupEntirely(${i}, 'up')" title="Subir Grupo Entero">⬆️ Grupo</button>
+                <button class="rot-btn" onclick="moveGroupEntirely(${i}, 'down')" title="Bajar Grupo Entero">⬇️ Grupo</button>
+                <button class="rot-btn rot-btn--adu" onclick="mergeGroupWithNext(${i})" title="Fusionar con el siguiente grupo">🔗 Fusionar▼</button>
             </div>` : ''}
         </div>`;
         gdiv.innerHTML = groupHeaderHtml +
@@ -5513,20 +5511,23 @@ function renderEditor() {
             const canNext = !esGrupoDeFijos && i < editingGroups.length - 1;
             const canSplit = !esGrupoDeFijos && rIdx > 0;
             
+            // Los toggles van por data-* y delegación (_bindRotEditorActions): un
+            // nombre con apóstrofo rompía el onclick interpolado.
+            const resAttr = escapeHtml(res);
             return `
-            <div class="editor-row" style="background:white; padding:5px 6px; border:1px solid ${esFijo ? '#fef08a' : '#e2e8f0'}; border-radius:6px; margin-bottom:3px; ${esExcluido ? 'opacity:0.7;' : ''}">
-                <span style="display:inline-block; min-width:120px; font-weight:500; font-size:0.9rem; color:var(--dark);">
-                    ${canSplit ? `<button class="icon-btn" style="padding:1px 4px; font-size:0.65rem; height:18px; background:#fef9c3; border-color:#ca8a04; margin-right:3px;" onclick="splitGroupAt(${i},${rIdx})" title="Dividir grupo aquí">✂️</button>` : '<span style="display:inline-block;width:26px"></span>'}
-                    ${res} ${esFijo ? '📌' : ''} ${esExcluido ? '👻' : ''}
-                </span>
-                <div style="display:flex; gap:3px; flex-wrap:wrap;">
-                    <button class="icon-btn" style="background:${esExcluido?'#fecaca':'#f1f5f9'}; border-color:${esExcluido?'#ef4444':'#cbd5e1'};" onclick="toggleResidenteExcluido('${res}')" title="Excluir de Subastas">👻</button>
-                    <button class="icon-btn" style="background:${esFijo?'#fef08a':'#f1f5f9'}; border-color:${esFijo?'#ca8a04':'#cbd5e1'};" onclick="toggleResidenteFijo('${res}')" title="Fijo/Móvil">📌</button>
-                    <button class="icon-btn" style="background:#f1f5f9;" onclick="moveResInGroup(${i},${rIdx},'up')" title="Subir dentro del grupo">↑</button>
-                    <button class="icon-btn" style="background:#f1f5f9;" onclick="moveResInGroup(${i},${rIdx},'down')" title="Bajar dentro del grupo">↓</button>
-                    ${canPrev ? `<button class="icon-btn" style="background:#dbeafe; font-size:0.75rem;" onclick="moveResToPrevGroup(${i},${rIdx})" title="Mover al grupo anterior">◀ Grp</button>` : ''}
-                    ${canNext ? `<button class="icon-btn" style="background:#dcfce7; font-size:0.75rem;" onclick="moveResToNextGroup(${i},${rIdx})" title="Mover al grupo siguiente">Grp ▶</button>` : ''}
-                    <button class="danger icon-btn" onclick="editorRemoveMemberLinear(${i},${rIdx})">✕</button>
+            <div class="rot-row${esFijo ? ' rot-row--fijo' : ''}${esExcluido ? ' rot-row--excluido' : ''}">
+                <div class="rot-row__name">
+                    ${canSplit ? `<button class="rot-btn" onclick="splitGroupAt(${i},${rIdx})" title="Dividir grupo aquí" aria-label="Dividir grupo aquí">✂️</button>` : '<span class="rot-row__spacer"></span>'}
+                    <span>${resAttr} ${esFijo ? '📌' : ''} ${esExcluido ? '👻' : ''}</span>
+                </div>
+                <div class="rot-row__actions">
+                    <button class="rot-btn rot-btn--toggle-fest${esExcluido ? ' is-on' : ''}" data-rot-act="excluir" data-rot-res="${resAttr}" aria-pressed="${esExcluido}" title="Excluir de Subastas" aria-label="Excluir de Subastas">👻</button>
+                    <button class="rot-btn rot-btn--toggle-pac${esFijo ? ' is-on' : ''}" data-rot-act="fijo" data-rot-res="${resAttr}" aria-pressed="${esFijo}" title="Fijo/Móvil" aria-label="Fijo/Móvil">📌</button>
+                    <button class="rot-btn" onclick="moveResInGroup(${i},${rIdx},'up')" title="Subir dentro del grupo" aria-label="Subir dentro del grupo">↑</button>
+                    <button class="rot-btn" onclick="moveResInGroup(${i},${rIdx},'down')" title="Bajar dentro del grupo" aria-label="Bajar dentro del grupo">↓</button>
+                    ${canPrev ? `<button class="rot-btn rot-btn--adu" onclick="moveResToPrevGroup(${i},${rIdx})" title="Mover al grupo anterior">◀ Grp</button>` : ''}
+                    ${canNext ? `<button class="rot-btn rot-btn--ped" onclick="moveResToNextGroup(${i},${rIdx})" title="Mover al grupo siguiente">Grp ▶</button>` : ''}
+                    <button class="rot-btn danger" onclick="editorRemoveMemberLinear(${i},${rIdx})" title="Quitar de la rotación" aria-label="Quitar de la rotación">✕</button>
                 </div>
             </div>`;
         }).join('');
@@ -5535,19 +5536,40 @@ function renderEditor() {
 
     const btnContainer = document.createElement('div');
     btnContainer.innerHTML = `
-    <div style="display:flex; gap:10px; margin-top:10px; margin-bottom:15px; width:100%;">
-        <select id="sel-add-res" style="flex:1; padding:8px; border-radius:6px; border:1px solid #cbd5e1;">
+    <div class="rot-add">
+        <select id="sel-add-res" aria-label="Añadir residente a la rotación">
             <option value="">-- Añadir Residente a la Rotación --</option>
             <option value="VIRTUAL">+ Nuevo Virtual (Ej: Aura)</option>
-            ${globalProfiles.filter(p => !editingGroups.flat().includes(p.nombre_mostrar) && p.promocion_id === currentUserProfile.promocion_id && residentePerteneceAPlan(p.nombre_mostrar, _edPlanName, curDate.getFullYear(), curDate.getMonth())).map(p => `<option value="${p.nombre_mostrar}">${p.nombre_mostrar} (Registrado)</option>`).join('')}
+            ${globalProfiles.filter(p => !editingGroups.flat().includes(p.nombre_mostrar) && p.promocion_id === currentUserProfile.promocion_id && residentePerteneceAPlan(p.nombre_mostrar, _edPlanName, curDate.getFullYear(), curDate.getMonth())).map(p => `<option value="${escapeHtml(p.nombre_mostrar)}">${escapeHtml(p.nombre_mostrar)} (Registrado)</option>`).join('')}
         </select>
-        <button class="primary" style="background:var(--dark);" onclick="editorAddSelectedRes()">Añadir</button>
+        <button class="primary" onclick="editorAddSelectedRes()">Añadir</button>
     </div>
-    <div style="margin-top:20px; padding-top:15px; border-top:2px dashed #cbd5e1;">
-        <span style="font-size:0.75rem; color:#94a3b8; display:block; margin-bottom:6px;">⚠️ ZONA DE CONFIGURACIÓN INICIAL (SOLO AL CREAR EL CONTENEDOR):</span>
-        <button id="btn-shuffle" class="danger" style="width:100%; background:#94a3b8; border:none; color:white; font-size:0.8rem; padding:6px;" onclick="adminAutoShuffleGroups()">🎲 Sorteo Inicial: Barajar Fila Completa Respetando Fijos</button>
+    <div class="rot-danger-zone">
+        <span class="rot-danger-zone__label">⚠️ ZONA DE CONFIGURACIÓN INICIAL (SOLO AL CREAR EL CONTENEDOR):</span>
+        <button id="btn-shuffle" class="danger" onclick="adminAutoShuffleGroups()">🎲 Sorteo Inicial: Barajar Fila Completa Respetando Fijos</button>
     </div>`;
     setupC.appendChild(btnContainer);
+    _bindRotEditorActions(setupC);
+}
+
+/**
+ * Delegación de los toggles del editor de rotación. Se engancha una sola vez
+ * al contenedor (que sobrevive a los re-render por innerHTML). Mismo patrón
+ * que _bindAccountActions: el nombre viaja en data-*, no interpolado en JS.
+ * @param {HTMLElement} root
+ */
+function _bindRotEditorActions(root) {
+    if (!root || root._rotBound) return;
+    root._rotBound = true;
+    root.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-rot-act]');
+        if (!btn || !root.contains(btn)) return;
+        const res = btn.dataset.rotRes;
+        switch (btn.dataset.rotAct) {
+            case 'excluir': return toggleResidenteExcluido(res);
+            case 'fijo':    return toggleResidenteFijo(res);
+        }
+    });
 }
 // ============================================================
 // MÓDULO: ROTACION_EDITOR_CONTROLES (sub-sección de ROTACION_EDITOR)

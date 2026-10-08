@@ -7,7 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-<link rel="stylesheet" href="style.css?v=3.4">
+<link rel="stylesheet" href="style.css?v=3.5">
 </head>
 <body>
 
@@ -139,13 +139,13 @@
         <h3 id="rot-title" style="margin:0; font-size:1.1rem;">Rotación</h3>
         <button onclick="changeMonth(1)">Sig ▶</button>
       </div>
-      <p style="color:#64748b; font-size:0.9rem; margin-bottom:1rem;">Orden de elección mensual.</p>
+      <p class="rot-intro">Orden de elección mensual.</p>
       <div id="rot-content"></div>
-      <div id="admin-rot-tools" style="display:none; margin-top:2rem; padding-top:1rem; border-top:2px dashed #cbd5e1;">
-        <h4 style="margin-bottom:0.5rem;">⚙️ Editor Manual de Órdenes</h4>
+      <div id="admin-rot-tools" class="rot-tools" style="display:none;">
+        <h4 class="rot-tools__title">⚙️ Editor Manual de Órdenes</h4>
         <div id="setup-groups"></div>
-        <button onclick="editorAddGroup()" style="margin-bottom:1rem;">+ Añadir Grupo Vacío</button>
-        <div style="display:flex; flex-wrap:wrap; gap:8px; background:#f8fafc; padding:10px; border-radius:8px; border:1px solid #e2e8f0;">
+        <button class="rot-tools__add-group" onclick="editorAddGroup()">+ Añadir Grupo Vacío</button>
+        <div class="rot-save-bar">
           <button class="primary" onclick="saveCustomMonth()">Guardar SOLO para este mes</button>
           <button class="danger" onclick="saveAsNewBase()">Fijar como NUEVA BASE</button>
           <button onclick="clearCustomMonth()">Restaurar cálculo automático</button>
@@ -388,6 +388,6 @@
         </div>
     </div>
 
-    <script src="app.js?v=3.4"></script>
+    <script src="app.js?v=3.5"></script>
 </body>
 </html>
