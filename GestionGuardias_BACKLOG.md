@@ -49,6 +49,15 @@ Al empezar un punto de la cola se mueve a las pendientes del handover y se marca
 - **Dónde:** detrás de **[P-01]**, misma zona y mismo motor. Hacer los dos en la misma apertura.
 - **Veredicto:** entra. Decidido con el usuario el 2026-10-08.
 - **Anotada:** 2026-10-08
+- **Prioridad al alza desde el 2026-10-08.** Al existir «Hacer Admin» ya hay admins que no son el Dueño, y las operaciones destructivas que siguen bajo `isAdmin` **sin ámbito de plan** pasan a ser alcanzables por ellos: `adminResetMonth` (`app.js:4802`, borra las guardias del mes **de todos los planes**), el borrado total del mes (`app.js:4585`), borrar registros del histórico (`app.js:4736`) y aplicar la propuesta de asignación (`app.js:6339`, `6464`). Lo que destruye la especialidad entera ya está cerrado con `esDueño`; esto es el escalón de abajo y es justo lo que el ámbito por plan debe acotar.
+
+### [P-10] `adminVaciarGeneracion`: función muerta y destructiva
+- **Qué:** expulsa a todos los residentes y borra guardias y calendarios de la especialidad. **No tiene ningún llamador** — ni botón en `index.html` ni llamada en `app.js`. Solo es alcanzable desde la consola.
+- **¿Tarde?:** no, resto antiguo. Sale al cerrar las operaciones de especialidad entera.
+- **Impacto:** ya le he puesto guarda de `esDueño` para que no se quede en la misma familia que acabamos de cerrar, pero eso no resuelve lo de fondo: o se borra, o se conecta a un botón.
+- **Dónde:** final de cola, con [P-06] (el `datalist` huérfano). Son la misma clase de resto.
+- **Veredicto:** entra como limpieza, pero **lo decide el usuario**: borrar una función destructiva que alguien pudo dejar a medias no es una llamada mía.
+- **Anotada:** 2026-10-08
 
 ### [P-09] La sucesión automática no contempla que existan admins
 - **Qué:** `iniciarProcesoSalida` (`app.js:2016-2020`) elige sucesor entre `delegados` (solo `rol==='delegado'`) y `residentes` (que **excluye** explícitamente a los admin). Se escribió cuando el único admin era el Dueño.

@@ -542,7 +542,7 @@ function normalizeConfig(config) {
 
 /** Descarga y normaliza la configuración de la promoción desde Supabase; rellena promoConfig. */
 async function loadPromoConfig() {
-  if (!currentUserProfile?.promocion_id) return;
+  if (!currentUserProfile?.promocion_id) { esDueño = false; return; }
   try {
     const { data, error } = await supabaseClient.from('promociones').select('configuracion, creador_id').eq('id', currentUserProfile.promocion_id).single();
     esDueño = !!(data && data.creador_id === currentUserProfile.id);
@@ -2097,6 +2097,7 @@ async function ejecutarSalidaFinal(destinoId) {
     currentUserProfile.estado = 'pendiente';
     isAdmin = false;
     isDelegado = false;
+    esDueño = false; // al salir del grupo dejas de ser su Dueño, aunque la corona tarde en pasar
 
     alert(destinoId ? "Solicitud enviada al nuevo grupo." : "Has salido del grupo correctamente.");
     evaluarEstadoUsuario(); 
@@ -2256,7 +2257,7 @@ async function adminUpdatePromoDetails() {
  * se informa — imposible cargarse un grupo activo por accidente.
  */
 async function adminBorrarPromocionVacia(promoId) {
-    if (!isAdmin) return alert('⚠️ Solo el admin puede borrar grupos.');
+    if (!esDueño) return alert('⚠️ Solo el Dueño de una especialidad puede borrar grupos.');
     if (promoId === currentUserProfile.promocion_id) return alert('Esa es tu propia promoción: usa la Zona de Peligro si de verdad quieres borrarla.');
     const p = (todasLasPromociones || []).find(x => x.id === promoId);
     if (!confirm(`¿Borrar el grupo "${p ? p.servicio + ' — ' + p.hospital : promoId}"?\n\nSolo se borrará si está completamente vacío (sin ningún perfil vinculado).`)) return;
@@ -4805,6 +4806,12 @@ async function adminResetMonth(y, m) { if (!isAdmin) return alert('⚠️ El res
  * Mantiene las reglas de promoConfig. Requiere confirmación doble con texto "VACIAR".
  */
 async function adminVaciarGeneracion() {
+    // Sin guarda de rol y sin ningún llamador: no hay botón que la invoque,
+    // solo la consola. Se cierra igualmente porque expulsa a toda la
+    // promoción, y desde que existen admins nombrados esa es la familia de
+    // operaciones que acabamos de cerrar. Ver [P-10] del backlog: decidir si
+    // se borra o se conecta.
+    if (!esDueño) return alert('⚠️ Solo el Dueño de la especialidad puede vaciar la generación.');
     if (!confirm("⚠️ ATENCIÓN: Vas a expulsar a todos los residentes normales y borrar todas las guardias y calendarios. Las reglas se mantendrán. ¿Estás seguro?")) return;
     if (prompt("Escribe VACIAR en mayúsculas para confirmar:") !== "VACIAR") return;
 
@@ -5065,7 +5072,7 @@ async function renderAccountsList() {
                   } else {
                       acciones += `<button class="primary icon-btn" data-acc-act="rol" data-acc-id="${u.id}" data-acc-rol="delegado">Hacer Delegado</button>`;
                   }
-                  acciones += `<button class="primary icon-btn" data-acc-act="rol" data-acc-id="${u.id}" data-acc-rol="admin" data-acc-confirm="¿Hacer Admin a ${n}? Podrá gestionar residentes y configuración. Solo tú, como Dueño, podrás quitárselo.">Hacer Admin</button>`;
+                  acciones += `<button class="primary icon-btn" data-acc-act="rol" data-acc-id="${u.id}" data-acc-rol="admin" data-acc-confirm="¿Hacer Admin a ${n}? Podrá aprobar, expulsar y gestionar delegados. NO podrá tocar los planes de guardias ni borrar la especialidad: eso sigue siendo solo tuyo. Solo tú podrás quitarle el rol.">Hacer Admin</button>`;
               }
               acciones += `<button class="primary icon-btn btn-crown" data-acc-act="coronar" data-acc-id="${u.id}" data-acc-nombre="${n}">Coronar Dueño</button>`;
           } else {
