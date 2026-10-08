@@ -7635,7 +7635,11 @@ function _bindPerfilActions(root) {
             case 'guardar-inicio':   return guardarFechaInicioPerfil();
             case 'guardar-contrato': return guardarFechaContratoPerfil();
             case 'nueva-baja':       return solicitarBajaPerfil();
-            case 'borrar-baja':      return eliminarBajaPerfil(Number(btn.dataset.prfId));
+            case 'borrar-baja': {
+                // Se busca el id original en vez de convertir el atributo: una baja sin id numérico daría NaN y no se borraría.
+                const baja = (state.bajasLargas || []).find(b => String(b.id) === btn.dataset.prfId);
+                return eliminarBajaPerfil(baja ? baja.id : undefined);
+            }
         }
     });
     root.addEventListener('change', (e) => {
