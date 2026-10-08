@@ -20,6 +20,7 @@
 | H | Merge a `main` | ⛔ **Descartado hoy a propósito** — ver §2 |
 | I | **[P-01]** Las escrituras de gobierno dejan de fallar en silencio | ✅ En BETA, auditado |
 | J | **«Hacer Admin»** + cierre de la Zona de Peligro | ✅ En BETA, auditado dos veces |
+| K | **Paso 6 · Horas** al tema oscuro + tarjetas en móvil | ✅ En BETA y en origin, auditado |
 
 ## 2. Lo urgente que no se tocó
 
@@ -183,7 +184,17 @@ Clases `.hrs-*`, cero `style=`. En escritorio es una tabla con cabecera `--surfa
 
 ## 8. Arranque rápido de la próxima sesión
 
-**Horas hecho (§6-quinquies).** **Siguiente punto propuesto: Paso 6 — `renderPerfilUsuario` (Mi Perfil)**. Es una vista de residente **sin migrar**: lo de §6-quater de que «ya no quedan vistas de residente» era falso. Comprobado en el harness el 8-oct: tarjetas blancas de la paleta clara dentro de la app oscura, con 12 `var(--dark)`, fondos `#f8fafc` y grises `#64748b`/`#94a3b8` fijos, e inputs ya oscuros por los estilos globales, así que la vista queda mezclada. La ve **todo residente**, así que gana a cualquier vista de gestión por alcance. Ocupa 181 líneas con 73 `style=`. Puede que el blanco de las tarjetas venga también de `#pane-perfil` en `index.html:205`: comprobarlo al abrir. Si se busca un punto corto: `renderAdminSeguridad` (33 líneas, solo Dueño).
+**Horas hecho (§6-quinquies).**
+
+### Cola del Paso 6 — decidida por el usuario el 8-oct
+
+1. **`renderPerfilUsuario`** (Mi Perfil) ← **la próxima sesión empieza aquí**
+2. **`renderAdminSeguridad`**
+3. **`renderAdminCalendar`**
+
+Una sesión por punto. Quedan fuera de la cola, sin fecha: `renderAdminExceptions` (arrastra [P-11]) y `renderAdminAjustes` (más la zona de promoción de `index.html:330-349`).
+
+**Sobre el punto 1:** Es una vista de residente **sin migrar**: lo de §6-quater de que «ya no quedan vistas de residente» era falso. Comprobado en el harness el 8-oct: tarjetas blancas de la paleta clara dentro de la app oscura, con 12 `var(--dark)`, fondos `#f8fafc` y grises `#64748b`/`#94a3b8` fijos, e inputs ya oscuros por los estilos globales, así que la vista queda mezclada. La ve **todo residente**, así que gana a cualquier vista de gestión por alcance. Ocupa 181 líneas con 73 `style=`. Puede que el blanco de las tarjetas venga también de `#pane-perfil` en `index.html:205`: comprobarlo al abrir. Para probarla en el harness: asignar `currentUserProfile` y llamar a `renderPerfilUsuario()`. Tiene dos selectores (año y mes) y cuatro formularios (residencia, contrato, ausencias): aplicar la regla de 16px y 44px en móvil.
 
 Medición del 8-oct, contando `style="` hasta la siguiente declaración de función:
 
