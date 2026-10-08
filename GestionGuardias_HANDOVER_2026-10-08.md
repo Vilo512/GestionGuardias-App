@@ -183,7 +183,7 @@ Clases `.hrs-*`, cero `style=`. En escritorio es una tabla con cabecera `--surfa
 
 ## 8. Arranque rápido de la próxima sesión
 
-**Horas hecho (§6-quinquies).** **Siguiente punto propuesto: Paso 6 — `renderAdminSeguridad`**, la vista de gestión que queda más pequeña (33 líneas, 5 `style=`, solo la ve el Dueño). **Alternativa** si se prioriza alcance: `renderAdminCalendar` (275 líneas, 19 `style=`), que también usan los delegados.
+**Horas hecho (§6-quinquies).** **Siguiente punto propuesto: Paso 6 — `renderPerfilUsuario` (Mi Perfil)**. Es una vista de residente **sin migrar**: lo de §6-quater de que «ya no quedan vistas de residente» era falso. Comprobado en el harness el 8-oct: tarjetas blancas de la paleta clara dentro de la app oscura, con 12 `var(--dark)`, fondos `#f8fafc` y grises `#64748b`/`#94a3b8` fijos, e inputs ya oscuros por los estilos globales, así que la vista queda mezclada. La ve **todo residente**, así que gana a cualquier vista de gestión por alcance. Ocupa 181 líneas con 73 `style=`. Puede que el blanco de las tarjetas venga también de `#pane-perfil` en `index.html:205`: comprobarlo al abrir. Si se busca un punto corto: `renderAdminSeguridad` (33 líneas, solo Dueño).
 
 Medición del 8-oct, contando `style="` hasta la siguiente declaración de función:
 
@@ -191,7 +191,7 @@ Medición del 8-oct, contando `style="` hasta la siguiente declaración de funci
 |---|---|---|---|
 | `renderAdminSeguridad` | 33 | 5 | Solo Dueño |
 | `renderAdminExceptions` | 37 | 28 | Arrastra [P-11] |
-| `renderPerfilUsuario` | 181 | 73 | **Ojo:** §8 decía que ya no quedaban vistas de residente. Comprobar si esos `style=` ya usan tokens o es una vista sin migrar |
+| `renderPerfilUsuario` | 181 | 73 | **Sin migrar** (comprobado). Vista de residente: va primero |
 | `renderAdminAjustes` | 216 | 91 | Solo Dueño. Además, `index.html` tiene la zona de promoción con colores claros fijos (`:330-349`) |
 | `renderAdminCalendar` | 275 | 19 | Admins y delegados |
 
