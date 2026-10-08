@@ -134,6 +134,11 @@ function getCurrentRotPlan(dk) {
 }
 let isAdmin = false;
 let isDelegado = false;
+// Dueño = creador de la especialidad. NO es un rol (PRD §3.2): hasta que
+// existió «Hacer Admin», el único `rol:'admin'` era el Dueño y daba igual
+// confundirlos. Ya no: lo que es de toda la especialidad —borrarla, cambiar
+// hospital/nombre— se cierra con esto, no con isAdmin.
+let esDueño = false;
 let loggedInUser = null;
 let simulatedViewUser = null;
 let currentAdminView = 'pediatria';
@@ -537,12 +542,13 @@ function normalizeConfig(config) {
 
 /** Descarga y normaliza la configuración de la promoción desde Supabase; rellena promoConfig. */
 async function loadPromoConfig() {
-  if (!currentUserProfile?.promocion_id) return;
+  if (!currentUserProfile?.promocion_id) { esDueño = false; return; }
   try {
-    const { data, error } = await supabaseClient.from('promociones').select('configuracion').eq('id', currentUserProfile.promocion_id).single();
+    const { data, error } = await supabaseClient.from('promociones').select('configuracion, creador_id').eq('id', currentUserProfile.promocion_id).single();
+    esDueño = !!(data && data.creador_id === currentUserProfile.id);
     if (data && data.configuracion) promoConfig = normalizeConfig(data.configuracion);
     else promoConfig = normalizeConfig({});
-  } catch (e) { console.error("Error cargando config", e); promoConfig = normalizeConfig({}); }
+  } catch (e) { console.error("Error cargando config", e); esDueño = false; promoConfig = normalizeConfig({}); }
 }
 	
 /**
@@ -2091,6 +2097,7 @@ async function ejecutarSalidaFinal(destinoId) {
     currentUserProfile.estado = 'pendiente';
     isAdmin = false;
     isDelegado = false;
+    esDueño = false; // al salir del grupo dejas de ser su Dueño, aunque la corona tarde en pasar
 
     alert(destinoId ? "Solicitud enviada al nuevo grupo." : "Has salido del grupo correctamente.");
     evaluarEstadoUsuario(); 
@@ -2136,15 +2143,18 @@ function nav(tab) {
 function navAdmin(sub) {
   // 🧭 B5: 'calendario' ya no es solo-admin — el delegado puede pintar los días
   // habilitados de SU plan (renderAdminCalendar restringe pinceles y filtro).
+  // Ajustes y Seguridad son de la ESPECIALIDAD entera (borrarla, cambiarle
+  // hospital y nombre), así que van con `esDueño`, no con `isAdmin`. Desde que
+  // el Dueño puede nombrar admins, isAdmin ya no implica ser el Dueño.
   const adminOnlySubs = ['ajustes', 'seguridad'];
-  if (adminOnlySubs.includes(sub) && !isAdmin) sub = 'excepciones';
+  if (adminOnlySubs.includes(sub) && !esDueño) sub = 'excepciones';
   currentAdminView = sub;
   ['calendario','excepciones','export','cuentas','horas','seguridad','ajustes'].forEach(t => {
     const view = document.getElementById(`aview-${t}`); if (view) view.style.display = t === sub ? 'block' : 'none';
     const tab = document.getElementById(`atab-${t}`);
     if (tab) {
       tab.className = `tab ${t === sub ? 'active' : ''}`;
-      if (adminOnlySubs.includes(t)) tab.style.display = isAdmin ? '' : 'none';
+      if (adminOnlySubs.includes(t)) tab.style.display = esDueño ? '' : 'none';
     }
   });
   document.getElementById('admin-nav-header').style.display = (sub === 'calendario' || sub === 'horas' || sub === 'excepciones') ? 'block' : 'none';
@@ -2203,6 +2213,8 @@ function onEditPromoHospitalChange() {
 
 /** 🏥 B6: Guarda especialidad, hospital y estado (abierta/cerrada) de la promoción propia. */
 async function adminUpdatePromoDetails() {
+    // Hospital y nombre son de la especialidad entera, no de un plan.
+    if (!esDueño) return alert("⚠️ Solo el Dueño de la especialidad puede cambiar su hospital o su nombre.");
     const newServicio = document.getElementById('edit-promo-servicio').value.trim();
     if (!newServicio) return alert("El campo de la especialidad no puede estar vacío.");
 
@@ -2245,7 +2257,7 @@ async function adminUpdatePromoDetails() {
  * se informa — imposible cargarse un grupo activo por accidente.
  */
 async function adminBorrarPromocionVacia(promoId) {
-    if (!isAdmin) return alert('⚠️ Solo el admin puede borrar grupos.');
+    if (!esDueño) return alert('⚠️ Solo el Dueño de una especialidad puede borrar grupos.');
     if (promoId === currentUserProfile.promocion_id) return alert('Esa es tu propia promoción: usa la Zona de Peligro si de verdad quieres borrarla.');
     const p = (todasLasPromociones || []).find(x => x.id === promoId);
     if (!confirm(`¿Borrar el grupo "${p ? p.servicio + ' — ' + p.hospital : promoId}"?\n\nSolo se borrará si está completamente vacío (sin ningún perfil vinculado).`)) return;
@@ -4794,6 +4806,12 @@ async function adminResetMonth(y, m) { if (!isAdmin) return alert('⚠️ El res
  * Mantiene las reglas de promoConfig. Requiere confirmación doble con texto "VACIAR".
  */
 async function adminVaciarGeneracion() {
+    // Sin guarda de rol y sin ningún llamador: no hay botón que la invoque,
+    // solo la consola. Se cierra igualmente porque expulsa a toda la
+    // promoción, y desde que existen admins nombrados esa es la familia de
+    // operaciones que acabamos de cerrar. Ver [P-10] del backlog: decidir si
+    // se borra o se conecta.
+    if (!esDueño) return alert('⚠️ Solo el Dueño de la especialidad puede vaciar la generación.');
     if (!confirm("⚠️ ATENCIÓN: Vas a expulsar a todos los residentes normales y borrar todas las guardias y calendarios. Las reglas se mantendrán. ¿Estás seguro?")) return;
     if (prompt("Escribe VACIAR en mayúsculas para confirmar:") !== "VACIAR") return;
 
@@ -4843,7 +4861,21 @@ async function adminVaciarGeneracion() {
     window.location.reload();
 }
 /** Borra permanentemente toda la promoción de Supabase. Requiere confirmación doble con texto "BORRAR". */
-async function adminDeletePromotion() { if (!confirm("⚠️ ¡ALERTA ROJA! ⚠️\nEstás a punto de borrar TODA la promoción y sus calendarios.\nNO se puede deshacer.")) return; if (prompt("Escribe BORRAR en mayúsculas para confirmar:") !== "BORRAR") return; setStatus('Destruyendo grupo...'); const { error } = await supabaseClient.from('promociones').delete().eq('id', currentUserProfile.promocion_id); if (error) alert("Error: " + error.message); else window.location.reload(); }
+async function adminDeletePromotion() {
+    // Única operación que destruye los datos de todos. Se revalida contra el
+    // servidor, no contra `esDueño`: esa variable se fija al iniciar sesión y
+    // quedaría obsoleta si la corona cambia de manos a mitad de sesión.
+    const { data: promo, error: errP } = await supabaseClient.from('promociones').select('creador_id').eq('id', currentUserProfile.promocion_id).single();
+    if (errP || !promo) return alert("No se ha podido comprobar quién es el Dueño de la especialidad. No se ha borrado nada.");
+    if (promo.creador_id !== currentUserProfile.id) return alert("⚠️ Solo el Dueño de la especialidad puede borrarla.");
+
+    if (!confirm("⚠️ ¡ALERTA ROJA! ⚠️\nEstás a punto de borrar TODA la promoción y sus calendarios.\nNO se puede deshacer.")) return;
+    if (prompt("Escribe BORRAR en mayúsculas para confirmar:") !== "BORRAR") return;
+    setStatus('Destruyendo grupo...');
+    const { error } = await supabaseClient.from('promociones').delete().eq('id', currentUserProfile.promocion_id);
+    if (error) { setStatus('Conectado ✅'); alert("Error: " + error.message); }
+    else window.location.reload();
+}
 
 /** Actualiza el buzón de solicitudes entrantes y el historial de operaciones del Mercadillo. */
 function renderMercadoInboxAndLog() {
@@ -5004,7 +5036,9 @@ async function renderAccountsList() {
       const esDueñoFila = promo && promo.creador_id === u.id;
       let rolBadge = '✅ Residente';
       if (esDueñoFila) rolBadge = '👑 Dueño';
-      else if (u.rol === 'admin') rolBadge = '🛡 Admin';
+      // El selector de variación (U+FE0F) no es opcional: sin él, 🛡 se
+      // dibuja en estilo texto y sale un contorno tipo corazón, no un escudo.
+      else if (u.rol === 'admin') rolBadge = '🛡️ Admin';
       else if (u.rol === 'delegado') rolBadge = '⭐ Delegado';
 
       const n = escapeHtml(u.nombre_mostrar);
@@ -5025,10 +5059,20 @@ async function renderAccountsList() {
               // El Dueño puede expulsar a cualquiera
               acciones += `<button class="danger icon-btn" data-acc-act="expulsar" data-acc-id="${u.id}" data-acc-nombre="${n}">Expulsar</button>`;
 
-              if (u.rol === 'delegado') {
-                  acciones += `<button class="danger icon-btn" data-acc-act="rol" data-acc-id="${u.id}" data-acc-rol="residente">Quitar Delegado</button>`;
-              } else if (u.rol !== 'admin') {
-                  acciones += `<button class="primary icon-btn" data-acc-act="rol" data-acc-id="${u.id}" data-acc-rol="delegado">Hacer Delegado</button>`;
+              // Gestión de rol. «Hacer Admin» es exclusivo del Dueño (PRD §3.2)
+              // y va siempre con su contrario: sin «Quitar Admin» la promoción
+              // sería una puerta de un solo sentido, porque una fila de admin
+              // no mostraba ningún botón de rol y solo se podía deshacer
+              // expulsando o coronando.
+              if (u.rol === 'admin') {
+                  acciones += `<button class="danger icon-btn" data-acc-act="rol" data-acc-id="${u.id}" data-acc-rol="residente" data-acc-confirm="¿Quitar el rol de Admin a ${n}? Volverá a ser residente.">Quitar Admin</button>`;
+              } else {
+                  if (u.rol === 'delegado') {
+                      acciones += `<button class="danger icon-btn" data-acc-act="rol" data-acc-id="${u.id}" data-acc-rol="residente">Quitar Delegado</button>`;
+                  } else {
+                      acciones += `<button class="primary icon-btn" data-acc-act="rol" data-acc-id="${u.id}" data-acc-rol="delegado">Hacer Delegado</button>`;
+                  }
+                  acciones += `<button class="primary icon-btn" data-acc-act="rol" data-acc-id="${u.id}" data-acc-rol="admin" data-acc-confirm="¿Hacer Admin a ${n}? Podrá aprobar, expulsar y gestionar delegados. NO podrá tocar los planes de guardias ni borrar la especialidad: eso sigue siendo solo tuyo. Solo tú podrás quitarle el rol.">Hacer Admin</button>`;
               }
               acciones += `<button class="primary icon-btn btn-crown" data-acc-act="coronar" data-acc-id="${u.id}" data-acc-nombre="${n}">Coronar Dueño</button>`;
           } else {
@@ -5073,6 +5117,10 @@ function _bindAccountActions(root) {
         const btn = e.target.closest('[data-acc-act]');
         if (!btn || !root.contains(btn)) return;
         const d = btn.dataset;
+        // Botones que conceden o retiran poder piden confirmación. Comparten
+        // fila con «Coronar Dueño» y en el móvil envuelven a dos líneas, así
+        // que un toque desviado es fácil.
+        if (d.accConfirm && !confirm(d.accConfirm)) return;
         switch (d.accAct) {
             case 'aprobar':   return adminAprobarUsuario(d.accId, d.accNombre);
             case 'rechazar':  return adminRechazarUsuario(d.accId);
