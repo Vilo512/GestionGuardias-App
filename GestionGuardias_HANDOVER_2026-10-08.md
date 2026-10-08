@@ -18,6 +18,8 @@
 | F | AUDIT al día: MVP cerrado, W12 y W13 nuevas | ✅ En BETA |
 | G | Limpieza de ramas: 7 locales → 3, 8 remotas → 3 | ✅ Hecho |
 | H | Merge a `main` | ⛔ **Descartado hoy a propósito** — ver §2 |
+| I | **[P-01]** Las escrituras de gobierno dejan de fallar en silencio | ✅ En BETA, auditado |
+| J | **«Hacer Admin»** + cierre de la Zona de Peligro | ✅ En BETA, auditado dos veces |
 
 ## 2. Lo urgente que no se tocó
 
@@ -50,6 +52,36 @@ Tres hallazgos reales, los tres cerrados en `636965b`: el badge de Dueño se deg
 
 Y uno que **no** se arregló porque no es de este punto: **D-06 es más grande de lo documentado** (ver §5).
 
+## 4-bis. «Hacer Admin» — y el agujero que destapó (`e77010a`, `5df8c68`, `78717cc`)
+
+Pedido como «me falta un botón». No faltaba un botón: **no había ninguna forma de crear un admin.** El único camino a `rol:'admin'` era «Coronar Dueño», que traspasa la corona entera. El PRD describía un rol que la interfaz no sabía fabricar.
+
+Matriz implementada, solo para el Dueño:
+
+| El compañero es | Botones |
+|---|---|
+| residente | Expulsar · Hacer Delegado · **Hacer Admin** · Coronar Dueño |
+| delegado | Expulsar · Quitar Delegado · **Hacer Admin** · Coronar Dueño |
+| admin | Expulsar · **Quitar Admin** · Coronar Dueño |
+
+«Quitar Admin» va en el lote a propósito: sin él era una puerta de un solo sentido, porque una fila de admin no mostraba ningún botón de rol.
+
+### El bloqueante
+
+El `testing-lead` detectó que el botón **convertía un agujero latente en uno real**, y tenía razón. Hasta ese momento el único `rol:'admin'` era el Dueño, así que buena parte del código asume «admin == Dueño». Las pestañas Ajustes y Seguridad se abrían con `isAdmin`, y dentro vive `adminDeletePromotion`, que **no tenía ninguna comprobación de rol** — solo un `confirm` y escribir «BORRAR». Nombrar admin a un R2 le daba un botón que borra la especialidad entera.
+
+No es una sospecha: contra el código previo, la prueba «borrar/no-dueño: NO borra nada» **falla**.
+
+Arreglado con un `esDueño` global derivado de `creador_id` (lo pone `loadPromoConfig`, que ya consultaba esa tabla). Las pestañas pasan a `esDueño`; `adminUpdatePromoDetails`, `adminBorrarPromocionVacia` y `adminVaciarGeneracion` también; y **`adminDeletePromotion` revalida contra el servidor**, porque una variable fijada al iniciar sesión quedaría obsoleta si la corona cambia de manos.
+
+> **Lección para el resto del Paso 6 y para P-02:** cada vez que se cree un rol que antes no existía en la práctica, hay que buscar qué código asumía que no existía. Aquí fueron cinco sitios.
+
+### Lo que sigue bajo `isAdmin` sin ámbito de plan
+
+No es bloqueante y no se tocó, pero ahora lo alcanza un admin nombrado: `adminResetMonth` (`app.js:4802`, **borra las guardias del mes de todos los planes**), el borrado total del mes (`4585`), borrar histórico (`4736`) y aplicar la propuesta (`6339`, `6464`). Es exactamente lo que [P-02] debe acotar, y por eso subió de prioridad.
+
+**Mientras el Dueño sea el único admin, la exposición es cero.** Se activa al nombrar al primero.
+
 ## 5. Decisiones y divergencias abiertas
 
 | # | Qué | Dónde |
@@ -79,9 +111,12 @@ Y uno que **no** se arregló porque no es de este punto: **D-06 es más grande d
 - [ ] **[P-02]** Ámbito por plan y apertura de la gestión de roles — el grande
 - [ ] **[P-05]** D-06 ampliado
 - [ ] **[P-04]** Sucesión forzosa del Dueño — **ampliado** por la auditoría de P-01: la sucesión automática puede coronar a alguien dado de baja, y un Dueño en solitario puede renunciar sin traspasar
+- [ ] **[P-09]** La sucesión automática no contempla admins — con Dueño + un único admin, el Dueño **no puede salir**: lanza y nadie lo captura
 - [ ] **[P-07]** Perfiles históricos que conservan su rol — dato heredado, necesita migración en Supabase
 - [ ] **[P-03]** Las guardas son solo de cliente; RLS sin verificar
-- [ ] **[P-06]** `datalist` huérfano · **[P-08]** dos valores para «sin rol»
+- [ ] **[P-06]** `datalist` huérfano · **[P-08]** dos valores para «sin rol» · **[P-10]** `adminVaciarGeneracion` muerta
+
+> **Nada de esto urge.** Los R1 están en producción sobre el código de julio, que funciona. Todo lo de hoy vive en BETA sin desplegar, y el riesgo nuevo solo se activa si se nombra un admin.
 
 ## 6-bis. P-01 — escrituras de gobierno (commits `6b9d718`, `1f70a2e`)
 
@@ -97,7 +132,9 @@ El bug declarado era uno; la auditoría estática encontró que **cuatro de las 
 **Verificación:** 29 pruebas de comportamiento que ejecutan el código real extraído de `app.js` con dobles de Supabase — **22 fallan contra la versión previa**, así que discriminan. Más `node --check`, canario, y un listener de `unhandledrejection` confirmando que el rechazo desapareció. El fichero de pruebas quedó en el scratchpad; **no está en el repo** y conviene decidir si se adopta, porque hoy el proyecto no tiene tests.
 
 ### Paso 6 — vistas que faltan
-Por colores fijos: `renderAdminAjustes` (23), `renderRotationView` (18), `renderAdminCalendar` (16), `renderAdminHoras` (13), `renderAdminExceptions` (7), `renderAdminSeguridad` (2).
+`renderAdminAjustes` (23 colores), **rotación** (34, medido abajo), `renderAdminCalendar` (16), `renderGruposView` (18), `renderAdminHoras` (13), `renderAdminExceptions` (7), `renderAdminSeguridad` (2).
+
+> Las cifras de esta tabla salieron de rangos de líneas estimados a ojo y **algunas estaban mal**: «rotación» se midió como 274 líneas y son 143 repartidas en dos funciones. Antes de abrir cada vista, medirla de verdad acotando por la siguiente declaración de función.
 
 ### Sin verificar (límite del entorno)
 - [ ] **WebKit / iOS Safari.** Todo se validó en Chromium. Sigue igual que en agosto.
@@ -111,12 +148,37 @@ Por colores fijos: `renderAdminAjustes` (23), `renderRotationView` (18), `render
 
 ## 8. Arranque rápido de la próxima sesión
 
+**El punto es: Paso 6 — vista de Rotación al tema oscuro.** Decidido con el usuario. Solo visual: cero lógica, cero permisos.
+
 ```bash
-git log --oneline -1          # deberia ser d128e9b
-git log origin/GestionGuardias-BETA..HEAD --oneline   # 6 commits sin pushear
+git log --oneline -1   # deberia ser 3ecf51a, y BETA en sync con origin
 ```
 
-Lo primero es decidir el push. Después, **[P-01] + [P-02] sobre la zona de Cuentas**, que acaba de quedar migrada y es la misma región: abrirla una vez en lugar de dos.
+### Lo que hay que migrar, ya medido
+
+| Función | Líneas | Colores fijos | `style=` | Botones |
+|---|---|---|---|---|
+| `renderRotationView` (`app.js:5360`) | 49 | 5 | 5 | — |
+| `renderEditor` (`app.js:5471`) | 94 | 29 | 23 | 13 |
+
+### Lo que diferencia esta vista de la de Cuentas
+
+**Aquí el color significa cosas.** Entre los 29 de `renderEditor` hay amarillos (`#fef08a`, `#fef9c3`, `#fffdf5` — estás editando), rojos (`#fecaca`, `#ef4444`), azules (`#dbeafe`, `#e0f2fe`) y verdes (`#dcfce7`). No basta con oscurecer: hay que mapear cada **significado** a su token de acento (`--pac-d`, `--fest-d`, `--adu-d`, `--ped-d`).
+
+Y aplica la lección de agosto, ya usada en la fila pendiente de Cuentas: **nada de tintes translúcidos** — aclaran el fondo y hunden el contraste. Se hunde a `--bg` y el aviso lo da el borde.
+
+Los 13 botones son los controles de mover, partir y fusionar grupos: medirlos, que los de Cuentas estaban a 27px y el mínimo es 44.
+
+**A favor:** cero `onclick` con nombres interpolados — usan índices (`gIdx`, `rIdx`), así que la regla del Paso 6 que nos mordió en Cuentas no aplica aquí.
+
+**No entra en este punto:** `renderGruposView` (`app.js:1861`, 79 líneas, 18 colores) es la pestaña **Grupos**, una vista distinta.
+
+### Recordatorios del ciclo
+
+- Subir el `?v=` de `app.js` y `style.css` en `index.html` — van por `3.4`.
+- `node --check` no basta: canario en navegador.
+- Banco de pruebas de comportamiento en el scratchpad (`p01-test.js`, 35 pruebas). **No está en el repo**; pendiente de decidir si se adopta.
+- Servidor de pruebas: entrada `gg-harness` en `.claude/launch.json` (puerto 8126).
 
 Servidor de pruebas: entrada `gg-harness` en `.claude/launch.json` (puerto 8126).
 
