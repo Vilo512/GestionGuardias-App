@@ -5128,7 +5128,10 @@ async function adminTraspasarCorona(userId, userName) {
     //   1. Promover al nuevo  → peor caso: dos admins. Inofensivo.
     //   2. Mover la corona    → peor caso: sigues siendo Dueño. Reintentable.
     //   3. Degradarte tú      → peor caso: eres un admin de más. Lo arregla él.
-    const abortar = (msg) => { setStatus('Conectado ✅'); alert(msg); };
+    // Repinta al abortar: tras un fallo parcial la lista muestra los badges de
+    // ANTES de la escritura que sí entró, y el usuario podría reintentar
+    // creyendo que no cambió nada.
+    const abortar = async (msg) => { setStatus('Conectado ✅'); alert(msg); await renderAccountsList(); };
 
     const r1 = await supabaseClient.from('perfiles').update({ rol: 'admin' }).eq('id', userId);
     if (r1.error) return abortar(`⚠️ No se ha podido dar rol de admin a ${userName}.\n\n${r1.error.message}\n\nNo se ha cambiado nada: sigues siendo el Dueño.`);
@@ -5216,7 +5219,7 @@ window.adminEditarFechas = async function adminEditarFechas(userId, userName, fI
 async function adminAprobarUsuario(userId, userName) {
     setStatus('Aprobando...');
     const { error } = await supabaseClient.from('perfiles').update({ estado: 'aprobado' }).eq('id', userId);
-    if(error) return alert("Error: " + error.message);
+    if(error) { setStatus('Conectado ✅'); return alert(`⚠️ No se ha podido aprobar a ${userName}.\n\n${error.message}\n\nSigue en la sala de espera.`); }
 
     // 🧭 B2: el plan de destino es el del USUARIO APROBADO (calculado por sus fechas de
     // contrato), NUNCA el del aprobador: un delegado R2 aprobando a una R1 la metía en
