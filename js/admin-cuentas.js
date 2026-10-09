@@ -1,7 +1,5 @@
 // ============================================================
 // MÓDULO: ADMIN_CUENTAS
-// Exportar a: src/modules/adminCuentas.js
-// Líneas estimadas: ~250
 // Dependencias externas: supabaseClient, currentUserProfile, state, globalProfiles, curDate
 // Helpers que usa: setStatus, saveState, renderAccountsList, renderRotationView, reempaquetarGruposPlan, invalidateConfigMes, limpiarFuturos, formatDateKey, getCurrentRotPlan, MONTHS
 // ============================================================

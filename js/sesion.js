@@ -1,7 +1,5 @@
 // ============================================================
 // MÓDULO: AUTH_SESION
-// Exportar a: src/modules/auth.js
-// Líneas estimadas: ~120
 // Dependencias externas: supabaseClient, currentUserProfile, loggedInUser, isAdmin, isDelegado
 // Helpers que usa: setStatus, renderUserHeader, evaluarEstadoUsuario, loadPromoConfig, loadState, nav, renderAll, renderGruposView, renderAccountsList, renderAdminExceptions
 // ============================================================
@@ -138,8 +136,6 @@ async function evaluarEstadoUsuario() {
 
 // ============================================================
 // MÓDULO: USUARIOS_ACCESOS
-// Exportar a: src/modules/usuarios.js
-// Líneas estimadas: ~115
 // Dependencias externas: supabaseClient, currentUserProfile, todasLasPromociones
 // Helpers que usa: setStatus, evaluarEstadoUsuario, ejecutarSalidaFinal, activateSimulationMode, renderAll, nav, getRotationKey, saveState
 // ============================================================

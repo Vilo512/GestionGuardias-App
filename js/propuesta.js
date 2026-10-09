@@ -1,6 +1,5 @@
 // ============================================================
 // MÓDULO: PROPUESTA_ASIGNACION (N5 §8.5)
-// Exportar a: src/modules/propuestaAsignacion.js
 // Dependencias externas: promoConfig, state.shifts, state.excluidosSubastas
 // Helpers que usa: getResidentesActivosEnMes, residentePerteneceAPlan, getDayTag,
 //                  isServiceEnabledOnDate, getPlazasForDay, getIllegalShiftsForUser,

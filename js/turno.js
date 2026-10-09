@@ -1,7 +1,5 @@
 // ============================================================
 // MÓDULO: MOTOR_SUBASTAS
-// Exportar a: src/modules/motorSubastas.js
-// Líneas estimadas: ~390
 // Dependencias externas: state, promoConfig, globalProfiles, curDate
 // Helpers que usa: getDaysInMonth, formatDateKey, getDayTag, isServiceEnabledOnDate, getPlazasForDay, getHistoricoFestivosResidentes, getResidentesActivosEnMes, getUserProgress, getPlanForUserOnDate, getComputedShifts, saveState, renderAll, getRotationKey
 // ============================================================
@@ -353,8 +351,6 @@ function _getAnalisisFestivosImpl(y, m) {
 
 // ============================================================
 // MÓDULO: MOTOR_TURNO
-// Exportar a: src/modules/motorTurno.js
-// Líneas estimadas: ~210
 // Dependencias externas: state.configMes, state.skippedTurns, state.grantedTurn, promoConfig, globalProfiles
 // Helpers que usa: getRotationKey, getRotationForPlan, getPlanForUserOnDate, getUserProgress, getResidentesActivosEnMes, formatDateKey, saveState, renderAll
 // ============================================================
@@ -636,8 +632,6 @@ function getCurrentTurn(y, m, forcedPlanName) {
 }
 // ============================================================
 // MÓDULO: BAJAS_ACTIVOS (sub-sección de MOTOR_TURNO)
-// Exportar a: src/modules/motorTurno.js  ← mismo archivo
-// Líneas estimadas: ~30
 // Dependencias externas: state.bajasLargas
 // Helpers que usa: getAllResidents
 // ============================================================

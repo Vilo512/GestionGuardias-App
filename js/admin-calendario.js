@@ -1,7 +1,5 @@
 // ============================================================
 // MÓDULO: ADMIN_CALENDARIO
-// Exportar a: src/modules/adminCalendario.js
-// Líneas estimadas: ~155
 // Dependencias externas: state.festivos, state.habilitaciones, state.pedWhitelist, promoConfig, curDate
 // Helpers que usa: getFirstDayOffset, getDaysInMonth, formatDateKey, getCellBackgroundStyle, isServiceEnabledOnDate, getPlazasForDay, saveState, renderAdminCalendar, setStatus, supabaseClient
 // ============================================================
@@ -250,7 +248,6 @@ function renderAdminCalendar() {
 
 // ============================================================
 // MÓDULO: FESTIVOS_IMPORTACION (N4 — sub-sección de ADMIN_CALENDARIO)
-// Exportar a: src/modules/adminCalendario.js  ← mismo archivo
 // Fuente externa: date.nager.at (agregador público, sin garantía oficial; CORS abierto
 // verificado). Cubre festivos NACIONALES y AUTONÓMICOS de España. NO cubre festivos
 // LOCALES de municipio (fiesta mayor, patrón) — esos se añaden a mano con el pincel.
@@ -382,7 +379,6 @@ async function confirmarImportarFestivos(y) {
 
 // ============================================================
 // MÓDULO: PATRON_HUECOS (N3 — sub-sección de ADMIN_CALENDARIO)
-// Exportar a: src/modules/adminCalendario.js  ← mismo archivo
 // Dependencias externas: promoConfig, state.habilitaciones, supabaseClient
 // Helpers que usa: getSvcConfig, puedeGestionarPlan, getFirstDayOffset, getDaysInMonth,
 //                  formatDateKey, saveState, renderAdminCalendar
@@ -539,8 +535,6 @@ async function ejecutarGeneracionPatron(svcName, planName, y, m) {
 
 // ============================================================
 // MÓDULO: ADMIN_EXCEPCIONES
-// Exportar a: src/modules/adminExcepciones.js
-// Líneas estimadas: ~60
 // Dependencias externas: state.pendingExceptions, state.exceptionLogs, state.exceptionReasons, state.skippedTurns
 // Helpers que usa: getRotationKey, getDaysInMonth, formatDateKey, saveState, renderAdminExceptions, renderAll, checkAutomaticGraduation, MONTHS
 // ============================================================

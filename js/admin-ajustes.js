@@ -1,7 +1,5 @@
 // ============================================================
 // MÓDULO: ADMIN_AJUSTES
-// Exportar a: src/modules/adminAjustes.js
-// Líneas estimadas: ~440
 // Dependencias externas: promoConfig, supabaseClient, currentUserProfile
 // Helpers que usa: syncConfigFromUI, saveState, setStatus, renderAll, checkAutomaticGraduation, MONTHS
 // ============================================================

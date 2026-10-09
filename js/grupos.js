@@ -1,7 +1,5 @@
 // ============================================================
 // MÓDULO: GRUPOS_HOSPITALARIOS
-// Exportar a: src/modules/grupos.js
-// Líneas estimadas: ~230
 // Dependencias externas: supabaseClient, currentUserProfile, state
 // Helpers que usa: setStatus, evaluarEstadoUsuario, saveState, limpiarFuturos, renderGruposView
 // ============================================================

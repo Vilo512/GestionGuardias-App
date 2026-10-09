@@ -1,7 +1,5 @@
 // ============================================================
 // MÓDULO: PERFIL_USUARIO
-// Exportar a: src/modules/perfilUsuario.js
-// Líneas estimadas: ~285
 // Dependencias externas: currentUserProfile, globalProfiles, state.bajasLargas, supabaseClient
 // Helpers que usa: formatDateKey, calcHorasResidente, getPlanForUserOnDate, saveState, renderPerfilUsuario, invalidateConfigMes, formatDK, MONTHS
 // ============================================================

@@ -1,7 +1,5 @@
 // ============================================================
 // MÓDULO: MOTOR_TEMPORAL
-// Exportar a: src/modules/motorTemporal.js
-// Líneas estimadas: ~70
 // Dependencias externas: globalProfiles, promoConfig, currentUserProfile, loggedInUser
 // Helpers que usa: getUserLevelOnDate, getPlanForUserOnDate, getSvcConfig
 // ============================================================
@@ -121,8 +119,6 @@ function canUserTakeShift(targetUserName, sourceUserName, dateKey, svcName) {
 
 // ============================================================
 // MÓDULO: MOTOR_SALIENTES
-// Exportar a: src/modules/motorSalientes.js
-// Líneas estimadas: ~90
 // Dependencias externas: state.shifts, state.shiftModifiers, globalProfiles
 // Helpers que usa: getSvcConfigForUser, getDayTag, formatDateKey, getIllegalShiftsForUser
 // ============================================================
@@ -234,8 +230,6 @@ function getIllegalShiftsForUser(user, shiftsObj) {
 
 // ============================================================
 // MÓDULO: MOTOR_ROTACION
-// Exportar a: src/modules/motorRotacion.js
-// Líneas estimadas: ~180
 // Dependencias externas: state.planRotations, state.historialEventos, globalProfiles, promoConfig
 // Helpers que usa: formatDateKey, getRotationKey, getPlanForUserOnDate, getUserLevelOnDate, reempaquetarGruposPlan
 // ============================================================
@@ -545,8 +539,6 @@ function esTitularVisibleEnPlan(u, svcNombre, ctx) {
 
 // ============================================================
 // MÓDULO: MOTOR_EVALUACION
-// Exportar a: src/modules/motorEvaluacion.js
-// Líneas estimadas: ~185
 // Dependencias externas: state.shifts, state.skippedTurns, promoConfig, globalProfiles
 // Helpers que usa: getDaysInMonth, formatDateKey, getDayTag, getPlazasForDay, isServiceEnabledOnDate, isUserBusyOnDay, getIllegalShiftsForUser, getComputedShifts, getAnalisisFestivos, calcularViabilidadFestivosMensual, getPlanForUserOnDate
 // ============================================================
@@ -770,8 +762,6 @@ function getUserProgress(user, y, m) {
 }
 // ============================================================
 // MÓDULO: MOTOR_MERCADILLO
-// Exportar a: src/modules/motorMercadillo.js
-// Líneas estimadas: ~95
 // Dependencias externas: state.trades, state.shifts
 // Helpers que usa: getIllegalShiftsForUser, formatDK
 // ============================================================
@@ -861,8 +851,6 @@ function checkTradeConflicts(newTrade) {
 
 // ============================================================
 // MÓDULO: MOTOR_BALANCEO
-// Exportar a: src/modules/motorRotacion.js  ← mismo archivo que MOTOR_ROTACION
-// Líneas estimadas: ~35
 // Dependencias externas: state.planRotations, curDate
 // Helpers que usa: getCurrentRotPlan, formatDateKey
 // ============================================================

@@ -1,7 +1,5 @@
 // ============================================================
 // MÓDULO: CONFIG_ESTADO
-// Exportar a: src/modules/config.js
-// Líneas estimadas: ~70
 // Dependencias externas: ninguna
 // Helpers que usa: monthString, formatDateKey
 // ============================================================
@@ -108,8 +106,6 @@ let globalProfiles = []; // Almacena las fechas de inicio/cambio de todos los re
 
 // ============================================================
 // MÓDULO: HELPERS_UTILS
-// Exportar a: src/modules/helpers.js
-// Líneas estimadas: ~65
 // Dependencias externas: state.festivos
 // Helpers que usa: formatDateKey
 // ============================================================
@@ -195,8 +191,6 @@ function getDayTag(y, m, d) {
 
 // ============================================================
 // MÓDULO: PERSISTENCIA
-// Exportar a: src/modules/persistencia.js
-// Líneas estimadas: ~135
 // Dependencias externas: supabaseClient, state, promoConfig, currentUserProfile, authSession
 // Helpers que usa: setStatus, formatDateKey, promoConfig.planes
 // ============================================================

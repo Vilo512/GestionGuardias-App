@@ -1,7 +1,5 @@
 // ============================================================
 // MÓDULO: EXPORTACION
-// Exportar a: src/modules/exportacion.js
-// Líneas estimadas: ~195
 // Dependencias externas: state.shifts, state.trades, state.planRotations, promoConfig, XLSX
 // Helpers que usa: getComputedShifts, getAllResidents, getDaysInMonth, formatDateKey, MONTHS, getRotationKey
 // ============================================================
@@ -185,8 +183,6 @@ function executeExport() {
 
 // ============================================================
 // MÓDULO: EXPORTACION_MERCADILLO (sub-sección de EXPORTACION)
-// Exportar a: src/modules/exportacion.js  ← mismo archivo
-// Líneas estimadas: ~50
 // Dependencias externas: state.trades, XLSX
 // Helpers que usa: formatDK
 // ============================================================

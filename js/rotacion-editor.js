@@ -1,7 +1,5 @@
 // ============================================================
 // MÓDULO: ROTACION_EDITOR
-// Exportar a: src/modules/rotacionEditor.js
-// Líneas estimadas: ~370
 // Dependencias externas: state.planRotations, editingGroups, curDate, isAdmin, globalProfiles
 // Helpers que usa: renderEditor, renderRotationView, saveState, getCurrentRotPlan, formatDateKey, getRotationKey, getRotationForPlan, getAllResidents, reempaquetarGrupos, reempaquetarGruposPlan, invalidateConfigMes, MONTHS
 // ============================================================
@@ -111,8 +109,6 @@ function _bindRotEditorActions(root) {
 }
 // ============================================================
 // MÓDULO: ROTACION_EDITOR_CONTROLES (sub-sección de ROTACION_EDITOR)
-// Exportar a: src/modules/rotacionEditor.js  ← mismo archivo
-// Líneas estimadas: ~145
 // Dependencias externas: editingGroups, state.planRotations, curDate
 // Helpers que usa: renderEditor, getCurrentRotPlan, formatDateKey, reempaquetarGrupos, monthString, saveState, renderRotationView
 // ============================================================
@@ -235,8 +231,6 @@ function editorRemoveMemberLinear(gIdx, rIdx) {
 
 // ============================================================
 // MÓDULO: ROTACION_SORTEO (sub-sección de ROTACION_EDITOR)
-// Exportar a: src/modules/rotacionEditor.js  ← mismo archivo
-// Líneas estimadas: ~35
 // Dependencias externas: state.planRotations, curDate, editingGroups
 // Helpers que usa: getAllResidents, reempaquetarGruposPlan, formatDateKey, getCurrentRotPlan, saveState, renderRotationView
 // ============================================================

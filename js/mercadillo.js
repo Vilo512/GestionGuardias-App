@@ -1,7 +1,5 @@
 // ============================================================
 // MÓDULO: MERCADILLO_RENDER
-// Exportar a: src/modules/mercadillo.js
-// Líneas estimadas: ~200
 // Dependencias externas: state.trades, loggedInUser, simulatedViewUser, promoConfig
 // Helpers que usa: getComputedShifts, checkTradeConflicts, canUserTakeShift, getServiceColor, getAllUniqueServices, getAllResidents, isPastDate, formatDK, saveState, renderAll, checkAutomaticGraduation
 // ============================================================
@@ -57,8 +55,6 @@ function renderMercadoCalendar() {
 
 // ============================================================
 // MÓDULO: MERCADILLO_MODALES (sub-sección de MERCADILLO_RENDER)
-// Exportar a: src/modules/mercadillo.js  ← mismo archivo
-// Líneas estimadas: ~115
 // Dependencias externas: state, loggedInUser, curDate
 // Helpers que usa: canUserTakeShift, getComputedShifts, checkTradeConflicts, isPastDate, formatDK, getServiceColor, getAllResidents, saveState, renderAll
 // ============================================================

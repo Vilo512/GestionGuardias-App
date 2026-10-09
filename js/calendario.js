@@ -1,7 +1,5 @@
 // ============================================================
 // MÓDULO: NAVEGACION
-// Exportar a: src/modules/navegacion.js
-// Líneas estimadas: ~120
 // Dependencias externas: isAdmin, isDelegado, currentAdminView, loggedInUser, simulatedViewUser
 // Helpers que usa: renderAll, renderGruposView, renderPerfilUsuario, renderAdminCalendar, renderAdminExceptions, renderAdminAjustes, renderAdminSeguridad, renderAdminHoras, renderAccountsList, checkAutomaticGraduation
 // ============================================================
@@ -228,8 +226,6 @@ function toggleFilter() {
 	
 // ============================================================
 // MÓDULO: HELPERS_SERVICIOS
-// Exportar a: src/modules/helpersServicios.js
-// Líneas estimadas: ~55
 // Dependencias externas: promoConfig, state.habilitaciones, state.pedWhitelist
 // Helpers que usa: getSvcConfig
 // NOTA: getCellBackgroundStyle también pertenece aquí (ver línea 2)
@@ -403,7 +399,6 @@ function getPlazasForDay(svc, dk, planName = null) {
 }
 
 
-// REVISAR: podría pertenecer a HELPERS_SERVICIOS
 /**
  * Genera el estilo CSS de fondo de una celda de calendario según festivos y servicios habilitados.
  * @param {string} dk  - dateKey "YYYY_MM_DD"
@@ -450,8 +445,6 @@ function getCellBackgroundStyle(dk, y, m, d, filterLevel = 'ALL') {
 
 // ============================================================
 // MÓDULO: CALENDARIO
-// Exportar a: src/modules/calendario.js
-// Líneas estimadas: ~225
 // Dependencias externas: state, curDate, promoConfig, loggedInUser, simulatedViewUser, isDelegado
 // Helpers que usa: getRotationKey, getCurrentTurn, getAnalisisFestivos, getUserProgress, getAllUniqueServices, getPlazasForDay, getCellBackgroundStyle, getFirstDayOffset, getDaysInMonth, formatDateKey, getInitials, renderAlertaCargaMensual
 // ============================================================
@@ -711,8 +704,6 @@ function renderMainCalendar() {
 
 // ============================================================
 // MÓDULO: MODALES_CALENDARIO
-// Exportar a: src/modules/modalesCalendario.js
-// Líneas estimadas: ~185
 // Dependencias externas: state, loggedInUser, simulatedViewUser, isDelegado, isAdmin
 // Helpers que usa: getCurrentTurn, getAnalisisFestivos, getUserProgress, getPlanForUserOnDate, getDayTag, getPlazasForDay, isServiceEnabledOnDate, isUserBusyOnDay, getIllegalShiftsForUser, saveState, renderMainCalendar, renderAll, MONTHS, getAllResidents
 // ============================================================
@@ -964,8 +955,6 @@ async function adminSkipTurn(turnUser, y, m) {
 
 // ============================================================
 // MÓDULO: ADMIN_TURNO (sub-sección de MODALES_CALENDARIO)
-// Exportar a: src/modules/modalesCalendario.js  ← mismo archivo
-// Líneas estimadas: ~30
 // Dependencias externas: state.grantedTurn, simulatedViewUser
 // Helpers que usa: getRotationKey, residentePerteneceAPlan, getCurrentRotPlan,
 //                  puedeGestionarPlan, saveState, renderAll
