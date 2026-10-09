@@ -17,7 +17,7 @@
 | E | Push a `origin/GestionGuardias-BETA` | ✅ En sync |
 | F | AUDIT al día: MVP cerrado, W12 y W13 nuevas | ✅ En BETA |
 | G | Limpieza de ramas: 7 locales → 3, 8 remotas → 3 | ✅ Hecho |
-| H | Merge a `main` | ⛔ Descartado por la mañana (§2). **Reevaluado al final del día: listo, aplazado a la próxima sesión por decisión del usuario** — ver §6-septies |
+| H | Merge a `main` | ✅ **Hecho el 9-oct**: PR #21, merge `f62e0c1`. Producción = BETA `5ed44b5` — ver §6-septies |
 | I | **[P-01]** Las escrituras de gobierno dejan de fallar en silencio | ✅ En BETA, auditado |
 | J | **«Hacer Admin»** + cierre de la Zona de Peligro | ✅ En BETA, auditado dos veces |
 | K | **Paso 6 · Horas** al tema oscuro + tarjetas en móvil | ✅ En BETA y en origin, auditado |
@@ -209,7 +209,11 @@ El usuario planteó si se podía subir ya, porque lo que queda es casi todo invi
 2. **No nombrar ningún admin hasta cerrar [P-02].** Con «Hacer Admin» ya disponible, un admin nombrado alcanza `adminResetMonth` y compañía, y además dispara [P-09]. Los delegados no tienen ese problema.
 3. ⏳ `.vercelignore` desplegado en staging. **Falta comprobarlo** con sesión de Vercel (ver arriba).
 
-**Lo que queda:** el merge en sí, con la **confirmación triple** de `CLAUDE.md`. Después, comprobar en producción que los `.md` dan 404 y que la app carga con `?v=3.8`.
+**Ejecutado el 9-oct**, con confirmación triple. El usuario comprobó la condición 3 en staging: `/CLAUDE.md` da 404 y la app va en `3.8`. La condición 2 sigue vigente: solo delegados, ningún admin hasta [P-02]. Fusionado en [Vilo512/GestionGuardias-App#21](https://github.com/Vilo512/GestionGuardias-App/pull/21), con commit de merge `f62e0c1` (83 commits). Los dos despliegues de producción en Vercel (`gestionguardiasapp` y `gestionguardiassb`) terminaron en `success`. `GestionGuardias-BETA` se conserva, y `deleteBranchOnMerge` está desactivado en el repo. Tras el merge, `main` y BETA tienen el mismo contenido.
+
+**Corrección:** arriba dice «0 commits en `BETA..origin/main`», y era falso: había 13. Son los merges de los PR #8–#20 y tres arreglos que BETA ya tenía con otro hash. `git diff 7ba860e origin/main` salía vacío, así que no aportaban código. Para comprobar si `main` lleva algo propio, lo que vale es el diff del contenido, no el número de commits.
+
+**Pendiente del usuario:** comprobar en el **dominio de producción** que la app carga con `?v=3.8` y que `/CLAUDE.md` da 404.
 
 ## 7. Método — lo que funcionó hoy
 
@@ -220,7 +224,7 @@ El usuario planteó si se podía subir ya, porque lo que queda es casi todo invi
 
 ## 8. Arranque rápido de la próxima sesión
 
-**Mi Perfil hecho (§6-sexies). La próxima sesión es el merge a `main` (§6-septies): está listo y solo falta la confirmación triple. Después, decidir el disparador de las 8.000 líneas (abajo) y seguir con `renderAdminSeguridad`.**
+**El merge a `main` se hizo el 9-oct (§6-septies) y producción ya tiene el estado de BETA. La próxima sesión tiene que decidir el disparador de las 8.000 líneas, es decir, si `app.js` se reparte por motores en varios `<script>` (abajo). Después viene `renderAdminSeguridad`.**
 
 ### Cola del Paso 6 — decidida por el usuario el 8-oct
 
