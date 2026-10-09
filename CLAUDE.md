@@ -12,6 +12,7 @@ App de asignación de guardias médicas. Vanilla JS sin build step: `index.html`
 | `GestionGuardias_BACKLOG.md` | Cola de ideas fuera de secuencia, ya triadas. Define su propio formato. | Al abrir y al cerrar. |
 | `GestionGuardias_DECISIONES.md` | Decisiones cerradas, con motivo y fecha. | **Solo si salta un disparador.** |
 | `GestionGuardias_REDISENO.md` | Plan del rediseño visual + PWA. | Si el punto en curso es de rediseño. |
+| `GestionGuardias_REPARTO.md` | Plan de ejecución del reparto de `app.js` en `js/`. Se borra al terminar. | Si el punto en curso es el reparto. |
 
 ## Ciclo de sesión
 
@@ -46,6 +47,8 @@ Las decisiones viven en `GestionGuardias_DECISIONES.md` y no se re-proponen. Per
 - Un bug de case-sensitivity cuesta **más de una sesión**.
 - Un cambio visual obliga a tocar **más de 3 zonas de `style.css`** a la vez.
 - Un movimiento de código por script **no pasa la verificación byte a byte**, o aparecen **tildes rotas** en un archivo del proyecto.
+- Una rama `feature/` va a fusionarse a BETA **sin haber subido la versión MENOR** → avisar antes del merge.
+- Un cambio de arquitectura o un hito de producto → **proponer subir la MAYOR**.
 
 ## Control de versiones
 
@@ -53,6 +56,15 @@ Las decisiones viven en `GestionGuardias_DECISIONES.md` y no se re-proponen. Per
 - `main` es **PRODUCCIÓN** y está protegida. **Cualquier merge hacia `main` requiere confirmación triple y explícita**, caso por caso. Nunca por iniciativa propia ni como paso implícito.
 - Flujo: rama temporal (`feature/` o `fix/`) → `testing-lead` → merge a BETA. No se comitea directo sobre `BETA` ni `main`.
 - Confirma la rama exacta antes de cualquier push o merge.
+
+### Versionado
+
+Una sola versión para toda la app, `MAYOR.MENOR.PARCHE`. Es la que va en **todos** los `?v=` de `index.html`, así que subirla es también el cache-busting.
+
+- **PARCHE**: cualquier cambio en JS o CSS que no sea una feature (fix, refactor, ajuste visual).
+- **MENOR**: cada rama `feature/` que se fusiona a BETA. El parche vuelve a 0.
+- **MAYOR**: un cambio de arquitectura o un hito de producto. Lo propone Claude y decide el usuario. El reparto de `app.js` abre la **4.0.0**; antes se usaba `MAYOR.MENOR` y la última fue la 3.8.
+- El commit de merge a BETA lleva la versión: `merge: <qué> (v4.1.0)`. El handover la anota al cerrar.
 
 ## Calidad del código
 
@@ -82,6 +94,6 @@ Proyecto GestionGuardias: `https://elmpelhplacgkgfuiwno.supabase.co`
 
 **Cambiar código: herramientas de edición directa.** Cada cambio tiene que verse como antes → después. Nada de scripts (Python, `sed -i`, expresiones regulares en bloque) que reescriban el contenido de `.js`, `.html` o `.css`.
 
-**Mover código sin cambiarlo** (sacar rangos de líneas, juntar o renombrar archivos): se permite con `sed -n`, `cat` o `git mv` en Git Bash, si después se demuestra que el contenido es el mismo byte a byte. Nunca con `Set-Content` ni `Out-File` de PowerShell, ni con Python sin `encoding='utf-8'`: estropean las tildes.
+**Mover código sin cambiarlo** (sacar rangos de líneas, juntar o renombrar archivos): se permite con `sed -b -n`, `cat` o `git mv` en Git Bash, si después se demuestra que el contenido es el mismo byte a byte. **`sed` siempre con `-b`**: sin él, el `sed` de Git Bash quita los `\r` de los finales de línea CRLF. Nunca con `Set-Content` ni `Out-File` de PowerShell, ni con Python sin `encoding='utf-8'`: estropean las tildes.
 
 Python solo para cálculos que no toquen archivos del proyecto.

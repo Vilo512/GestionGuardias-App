@@ -55,11 +55,25 @@ Detalle operativo en `CLAUDE.md` §Control de versiones.
 1. **Reescrituras que nadie revisa.** Un buscar y reemplazar por script en todo `app.js` cambia cosas que no se ven. La herramienta de edición enseña cada cambio como antes → después. Esto sigue prohibido.
 2. **La codificación en Windows.** Python sin `encoding='utf-8'` y `Set-Content`/`Out-File` de PowerShell 5.1 pueden escribir en la página de códigos del sistema y romper las ñ y las tildes sin avisar. `sed`, `cat` y `git` en Git Bash copian los bytes tal cual.
 
+**Corrección del mismo día:** el `sed` de Git Bash, en modo texto, quita los `\r` de los finales CRLF. La verificación byte a byte lo cazó en el ensayo del reparto (salían 8.001 bytes menos, uno por línea), antes de tocar el proyecto. La regla dice desde entonces `sed -b -n`.
+
 **Mover código sin cambiarlo** no tiene ninguno de los dos riesgos y se puede comprobar de forma exacta. Al revés, copiarlo a mano obliga al modelo a reescribir miles de líneas, que es caro y abre la puerta a errores de copia. Salió al plantear el reparto de `app.js` por motores (punto 2).
 
 **Disparadores:**
 - Un movimiento por script no pasa la verificación byte a byte.
 - Aparecen tildes rotas en un archivo del proyecto.
+
+---
+
+## 5. Versionado `MAYOR.MENOR.PARCHE`
+
+*Cerrada, motivo verificado. Última revisión: 2026-10-09.*
+
+**Motivo:** hasta la 3.8, el `?v=` era solo cache-busting: subía cuando alguien se acordaba (estuvo 18 commits clavado en `3.2`) y no decía qué había cambiado. El usuario pidió que el número de versión avance con las features. Con un solo número para toda la app, que también sirve de cache-busting, basta mirar el `?v=` para saber qué está desplegado. El reparto de `app.js` abre la 4.0.0. Reglas en `CLAUDE.md` § Versionado.
+
+**Disparadores:**
+- Una rama `feature/` va a fusionarse a BETA sin haber subido la MENOR.
+- Un cambio de arquitectura o un hito de producto: proponer subir la MAYOR.
 
 ---
 

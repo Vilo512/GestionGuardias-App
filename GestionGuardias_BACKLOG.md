@@ -162,6 +162,14 @@ Al empezar un punto de la cola se mueve a las pendientes del handover y se marca
 - **Veredicto:** entra. No bloquea el merge a `main`.
 - **Anotada:** 2026-10-08
 
+### [P-16] Un cliente de Supabase nuevo cada vez que la pestaña vuelve a primer plano
+- **Qué:** el «destructor de bloqueos» de `initApp` (`app.js:644`; tras el reparto, en `js/sesion.js`) ejecuta `supabaseClient = window.supabase.createClient(...)` en cada `visibilitychange`. La consola avisa de `Multiple GoTrueClient instances`, y `onAuthStateChange` sigue suscrito solo al primer cliente: un cierre o renovación de sesión puede no llegar a la app tras volver a la pestaña.
+- **¿Tarde?:** no. Viene de antes y lo destapó la consola durante el ensayo del reparto (2026-10-09). No es una regresión.
+- **Impacto:** solo el arranque y la sesión, sin motores. El parche existe por algo (Supabase se congelaba al volver a la pestaña): hay que entender ese bloqueo antes de quitarlo. Lo más probable es reusar el cliente y refrescar la sesión (`auth.startAutoRefresh` o `getSession`) en vez de recrearlo. Sin efecto visual.
+- **Dónde:** final de cola. Ningún punto encolado abre la sesión.
+- **Veredicto:** entra. Por ahora solo hay un aviso, sin fallo observado. Subiría si algún residente se queda con la sesión caducada al volver a la app.
+- **Anotada:** 2026-10-09
+
 ## Promovidas
 
 *(vacía)*
