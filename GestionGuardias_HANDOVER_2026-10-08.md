@@ -213,7 +213,7 @@ El usuario planteó si se podía subir ya, porque lo que queda es casi todo invi
 
 **Corrección:** arriba dice «0 commits en `BETA..origin/main`», y era falso: había 13. Son los merges de los PR #8–#20 y tres arreglos que BETA ya tenía con otro hash. `git diff 7ba860e origin/main` salía vacío, así que no aportaban código. Para comprobar si `main` lleva algo propio, lo que vale es el diff del contenido, no el número de commits.
 
-**Pendiente del usuario:** comprobar en el **dominio de producción** que la app carga con `?v=3.8` y que `/CLAUDE.md` da 404.
+✅ **Verificado en producción por el usuario (9-oct):** la app carga con `?v=3.8` y `/CLAUDE.md` da 404.
 
 ## 7. Método — lo que funcionó hoy
 
