@@ -1,6 +1,6 @@
 # GestionGuardias-App
 
-App de asignación de guardias médicas. Vanilla JS sin build step: `index.html` + `style.css` + `app.js`, backend en Supabase.
+App de asignación de guardias médicas. Vanilla JS sin build step: `index.html` + `style.css` + 15 scripts clásicos en `js/` (ver el mapa en `js/arranque.js`), backend en Supabase.
 
 ## Documentos
 
@@ -12,14 +12,13 @@ App de asignación de guardias médicas. Vanilla JS sin build step: `index.html`
 | `GestionGuardias_BACKLOG.md` | Cola de ideas fuera de secuencia, ya triadas. Define su propio formato. | Al abrir y al cerrar. |
 | `GestionGuardias_DECISIONES.md` | Decisiones cerradas, con motivo y fecha. | **Solo si salta un disparador.** |
 | `GestionGuardias_REDISENO.md` | Plan del rediseño visual + PWA. | Si el punto en curso es de rediseño. |
-| `GestionGuardias_REPARTO.md` | Plan de ejecución del reparto de `app.js` en `js/`. Se borra al terminar. | Si el punto en curso es el reparto. |
 
 ## Ciclo de sesión
 
 **Una sesión = un punto.** No encadenar puntos: cada turno re-envía el historial entero y la calidad cae al final.
 
 1. **Apertura.** §11 y §9 del handover más reciente. Nada más. Si el usuario ya dice qué toca, ni eso.
-2. **Contexto bajo demanda.** La sección del PRD y la zona de `app.js` que haga falta, cuando haga falta. Nunca lecturas completas "por contexto".
+2. **Contexto bajo demanda.** La sección del PRD y el archivo de `js/` que haga falta, cuando haga falta. Nunca lecturas completas "por contexto".
 3. **Ejecución.** Rama temporal → `testing-lead` → merge a BETA.
 4. **Cierre, siempre.** Actualizar pendientes del handover y dejar en una frase qué toca después. El handover se escribe al terminar un punto, no cuando el contexto está saturado.
 
@@ -42,7 +41,7 @@ Si invalida algo **ya construido**, se anota y ya está. Si invalida un punto **
 
 Las decisiones viven en `GestionGuardias_DECISIONES.md` y no se re-proponen. Pero si se cumple uno de estos, **avisar una vez con el dato concreto**; decide el usuario. Sin disparador, silencio.
 
-- `app.js` supera las **8.000 líneas** → proponer reparto por motores en varios `<script>`.
+- Un archivo de `js/` supera las **1.500 líneas** → proponer cómo partirlo.
 - Tercera regresión en el **mismo motor** en sesiones distintas.
 - Un bug de case-sensitivity cuesta **más de una sesión**.
 - Un cambio visual obliga a tocar **más de 3 zonas de `style.css`** a la vez.
@@ -68,11 +67,11 @@ Una sola versión para toda la app, `MAYOR.MENOR.PARCHE`. Es la que va en **todo
 
 ## Calidad del código
 
-- Trabaja por sección o motor, nunca sobre todo `app.js` a la vez.
+- Trabaja por sección o motor, un archivo de `js/` cada vez.
 - Antes de modificar, auditoría estática de la zona: no dejes funciones muertas ni callbacks huérfanos.
 - Vigila mayúsculas/minúsculas: fuente recurrente de bugs aquí.
-- `node --check` no basta: un throw de nivel superior mata los `let`/`const` posteriores y el hoisting lo disimula. Comprobar consola del navegador y las utilidades `window.*` del final del archivo.
-- **Si tocas `app.js` o `style.css`, sube el `?v=` de los dos en `index.html`.** Es el único cache-busting que hay. Estuvo clavado en `3.2` durante 18 commits: al desplegar, quien ya hubiera entrado recibía el JS cacheado junto al CSS nuevo.
+- `node --check` no basta: un throw de nivel superior mata los `let`/`const` posteriores y el hoisting lo disimula. Comprobar consola del navegador y las utilidades `window.*` de `js/turno.js`.
+- **Si tocas `js/` o `style.css`, sube la versión en todos los `?v=` de `index.html`** (16: los 15 scripts y el CSS; ver § Versionado). Es el único cache-busting que hay. Estuvo clavado en `3.2` durante 18 commits: al desplegar, quien ya hubiera entrado recibía el JS cacheado junto al CSS nuevo.
 
 ## UI
 
@@ -80,7 +79,7 @@ Los residentes usan esto en el móvil, a las 3 de la mañana. La legibilidad y e
 
 ## Validación
 
-Antes de fusionar a BETA, invoca `testing-lead` con los fragmentos de código relevantes en el brief: trabaja sobre lo que le incluyas, no explora `app.js` a ciegas. Para iteraciones visuales, `design-reviewer` con el CSS/HTML.
+Antes de fusionar a BETA, invoca `testing-lead` con los fragmentos de código relevantes en el brief: trabaja sobre lo que le incluyas, no explora `js/` a ciegas. Para iteraciones visuales, `design-reviewer` con el CSS/HTML.
 
 No abras subagentes para planificar: arrancan en frío y re-derivan contexto ya cargado.
 

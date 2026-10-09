@@ -7,7 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-<link rel="stylesheet" href="style.css?v=3.8">
+<link rel="stylesheet" href="style.css?v=4.0.0">
 </head>
 <body>
 
@@ -388,6 +388,23 @@
         </div>
     </div>
 
-    <script src="app.js?v=3.8"></script>
+    <!-- Orden de carga: nucleo.js primero (estado y cliente Supabase) y arranque.js
+         el último (llama a initApp() cuando ya están definidas todas las funciones).
+         El orden del resto no afecta: solo declaran funciones. -->
+    <script src="js/nucleo.js?v=4.0.0"></script>
+    <script src="js/sesion.js?v=4.0.0"></script>
+    <script src="js/motores.js?v=4.0.0"></script>
+    <script src="js/turno.js?v=4.0.0"></script>
+    <script src="js/grupos.js?v=4.0.0"></script>
+    <script src="js/calendario.js?v=4.0.0"></script>
+    <script src="js/mercadillo.js?v=4.0.0"></script>
+    <script src="js/exportacion.js?v=4.0.0"></script>
+    <script src="js/admin-ajustes.js?v=4.0.0"></script>
+    <script src="js/admin-calendario.js?v=4.0.0"></script>
+    <script src="js/admin-cuentas.js?v=4.0.0"></script>
+    <script src="js/rotacion-editor.js?v=4.0.0"></script>
+    <script src="js/propuesta.js?v=4.0.0"></script>
+    <script src="js/perfil.js?v=4.0.0"></script>
+    <script src="js/arranque.js?v=4.0.0"></script>
 </body>
 </html>

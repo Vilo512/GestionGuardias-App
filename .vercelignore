@@ -6,6 +6,6 @@
 # de la PWA...), hay que añadirlo aquí abajo.
 /*
 !/index.html
-!/app.js
+!/js/
 !/style.css
 !/LICENSE
