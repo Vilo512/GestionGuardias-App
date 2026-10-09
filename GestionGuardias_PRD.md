@@ -1,8 +1,8 @@
 # GestionGuardias App — Product Requirements Document
-**Versión:** 1.2  
-**Estado:** Funcionalidad core cerrada — abierto a extensiones UI/UX  
+**Versión:** 1.6  
+**Estado:** Funcionalidad core cerrada — rediseño visual en curso (§16.2)  
 **Audiencia:** Engineering Lead, desarrolladores, diseñadores  
-**Última actualización:** Mayo 2026
+**Última actualización:** 8 de octubre de 2026
 
 ---
 
@@ -84,11 +84,41 @@ Login mediante **Google OAuth**. No existen cuentas propias de la app.
 
 | Rol | Descripción |
 |---|---|
-| **Residente** | Accede a su calendario, realiza asignación mensual, opera en el mercadillo, consulta histórico público |
-| **Delegado** | Todo lo de Residente + funciones administrativas operativas (sin configuración estructural ni gestión de roles) |
-| **Admin** | Acceso completo: configuración estructural, gestión de roles, todos los registros |
+Tres niveles con privilegios, más el residente. Lo que distingue a Dueño de Admin **no son las funciones, es el alcance**: los dos pueden todo, el Dueño en toda la especialidad y el Admin solo en su plan.
 
-Los roles son **acumulativos**: un admin o delegado es simultáneamente residente activo y participa en la rotación con normalidad.
+| Rol | Alcance | Puede |
+|---|---|---|
+| **Residente** | — | Su calendario, asignación mensual, mercadillo, histórico público |
+| **Delegado** | Su plan actual | Lo mismo que el Admin de su plan, **salvo destituir o expulsar a un Admin**. Un Admin sí puede destituirlo a él |
+| **Admin** | Su plan actual (R1–R5) | Todas las funciones, limitadas a los residentes y la configuración de **su** plan |
+| **Dueño** | **Toda la especialidad**, todos los planes | Todas las funciones, sin límite de plan. Uno y solo uno por especialidad, y obligatorio |
+
+Los roles son **acumulativos**: un Dueño, admin o delegado es simultáneamente residente activo y participa en la rotación con normalidad.
+
+#### Vocabulario — dos niveles que la base de datos nombra al revés
+
+| Concepto | Qué es | Dónde vive |
+|---|---|---|
+| **Especialidad** (contenedor) | Hospital + Especialidad. Un residente pertenece a exactamente una | Tabla `promociones` — **el nombre de la tabla engaña** |
+| **Plan de Guardias** | Reglas de un año de residencia: R1, R2, R3, R4, R5 | `promoConfig.planes`, dentro de la especialidad |
+
+Cuando este documento dice «promoción» en el sentido de cohorte de un año, se refiere al **Plan**. La fila de `promociones` es la especialidad.
+
+#### El alcance del Admin y del Delegado es su plan actual
+
+El plan de un residente **no se almacena como cargo**: se deriva de su fecha de inicio de residencia, igual que ya hacen `getSvcConfigForUser` y `getPlazasForDay`. Por tanto, **cuando un residente avanza de R1 a R2, su cargo le acompaña al plan nuevo** y deja de tener poder sobre el plan que abandona.
+
+> Consecuencia a tener presente: un plan puede quedarse temporalmente sin admin ni delegado propios cuando su cohorte avanza en bloque. El Dueño cubre siempre ese hueco, porque su alcance es toda la especialidad.
+
+#### Cada especialidad DEBE tener Dueño, en todo momento
+
+El Dueño es el suelo del sistema: mientras exista, la especialidad nunca se queda sin nadie capaz de administrarla. De ahí que **no se le pueda destituir, solo suceder**:
+
+- Ningún Admin ni Delegado puede expulsar ni destituir al Dueño.
+- El Dueño no puede renunciar a sus privilegios, darse de baja **ni graduarse** sin **traspasar antes la corona** a alguien que siga activo en la especialidad.
+- El sistema debe rechazar cualquier operación cuyo resultado sea una especialidad con cero Dueños.
+
+Como el Dueño siempre existe y es indestituible, **no hace falta una guarda aparte del «último admin»**: el bloqueo de quedarse sin administración lo da el propio Dueño.
 
 ### 3.3 Vista de Simulación (Admin)
 El admin puede activar un **modo de simulación** seleccionando cualquier residente del contenedor desde el panel del calendario. Mientras está activo:
@@ -99,10 +129,45 @@ El admin puede activar un **modo de simulación** seleccionando cualquier reside
 
 La sesión real del admin no se ve afectada: `loggedInUser`, `isAdmin` e `isDelegado` permanecen inalterados.
 
-### 3.4 Delegados
-- Puede haber **múltiples delegados** por contenedor
-- El admin los designa y puede revocar su rol en cualquier momento
-- Objetivo: distribuir carga operativa de supervisión sin otorgar acceso estructural completo
+> ⚠️ **Desviación conocida — el mercadillo no aplica el bloqueo de escritura (D-06).**
+> El bloqueo se implementa repitiendo `if (simulatedViewUser !== null) { alert(...); return; }` en cada punto de escritura, y **ninguno de los del mercadillo lo tiene**: `openMercadoModal`, `executeBuyRequest`, `executeSellRequest`, `executeSwapRequestDirect`, `processTrade` ni `requestTradeUndo`.
+>
+> El efecto no es una suplantación de identidad —el trade se graba con el `loggedInUser` real, es decir el admin—, sino una incoherencia entre lo que se ve y lo que se escribe: la rejilla está filtrada por el residente simulado, pero la operación que se cree hacer «en su nombre» acaba siendo del admin. Detectado en la auditoría del Paso 5 (ago-2026); pendiente de decidir si el mercadillo se bloquea en simulación o si se habilita explícitamente la operación en nombre de otro.
+>
+> **Ampliación (oct-2026): no es solo el mercadillo.** El **panel de Cuentas** tampoco comprueba `simulatedViewUser` en ninguna de sus seis acciones — `adminAprobarUsuario`, `adminExpulsarUsuario`, `adminCambiarRol`, `adminTraspasarCorona`, `adminRenunciarPrivilegios` y `adminEditarFechas`. Y la pestaña de Admin no se oculta al entrar en simulación: su visibilidad se fija una sola vez al iniciar sesión (`app.js:731-732`, `app.js:2110-2124`) según el rol **real**, y `activateSimulationMode` (`app.js:908-916`) no la toca. Un admin en modo simulación puede ir a Admin → Cuentas y pulsar «Expulsar» o «Coronar Dueño» con efecto real. A diferencia del mercadillo, aquí sí hay consecuencias de gobierno, no solo incoherencia de vista. Detectado por el `testing-lead` en la auditoría del Paso 6.
+
+### 3.4 Admins y Delegados
+
+- Puede haber **múltiples admins y múltiples delegados** por especialidad, y cada uno manda en **su** plan.
+- Un Admin designa y revoca delegados **de su plan**, y puede expulsarlos.
+- Un Delegado puede designar, revocar y expulsar a **otros delegados de su plan**. Lo único que no puede es destituir ni expulsar a un Admin.
+- El Dueño puede hacer todo lo anterior en **cualquier** plan, y es el único que puede **nombrar**, destituir o expulsar a un Admin. Un Admin gestiona delegados, no otros admins.
+- **Lo que afecta a la especialidad entera es solo del Dueño**, nunca de un Admin. En el panel son las dos pestañas rotuladas **«Planes de guardias»** (servicios, cupos y reglas de *todos* los planes) y **«Ajustes»** (hospital, nombre y borrado de la especialidad) — ids `ajustes` y `seguridad`, que están cambiados respecto a sus etiquetas.
+- Un Admin manda hoy sobre **personas**: aprobar, expulsar y gestionar delegados. **No** sobre la configuración de los planes, aunque §3.2 se lo conceda «en su plan»: hasta que exista el ámbito por plan (§3.5 a), `adminSaveConfig` escribe todos los planes de una vez, así que abrirle esa pantalla le daría poder sobre planes ajenos. Se reevalúa al cerrar §3.5 a.
+- Quien avanza de plan **se lleva el cargo consigo** (§3.2) y pierde el poder sobre el plan que deja atrás.
+- Objetivo: que la supervisión de cada año no dependa de que una persona concreta esté disponible, y que nadie tenga poder sobre una cohorte a la que ya no pertenece.
+
+### 3.5 Punto de cambio — apertura de permisos (oct-2026)
+
+**Pendiente de implementación.** Lo descrito en §3.2 y §3.4 es el objetivo; el código actual no lo cumple. Divergencias medidas el 2026-10-08 sobre `GestionGuardias-BETA`, de mayor a menor alcance:
+
+**a) No existe el ámbito por plan. Es el cambio grande.** `perfiles.rol` es un **único valor global a la especialidad**, y ninguna de las 88 comprobaciones de rol de `app.js` es consciente del plan. Hoy un admin manda sobre los residentes de todos los años. Hay que derivar el plan del actor —igual que `getSvcConfigForUser` y `getPlazasForDay` ya derivan el del residente— y filtrar por él todas las acciones sobre personas y configuración. No requiere tocar el esquema, porque el cargo sigue a la persona (§3.2), pero sí toca muchos puntos.
+
+**b) La gestión de roles está atada al Dueño, no al Admin.** «Quitar Delegado», «Hacer Delegado», «Coronar Dueño» y editar fechas de residencia solo se renderizan bajo `isDueño` (`app.js:5009-5014`, `app.js:5030`). Un Admin no puede nombrar ni revocar delegados de su propio plan. Hay que abrir esos poderes a Admin **dentro de su plan**, dejando «Coronar Dueño» y «destituir un Admin» como exclusivos del Dueño.
+
+**c) Un delegado no puede destituir ni expulsar a otro delegado.** `app.js:5017` oculta «Expulsar» cuando el objetivo es `admin` **o** `delegado`, y «Quitar Delegado» (`app.js:5010`) solo existe para el Dueño. Las dos palancas están cerradas a la vez, así que tampoco sirve el camino de «primero quitar delegado, luego expulsar». Debe permitirse sobre delegados del propio plan, dejando bloqueado solo el objetivo `admin`.
+
+**d) Falta la sucesión forzosa del Dueño.** Las piezas existen —`adminTraspasarCorona`, y `app.js:4998` bloquea la renuncia con «No puedes abdicar sin traspasar la corona primero»— pero **nada detecta la graduación o la salida del Dueño**. Si termina la residencia y deja de entrar, la especialidad queda con un Dueño ausente y sin vía de recuperación desde la app. Hace falta: bloquear su baja sin traspaso previo, y avisarle de que debe traspasar cuando se acerque el fin de su residencia.
+
+**e) Trampa de nombres, a corregir antes de tocar las guardas.** `app.js:730` define `isDelegado = (rol === 'admin' || rol === 'delegado')`, es decir **«delegado o superior»**, no «es delegado». Cualquier guarda nueva escrita leyendo esa variable como «es delegado» será incorrecta. Renombrar, o introducir un `esSoloDelegado` explícito.
+
+**f) `adminExpulsarUsuario` no comprueba el error de Supabase.** `app.js:5202` lanza el `update` sin leer `error`; la UI pasa de «Expulsando…» a «Conectado ✅» aunque la escritura se haya rechazado. Es la explicación más probable de que «el botón no sirva» sin mensaje alguno. Añadir comprobación, como ya hace `app.js:4809`.
+
+**g) Expulsar no limpia el `rol`.** Solo escribe `estado: 'historico'`. Un delegado expulsado conserva `rol: 'delegado'` y, si se le vuelve a aprobar, **regresa con privilegios**. La baja debe degradar el rol a `residente` en la misma operación.
+
+**h) El nivel Dueño no estaba documentado.** Existía solo en el código, como `isDueño = promo.creador_id === currentUserProfile.id` (`app.js:2000`, `app.js:4960`). Queda documentado en §3.2 y se conserva. Ya está protegido contra expulsión por admins y delegados: `app.js:5005` reserva la rama de «expulsar a cualquiera» a `isDueño`, y el resto solo alcanza a residentes.
+
+> **Nota de alcance.** Ninguna de estas guardas vive en el servidor: son comprobaciones de JavaScript en el navegador. Mientras la escritura a Supabase no esté protegida por RLS, un residente con las devtools abiertas puede saltarse cualquiera de ellas. Eso es una cuestión aparte de este punto de cambio y debe tratarse como tal.
 
 ---
 
@@ -225,17 +290,30 @@ Transcurrida la ventana voluntaria, los huecos obligatorios sin cubrir se asigna
 Antes de ejecutar cualquier asignación forzosa global, el sistema calcula la propuesta completa de reparto y la presenta al admin para revisión. Solo tras confirmación explícita se materializan cambios en `state.shifts`.
 
 **Comportamiento:**
-- Opera sobre todos los servicios con `subastaTrigger` configurado en el mes activo (`curDate`)
+- El admin **elige sobre qué servicio** lanzar la propuesta (ver "Selección por servicio" abajo)
 - Usa los mismos criterios de prioridad que la asignación forzosa (§8.4): histórico de guardias, restricciones de saliente/entrante, criterio configurado por servicio
 - Presenta al admin una vista de propuesta: para cada hueco pendiente, el residente propuesto y el criterio aplicado
 - El admin puede modificar asignaciones individuales dentro de la propuesta antes de confirmar
 - La propuesta es no destructiva — ningún dato de `state.shifts` se modifica hasta que el admin confirma
 - Requiere confirmación explícita antes de ejecutar
-- Visible y accesible exclusivamente para `isAdmin`
-- Si todos los huecos de un servicio ya están cubiertos, ese servicio se omite silenciosamente
+- Visible y accesible exclusivamente para `isAdmin`, y bloqueada en modo simulación
+- Si todos los huecos de un servicio ya están cubiertos, ese servicio no se ofrece
+
+**Selección por servicio** *(añadido jul-2026)*
+
+El botón **📋 Proponer asignación** (banner de turno de la vista calendario) abre primero un **selector de servicio**, no la propuesta directamente:
+
+- Solo se listan los servicios con **huecos obligatorios sin cubrir** en el mes, con su recuento.
+- "Hueco obligatorio" = día que dispara subasta (`subastaTrigger` incluye la etiqueta del día) + habilitado si el servicio lo requiere + `plazas > 0`. **`plazasPorDia: 0` significa ilimitado y queda fuera de la subasta por diseño.**
+- Se ofrece además "Todos los servicios a la vez", que conserva el comportamiento anterior.
+- Si solo queda **un** servicio con huecos, se omite el selector y se abre su propuesta directamente.
+
+**Por qué servicio a servicio.** Al calcular todos los servicios de una vez, las asignaciones *hipotéticas* del primero entran en la simulación del siguiente y descartan candidatos por conflicto de saliente aunque esas guardias todavía no existan. Repartiendo de uno en uno —y aplicando antes de pasar al siguiente— cada cálculo parte de guardias **reales y confirmadas**. La opción "Todos" se mantiene por comodidad, pero arrastra ese efecto.
 
 **Directiva de implementación:**
 Reemplaza el concepto anterior de "Activar subasta ya" (ejecución inmediata sin revisión). La UI debe mostrar un modal o panel de propuesta que permita al admin revisar, ajustar y confirmar antes de que ninguna asignación se persista. No implementar `activarSubastaGlobal` como función de ejecución directa.
+
+**Estado:** implementado. `calcularPropuestaMes(y, m, planName, soloSvc)`, `contarHuecosPorServicio()`, `abrirSelectorPropuestaModal()`, `abrirPropuestaMesModal(y, m, soloSvc)` y `confirmarPropuestaMes()` en `app.js`.
 
 ### 8.6 Forzamiento de turno por inactividad
 
@@ -510,20 +588,49 @@ El sistema conserva un registro **completo** de:
 - **Popup contextual** para operaciones de intercambio con externo (§11.5)
 - **Código de color por servicio** en el calendario de huecos (§5.1)
 
-### 16.2 Pendiente de diseño
+### 16.2 Rediseño visual — tema oscuro *(en curso, jul-2026)*
 
-- [ ] Diseño de la vista principal del calendario mensual
+Rediseño por capas hacia una interfaz tipo Google Calendar, **oscura por defecto** (los residentes la usan en el móvil de madrugada). Brief completo y plan por pasos en `GestionGuardias_REDISENO.md`.
+
+**Decisiones cerradas:**
+
+| Tema | Decisión |
+|---|---|
+| Paleta | Google Calendar dark: `--bg #202124`, `--surface #2d2e30`, `--border #3c4043`, `--text #e8eaed`, `--text-2 #9aa0a6` |
+| `svc.color` como fondo | Se pinta el hex **exacto** del plan, sin derivar |
+| `svc.color` como texto | Prohibido. Se usa chip de fondo con texto calculado, o punto de color + texto neutro |
+| Contraste del texto sobre chip | Blanco por defecto; negro solo si el blanco no alcanza 3:1 (`contrastText()`) |
+| Iconos | SVG inline temables (`icon()`), migrados solo en la vista calendario |
+| Alcance por PR | Una vista por PR; el resto queda en claro hasta que le toque |
+| Suelo de `--text-3` | Está calculado **sobre `--surface`**. Sobre `--surface-2` cae a 4.1:1, así que el texto secundario de cualquier elemento elevado debe ser `--text-2` (4.57:1) |
+| Rojos de aviso sobre `--surface-2` | `--fest-d` se queda en 4.36:1, y un tinte rojo translúcido lo **empeora** porque aclara el fondo. Se hunden a `--bg` (5.82:1) y el aviso lo aporta el borde, como ya hace `button.danger` |
+
+**Regla dura:** los colores de servicio (`svc.color`) son **dato del plan**, elegidos por el usuario y guardados en Supabase. El rediseño no los tokeniza, no los altera y no los almacena en CSS.
+
+**Implementado:**
+- [x] Fundación de tokens en `:root` (neutros, espaciado, radios, elevación, acentos dark-safe)
+- [x] Chrome compartido: cabecera, tarjetas, pestañas, botones, formularios, pie, modales, notificaciones
+- [x] Vista calendario: rejilla, día actual resaltado, festivos, chips de guardia, contadores de plazas
+- [x] Panel de día como **bottom sheet** en móvil (reskin de `openShiftModal`, lógica intacta)
+- [x] Primeras `@media` del proyecto (antes no había ninguna)
+- [x] Objetivos táctiles ≥44px y contrastes verificados con `design-reviewer`
+- [x] Vista mercadillo (`#pane-merc`): rejilla, panel de día como bottom sheet, filtro por clase, buzón y log público
+
+**Pendiente:**
+- [ ] Resto de vistas: rotación, grupos, perfil, ayuda, admin
+- [ ] Cabecera PWA: `manifest.json`, iconos, `theme-color`, metas apple *(instalable, sin offline)*
+
+### 16.3 Pendiente de diseño
+
 - [ ] Estado visual de los huecos: libre / ocupado / obligatorio / propio / ajeno
 - [ ] Flujo de onboarding para nuevos residentes
 - [ ] Vista de rotación de grupos (cómo se visualiza la lista y el avance mensual)
-- [ ] Diseño del panel de notificaciones in-app
 - [ ] Vista del histórico y audit trail (filtros, paginación, exportación)
 - [ ] Interfaz del motor de reglas de asignación mínima (para el admin)
 - [ ] Vista de recuento de horas con comparativa entre residentes
-- [ ] Diseño responsivo / mobile (¿es prioritario en v1.0?)
 - [ ] Estados vacíos (contenedor recién creado, mes sin huecos, etc.)
 
-### 16.3 Ideas anotadas para versiones futuras
+### 16.4 Ideas anotadas para versiones futuras
 
 - Ofertas públicas en el mercadillo (guardia en oferta abierta a cualquier residente)
 - Notificaciones push / email para eventos de alta prioridad
@@ -645,7 +752,20 @@ EventoAuditoria
 |---|---|---|
 | D-01 | Stack tecnológico | Backend, frontend, base de datos, hosting |
 | D-02 | Fuente de importación de festivos | API pública del calendario laboral español por localidad |
-| D-03 | Prioridad de diseño mobile en v1.0 | ¿Responsivo completo o desktop-first? |
+| D-05 | Umbral de `contrastText()` | Usa 3:1 (texto grande) sobre chips de ~10.5px que pedirían 4.5:1. Subirlo cambiaría a texto negro los servicios azules y rojos |
+| D-06 | Guardas de simulación en el mercadillo | §3.3 promete que la simulación es "puramente visual", pero ningún punto de escritura del mercadillo comprueba `simulatedViewUser`. Decidir entre bloquearlo (coherente con el resto de la app) o habilitar de forma explícita la operación en nombre de otro, con su rastro en el log |
+| D-07 | Renombrar un servicio deja huérfanas sus guardias | `state.shifts` guarda el **nombre** del servicio como valor, y `state.habilitaciones` lo usa dentro de la clave `svc@@plan`. Cambiar el nombre en Ajustes no arrastra ninguna de las dos cosas: las guardias ya asignadas dejan de casar con ningún servicio y desaparecen del calendario y del mercadillo, y el servicio se queda sin días habilitados. Por eso D-04 **señala** los nombres problemáticos en vez de corregirlos: cualquier reescritura automática dispararía este efecto sin que nadie pidiera un renombrado. Resolverlo pide una migración que recorra `shifts`, `habilitaciones` y los `trades` pendientes, o pasar a identificar el servicio por `id` en lugar de por nombre |
+| D-10 | El solicitante de un cambio no recibe notificación de su propia petición | `_notifyNewTrade` avisa **solo al destinatario**. Quien envía la propuesta no ve nada en su panel: para cancelarla tiene que ir al Log Público y encontrarla, y el log filtra por mes, así que una propuesta cuya fecha más tardía cae en otro mes **no aparece en el mes que estás mirando**. Pedido (ago-2026): que el solicitante reciba una autonotificación de «pendiente de aceptar» con acción de cancelar. `cancelPendingTrade` ya borra el trade entero, así que una solicitud cancelada antes de aceptarse **no debe dejar rastro en el log** — eso ya se cumple y hay que conservarlo |
+| D-11 | «Editar especialidad» renombra la promoción en sitio, sin aviso | `adminUpdatePromoDetails` hace `UPDATE promociones SET servicio, hospital WHERE id = <la tuya>`. No crea un grupo nuevo: **reescribe el que ya tienes**. Ocurrió de verdad (ago-2026): la promoción quedó renombrada y la original desapareció del listado de Grupos porque ya no existía, mientras guardias y plan seguían intactos —misma fila— lo que hacía el síntoma desconcertante. Nada se pierde y se revierte con el mismo formulario, pero el formulario debería decir qué va a hacer y pedir confirmación |
+| D-09 | `subastaCriterioServicio` guarda un nombre que puede dejar de existir | El `<select>` de «a quien haya hecho menos guardias en el servicio X» se rellena en tiempo de render con los nombres del plan. Si se renombra un servicio, el `<select>` conserva la opción vieja y el siguiente `syncConfigFromUI` persiste un nombre inexistente. Ese valor alimenta `_getHistoricoParaCriterio`: el histórico sale 0 para todos, empate general, y la guardia desierta se reparte por el desempate o por sorteo. **Corre limpio y asigna mal.** Familia de D-07; se resuelve igual, identificando el servicio por `id` en vez de por nombre. Detectado en la tercera auditoría (ago-2026) |
+| D-08 | Unicidad del nombre de **plan** | Mismo defecto que D-04 un nivel más arriba y aún abierto. `getSvcConfig` y `getPlanVistaContext` resuelven el plan por nombre con `find`, así que dos planes homónimos hacen que los residentes del segundo reciban cupos, horas, pernocta y reglas del primero — corre limpio y asigna mal. `adminAddPlan` ya no genera duplicados por su cuenta (autonumera saltando los ocupados), pero **nada impide teclear el mismo nombre en dos planes**. Falta decidir si se extiende la puerta de `adminSaveConfig` a los nombres de plan, sabiendo que eso bloquearía el guardado a cualquier promoción que ya tenga el duplicado |
+
+**Resueltas**
+
+| # | Decisión | Resolución |
+|---|---|---|
+| D-03 | Prioridad de diseño mobile | **Mobile-first.** Los residentes usan la app en el móvil de madrugada; la legibilidad y el tamaño táctil priman sobre la densidad. Ver §16.2 |
+| D-04 | Unicidad del nombre de servicio dentro de un plan | **Obligatoria dentro de cada plan; libre entre planes.** La clave de comparación normaliza a NFC, colapsa espacios (incluido el espacio duro) y pasa a minúsculas. Las tildes **sí** diferencian: son visibles. La normalización Unicode no es cosmética — `Pediatría` tecleada en Windows (NFC) y pegada desde macOS (NFD) son cadenas distintas e idénticas en pantalla, y sin normalizar pasaban la validación. Un nombre vacío cuenta como inválido. `adminSaveConfig` aborta el guardado y señala el conflicto abriendo el plan afectado; `adminAddService` autonumera para no crearlo. **La app nunca reescribe el nombre por su cuenta** (ver D-07): los espacios sobrantes se señalan, no se recortan en silencio |
 
 ### Changelog
 
@@ -664,3 +784,5 @@ EventoAuditoria
 | v1.1 | §8.5 nuevo: override de emergencia "Activar subasta ya" con directiva de implementación (`activarSubastaGlobal`, ruta paralela sin modificar funciones existentes). |
 | v1.2 | §8: invariante de reset (limpiar `subastasCerradasForzosas`), panel de turno solo en mes activo/futuro. §8.3: calendario abierto durante ventana voluntaria, `isMyTurn` no bloquea en estado `subasta_abierta`. |
 | v1.3 | §8.5 rediseñado: "Propuesta de asignación automática" reemplaza "Activar subasta ya" — propuesta editable con revisión admin antes de ejecutar, no destructiva hasta confirmar. §8.6 nuevo: "Forzamiento de turno por inactividad" — umbral configurable, admin/delegado asigna mínimo al residente inactivo y avanza turno. |
+| v1.5 | §3.3: desviación conocida — el mercadillo no aplica el bloqueo de escritura en simulación (D-06 nueva). §16.2: mercadillo migrado al tema oscuro (Paso 5). D-04 resuelta: unicidad de nombre de servicio obligatoria dentro de cada plan, libre entre planes, con el guardado bloqueado cuando hay choque. D-07 nueva: renombrar un servicio deja huérfanas sus guardias y habilitaciones — es la razón de que D-04 señale en vez de corregir. D-08 nueva: el mismo problema de unicidad, sin resolver, en los nombres de plan. |
+| v1.4 | §8.5: **selección por servicio** — el admin elige sobre qué servicio lanzar la propuesta; solo se ofrecen los que tienen huecos obligatorios sin cubrir (`plazasPorDia: 0` = ilimitado queda fuera). Se documenta por qué el reparto encadenado falsea los descartes por saliente. §16.2 nueva: rediseño visual a tema oscuro (paleta, reglas de `svc.color`, estado por vista). §16 renumerada. D-03 resuelta (mobile-first); D-04 y D-05 nuevas. |

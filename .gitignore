@@ -1,0 +1,21 @@
+# ── Claude Code ──────────────────────────────────────────────
+# Los worktrees son copias completas del repo que crean los agentes:
+# nunca deben commitearse (contienen versiones antiguas de app.js que
+# aparecen en las búsquedas y confunden las auditorías).
+.claude/worktrees/
+# Ajustes locales de la máquina, no compartibles.
+.claude/settings.local.json
+
+# ── Datos y exportaciones ────────────────────────────────────
+# Excels generados por la app con guardias reales de residentes.
+# Son datos personales y artefactos regenerables: fuera del repo.
+backups calendarios/
+*.xlsx
+
+# ── Bancos de pruebas locales ────────────────────────────────
+_harness-calendario.html
+
+# ── Sistema operativo ────────────────────────────────────────
+Thumbs.db
+desktop.ini
+.DS_Store

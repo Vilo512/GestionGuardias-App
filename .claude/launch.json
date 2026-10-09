@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "incidencias-app",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8123", "-d", "H:\\Vincenzo Palavicino\\Incidencias App"],
+      "port": 8123
+    },
+    {
+      "name": "broma-app",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8124", "-d", "H:\\Vincenzo Palavicino\\Broma App"],
+      "port": 8124
+    },
+    {
+      "name": "token-preview",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8125", "-d", "C:\\Users\\vini_\\AppData\\Local\\Temp\\claude\\H--Vincenzo-Palavicino-AsignaGuardiasApp-BETA-GestionGuardias-App\\5b507ef2-ccb4-4599-8cf8-ed43b89bec02\\scratchpad"],
+      "port": 8125
+    },
+    {
+      "name": "gg-harness",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8126", "-d", "H:\\Vincenzo Palavicino\\AsignaGuardiasApp\\BETA\\GestionGuardias-App"],
+      "port": 8126
+    }
+  ]
+}

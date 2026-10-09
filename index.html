@@ -7,7 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=3.8">
 </head>
 <body>
 
@@ -75,15 +75,15 @@
 
   <div id="pane-cal" style="display:none;">
     <div class="card">
-      <div style="background:#fffbeb; border-left:4px solid #f59e0b; padding:10px; margin-bottom:15px; font-size:0.9rem; color:#92400e;">
+      <div class="cal-notice">
          ⚠️ <strong>ATENCIÓN:</strong> En esta pestaña se realiza la Asignación Inicial de guardias. Una vez termines de elegir, tu cuadrante <strong>NO se modificará aquí</strong>. Para realizar cambios, cesiones o intercambios con compañeros a posteriori, dirígete a la pestaña <strong>Mercadillo 🛒</strong>.
       </div>
       <div class="cal-header-nav">
         <button onclick="changeMonth(-1)">◀ Ant</button>
-        <div style="text-align: center;">
-          <h3 id="main-cal-title" style="margin:0; font-size:1.1rem;">Mes Año</h3>
-          <span style="font-size:0.75rem; color:var(--dark); font-weight:bold;">CALENDARIO ORIGINAL (RRHH)</span><br>
-          <button id="btn-filter" onclick="toggleFilter()" style="margin-top:4px; padding:2px 10px; font-size:0.75rem; border-radius:12px; border:1px solid var(--dark); background:transparent; color:var(--dark);">👁️ Ver solo mis guardias</button>
+        <div class="cal-header-center">
+          <h3 id="main-cal-title" class="cal-title">Mes Año</h3>
+          <span class="cal-subtitle">CALENDARIO ORIGINAL (RRHH)</span><br>
+          <button id="btn-filter" class="cal-filter-btn" aria-pressed="false" onclick="toggleFilter()">👁️ Ver solo mis guardias</button>
         </div>
         <button onclick="changeMonth(1)">Sig ▶</button>
       </div>
@@ -100,13 +100,13 @@
   </div>
 
   <div id="pane-merc" style="display:none;">
-    <div class="card" style="border: 2px solid var(--merc);">
+    <div class="card merc-card">
       <div class="cal-header-nav">
         <button onclick="changeMonth(-1)">◀ Ant</button>
-        <div style="text-align: center;">
-          <h3 id="merc-cal-title" style="margin:0; font-size:1.1rem; color:var(--merc);">Mes Año</h3>
-          <span style="font-size:0.75rem; color:var(--merc); font-weight:bold;">MERCADILLO EN VIVO</span><br>
-          <button id="btn-filter-merc" onclick="toggleFilter()" style="margin-top:4px; padding:2px 10px; font-size:0.75rem; border-radius:12px; border:1px solid var(--merc); background:transparent; color:var(--merc);">👁️ Ver solo mis guardias</button>
+        <div class="cal-header-center">
+          <h3 id="merc-cal-title" class="cal-title cal-title--merc">Mes Año</h3>
+          <span class="cal-subtitle cal-subtitle--merc">MERCADILLO EN VIVO</span><br>
+          <button id="btn-filter-merc" class="cal-filter-btn cal-filter-btn--merc" aria-pressed="false" onclick="toggleFilter()">👁️ Ver solo mis guardias</button>
         </div>
         <button onclick="changeMonth(1)">Sig ▶</button>
       </div>
@@ -118,16 +118,16 @@
     </div>
 
     <div id="merc-logged-zone" style="display:none;">
-      <div class="card" style="background:#f8fafc; border:1px solid #cbd5e1;">
-        <h3 style="margin-bottom:0.5rem; color:var(--adu);">📥 Mi Buzón de Cambios/Ventas</h3>
+      <div class="card">
+        <h3 class="merc-zone__title merc-zone__title--inbox">📥 Mi Buzón de Cambios/Ventas</h3>
         <div id="merc-inbox"></div>
       </div>
       <div class="card">
-        <h3 style="margin-bottom:0.5rem;">📜 Log Público de Mercadillo</h3>
+        <h3 class="merc-zone__title">📜 Log Público de Mercadillo</h3>
         <div id="merc-log"></div>
       </div>
     </div>
-    <div id="merc-unlogged-zone" class="card" style="text-align:center; background:#fef9c3; color:#854d0e;">
+    <div id="merc-unlogged-zone" class="card merc-unlogged">
       ⚠️ Identifícate para operar en el mercadillo.
     </div>
   </div>
@@ -139,13 +139,13 @@
         <h3 id="rot-title" style="margin:0; font-size:1.1rem;">Rotación</h3>
         <button onclick="changeMonth(1)">Sig ▶</button>
       </div>
-      <p style="color:#64748b; font-size:0.9rem; margin-bottom:1rem;">Orden de elección mensual.</p>
+      <p class="rot-intro">Orden de elección mensual.</p>
       <div id="rot-content"></div>
-      <div id="admin-rot-tools" style="display:none; margin-top:2rem; padding-top:1rem; border-top:2px dashed #cbd5e1;">
-        <h4 style="margin-bottom:0.5rem;">⚙️ Editor Manual de Órdenes</h4>
+      <div id="admin-rot-tools" class="rot-tools" style="display:none;">
+        <h4 class="rot-tools__title">⚙️ Editor Manual de Órdenes</h4>
         <div id="setup-groups"></div>
-        <button onclick="editorAddGroup()" style="margin-bottom:1rem;">+ Añadir Grupo Vacío</button>
-        <div style="display:flex; flex-wrap:wrap; gap:8px; background:#f8fafc; padding:10px; border-radius:8px; border:1px solid #e2e8f0;">
+        <button class="rot-tools__add-group" onclick="editorAddGroup()">+ Añadir Grupo Vacío</button>
+        <div class="rot-save-bar">
           <button class="primary" onclick="saveCustomMonth()">Guardar SOLO para este mes</button>
           <button class="danger" onclick="saveAsNewBase()">Fijar como NUEVA BASE</button>
           <button onclick="clearCustomMonth()">Restaurar cálculo automático</button>
@@ -155,17 +155,17 @@
   </div>
   
 <div id="pane-grupos" style="display:none;">
-    <div class="card" style="border-left: 4px solid var(--adu);">
-      <h3>Mi Grupo Actual</h3>
+    <div class="card grp-card--current">
+      <h3 class="grp-card__title">Mi Grupo Actual</h3>
       <div id="grupos-current-info"></div>
     </div>
-    
+
     <div class="card">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:10px;">
-          <h3 style="margin:0;">Explorar Otros Grupos</h3>
-          <button class="primary icon-btn" style="background:var(--adu); font-size:0.9rem; padding:8px 12px;" onclick="abrirCrearPromocion()">+ Crear Nueva Promoción</button>
+      <div class="grp-head">
+          <h3 class="grp-head__title">Explorar Otros Grupos</h3>
+          <button class="primary grp-create" onclick="abrirCrearPromocion()">+ Crear Nueva Promoción</button>
       </div>
-      <p style="color:#64748b; font-size:0.9rem; margin-bottom:1.5rem;">Busca tu hospital y servicio para solicitar acceso. Si cambias de grupo, perderás acceso a tu calendario actual.</p>
+      <p class="grp-intro">Busca tu hospital y servicio para solicitar acceso. Si cambias de grupo, perderás acceso a tu calendario actual.</p>
       <div id="grupos-list-container"></div>
     </div>
   </div>
@@ -388,6 +388,6 @@
         </div>
     </div>
 
-    <script src="app.js?v=3.1"></script>
+    <script src="app.js?v=3.8"></script>
 </body>
 </html>

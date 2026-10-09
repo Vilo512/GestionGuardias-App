@@ -1,8 +1,12 @@
 # GestionGuardias App — Auditoría de Implementación
-**Versión PRD auditada:** 1.2  
-**Codebase auditado:** `app.js` (6 900+ líneas, monolítico vanilla JS + Supabase)  
-**Fecha de última revisión:** Julio 2026  
-**Estado general:** 0 divergencias activas. **N5 es el único ítem pendiente del MVP** (N1-N4 resueltos). 3 ítems en ruta futura post-MVP: W4-B (memoria de slots inter-plan), N6 (asignación automática con vacaciones) y N7 (graduación real al agotar planes).
+**Versión PRD auditada:** 1.6  
+**Codebase auditado:** `app.js` (~7 250 líneas), vanilla JS sin build step + Supabase  
+**Fecha de última revisión:** 8 de octubre de 2026  
+**Estado general:** **MVP cerrado** — N5 se entregó el 15-jul (`0fe4110`) y con él caen los cinco ítems N1-N5. Dos divergencias nuevas abiertas (W12, W13), ambas de permisos, detectadas al redactar el PRD v1.6. Tres ítems en ruta futura post-MVP: W4-B, N6 y N7.
+
+> **Nota de vocabulario (oct-2026).** Hasta esta revisión la cabecera describía el codebase como «monolítico». Era una **descripción**, pero acabó leyéndose como norma y durante meses bloqueó incluso mencionar el reparto del archivo. No lo es: repartir `app.js` en varios `<script>` clásicos no contradice el «sin build step», que sí fue decisión consciente. Ver `GestionGuardias_DECISIONES.md` §2.
+
+> **Atención — los R1 de MFyC usan la app desde el 8-oct, sobre `main`.** Producción sigue en el 15 de julio y no tiene nada de lo auditado aquí desde entonces. Ver `GestionGuardias_HANDOVER_2026-10-08.md` §2.
 
 ---
 
@@ -33,17 +37,25 @@ Este archivo es la **memoria de trabajo persistente** del Engineering Lead entre
 | W9 | ⚠️ Diverge | §8 | Panel de turno muestra "Turno de Nadie" en meses pasados para admin/delegado | `resuelto` |
 | W10 | ⚠️ Diverge | §8 / §9 | Subasta no aislada por plan — mezcla residentes, huecos y caché entre R1/R2/R3 | `resuelto` |
 | W11 | ⚠️ Diverge | §8 | `_getAnalisisFestivosImpl` usaba `getComputedShifts` para contar huecos cubiertos — inconsistente con `state.shifts` en `renderAlertaCargaMensual` y `ejecutarAsignacionForzosa`; mes atascado con "0 guardias" | `resuelto` |
+| W12 | ⚠️ Diverge | §3.2 / §3.4 | **No existe ámbito por plan.** `perfiles.rol` es global a la especialidad y ninguna de las 88 comprobaciones de rol es consciente del plan. Detalle en PRD §3.5 (a, b, c, e) | `pendiente` |
+| W13 | ⚠️ Diverge | §3.3 | **D-06 ampliado:** el panel de Cuentas escribe en modo simulación, y la pestaña de Admin no se oculta al simular. No es solo el mercadillo | `pendiente` |
 | N1 | ✅ Hecho | §12 | Sistema de notificaciones in-app completo | `resuelto` |
 | N2 | ✅ Hecho | §15 / §8.4 | Registro persistente de huecos sin candidato válido | `resuelto` |
 | N3 | ✅ Hecho | §5.1 | Calendario automático de huecos desde patrón configurable | `resuelto` |
 | N4 | ✅ Hecho | §4 / D-02 | Importación de festivos desde fuente oficial | `resuelto` |
-| N5 | ❌ Falta | §8.5 / §8.6 | Propuesta de asignación automática (revisión admin antes de ejecutar) + Forzamiento de turno por inactividad | `pendiente` |
+| N5 | ✅ Hecho | §8.5 / §8.6 | Propuesta de asignación automática (revisión admin antes de ejecutar) + Forzamiento de turno por inactividad | `resuelto` |
 | N6 | 🔮 Futuro | §8.5 (ext.) | Asignación automática con vacaciones: modelo de vacaciones día-a-día + informe de viabilidad + optimizador con backtracking | `pendiente` |
 | N7 | 🔮 Futuro | §9.5 / §13.3 | Graduación real al agotar los planes: quitar el clamp, graduación con fecha, bloqueos y aceptación | `pendiente` |
 
 ---
 
 ## Ruta crítica recomendada
+
+> ⚠️ **Histórica — cerrada.** Lo que sigue es el plan del MVP, y todos sus ítems están resueltos. Se conserva porque documenta por qué se atacaron en ese orden, no porque quede nada que hacer en él.
+>
+> **La hoja de ruta viva está en otro sitio:** la cola ordenada en `GestionGuardias_BACKLOG.md` y el arranque en `GestionGuardias_HANDOVER_2026-10-08.md` §6. Lo pendiente hoy, resumido: W12 y W13 (permisos), el Paso 6 del rediseño (seis vistas), el Paso 7 (PWA), el despliegue a producción, y los tres post-MVP W4-B / N6 / N7.
+>
+> **Dependencia que conviene recordar:** la sucesión forzosa del Dueño al graduarse (backlog P-04) necesita **N7 — graduación real al agotar los planes**, que sigue pendiente. Hoy no existe el evento de graduación al que engancharse.
 
 ```
 W1 (roles ternarios)
@@ -68,6 +80,8 @@ Independientes (cualquier orden tras los anteriores):
 ---
 
 ## Ítems ⚠️ — Divergencias activas
+
+> **W12 y W13 no tienen bloque propio aquí, a propósito.** Su detalle —ocho divergencias con `file:line`— vive en **PRD §3.5**, y su posición en la cola en `GestionGuardias_BACKLOG.md` (P-02, P-05). Duplicarlo aquí garantizaría que las dos copias divergieran. Los bloques W1-W11 de abajo son históricos: todos resueltos.
 
 ---
 

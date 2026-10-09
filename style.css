@@ -1,76 +1,302 @@
-:root { --ped: #10b981; --pac: #f59e0b; --adu: #3b82f6; --fest: #ef4444; --dark: #1e293b; --light: #f8fafc; --merc: #8b5cf6; }
+/* ============================================================
+   TOKENS — Fundación del rediseño oscuro (Paso 1)
+   Solo se DEFINEN aquí; se cablean a componentes en pasos
+   posteriores. Los colores de servicio (svc.color) NO se
+   tokenizan: son dato de Supabase, pintados inline desde app.js.
+   ============================================================ */
+:root {
+  /* Controles NATIVOS (lista desplegada de <select>, scrollbars, date pickers):
+     sin esto, el navegador los pinta según el tema del SO ignorando el CSS.
+     Los modales no migrados lo revierten a `light` en su propio bloque. */
+  color-scheme: dark;
+
+  /* — Legacy (tema claro actual; aún en uso por componentes) — */
+  --ped: #10b981; --pac: #f59e0b; --adu: #3b82f6; --fest: #ef4444;
+  --dark: #1e293b; --light: #f8fafc; --merc: #8b5cf6;
+  --header-h: 62px;
+
+  /* — Neutros oscuros (Google Calendar dark) — */
+  --bg:        #202124;   /* fondo de la app             */
+  --surface:   #2d2e30;   /* cards, bottom sheet, celdas  */
+  --surface-2: #35363a;   /* elevación: hover, cabeceras  */
+  --border:    #3c4043;   /* borde estándar              */
+  --border-2:  #5f6368;   /* borde de énfasis            */
+  /* Contorno de campos: --border-2 da 2.25:1 sobre --surface y el relleno del
+     campo apenas se distingue de la card (1.13:1). Este pasa 3:1 (≈3.7:1). */
+  --border-input: #80868b;
+  --text:      #e8eaed;   /* texto primario              */
+  --text-2:    #9aa0a6;   /* texto secundario            */
+  /* Terciario: #92979d es el SUELO para que siga pasando 4.5:1 sobre --surface.
+     Cualquier gris más apagado deja de ser apto para texto. */
+  --text-3:    #92979d;
+
+  /* — Escala de espaciado — */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px;
+
+  /* — Radios — */
+  --r-sm: 4px; --r-md: 8px; --r-lg: 12px; --r-xl: 20px; --r-pill: 999px;
+
+  /* — Elevación — */
+  --shadow-1: 0 1px 3px rgba(0,0,0,0.4);
+  --shadow-2: 0 8px 24px rgba(0,0,0,0.5);
+
+  /* — Acentos de chrome, dark-safe: mismo significado que los legacy,
+       legibles como texto/borde sobre --bg. Reemplazan a los legacy
+       cuando se propague el tema (pasos posteriores). — */
+  /* Fondos de botón sólidos. OBLIGATORIO que funcionen con texto BLANCO:
+     ~26 sitios de app.js sobrescriben solo el `background` inline y heredan
+     el color de texto de la clase. Si aquí se pone un fondo claro con texto
+     oscuro, esos botones quedan con texto invisible. Ver auditoría pre-merge. */
+  --btn-primary: #1565c0;   /* blanco encima: 5.6:1 (con #1a73e8 quedaba en 4.51, sin margen) */
+  --btn-merc:    #7c3aed;   /* blanco encima: 5.7:1 */
+
+  --ped-d:  #34d399;   /* pediatría   */
+  --adu-d:  #60a5fa;   /* adultos     */
+  --pac-d:  #fbbf24;   /* PAC         */
+  --fest-d: #f87171;   /* festivos    */
+  --merc-d: #a78bfa;   /* mercadillo  */
+}
   * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
-  body { background: #f1f5f9; color: #334155; display: flex; flex-direction: column; min-height: 100vh; }
-  
-  /* Layout & Cards (Header Blanco) */
-  .header { background: white; color: var(--dark); padding: 1rem; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; flex-wrap: wrap; gap: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  body { background: var(--bg); color: var(--text); display: flex; flex-direction: column; min-height: 100vh; }
+
+  /* Layout & Cards */
+  .header { background: var(--surface); color: var(--text); padding: 1rem; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; flex-wrap: wrap; gap: 10px; border-bottom: 1px solid var(--border); box-shadow: var(--shadow-1); }
   .container { max-width: 1200px; margin: 1rem auto; padding: 0 1rem; flex: 1; width: 100%; }
-	.card { background: white; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); max-width: 950px; margin-left: auto; margin-right: auto; width: 100%; }
-  h2, h3 { margin-bottom: 1rem; color: var(--dark); }
+	.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: var(--shadow-1); max-width: 950px; margin-left: auto; margin-right: auto; width: 100%; }
+  h2, h3 { margin-bottom: 1rem; color: var(--text); }
   
   /* Status Badge & User Info */
-  #status-badge { font-size: 0.75rem; padding: 4px 8px; border-radius: 12px; background: #475569; color: white; font-weight: bold; }
-  .status-error { background: var(--fest) !important; }
-  .status-ok { background: var(--ped) !important; }
-  
-  .user-badge { background: #e2e8f0; padding: 4px 10px; border-radius: 20px; font-size: 0.85rem; display: flex; align-items: center; gap: 8px; color: var(--dark); font-weight: 500; }
+  #status-badge { font-size: 0.75rem; padding: 4px 8px; border-radius: var(--r-lg); background: var(--surface-2); border: 1px solid var(--border); color: var(--text); font-weight: bold; }
+  .status-error { background: var(--fest-d) !important; color: var(--bg) !important; border-color: transparent !important; }
+  .status-ok { background: var(--ped-d) !important; color: var(--bg) !important; border-color: transparent !important; }
+
+  .user-badge { background: var(--surface-2); padding: 4px 10px; border-radius: var(--r-xl); font-size: 0.85rem; display: flex; align-items: center; gap: 8px; color: var(--text); font-weight: 500; }
 
   /* Navigation Tabs */
   .tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; overflow-x: auto; padding-bottom: 4px; }
-  .tab { padding: 0.75rem 1.5rem; border-radius: 8px; border: none; background: #e2e8f0; color: #64748b; font-weight: 600; cursor: pointer; white-space: nowrap; }
-  .tab.active { background: var(--dark); color: white; }
-  #tab-merc { color: var(--merc); border: 1px solid transparent; }
-  #tab-merc.active { background: var(--merc); color: white; }
+  .tab { padding: 0.75rem 1.5rem; border-radius: var(--r-md); border: none; background: var(--surface-2); color: var(--text-2); font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .tab.active { background: var(--text); color: var(--bg); }
+  #tab-merc { color: var(--merc-d); border: 1px solid transparent; }
+  #tab-merc.active { background: var(--merc-d); color: var(--bg); }
 
   /* Forms & Buttons */
-  button { padding: 0.6rem 1rem; border-radius: 8px; border: 1px solid #cbd5e1; background: white; cursor: pointer; font-weight: 500; transition: opacity 0.2s; }
+  button { padding: 0.6rem 1rem; border-radius: var(--r-md); border: 1px solid var(--border); background: var(--surface-2); color: var(--text); cursor: pointer; font-weight: 500; transition: opacity 0.2s; }
   button:hover { opacity: 0.9; }
-  button.primary { background: var(--dark); color: white; border: none; }
-  button.danger { background: white; color: var(--fest); border-color: var(--fest); }
-  button.merc { background: var(--merc); color: white; border: none; }
-  button.icon-btn { padding: 4px 8px; font-size: 0.85rem; border-radius: 6px; }
-  input, select { padding: 0.6rem; border-radius: 8px; border: 1px solid #cbd5e1; width: 100%; margin-bottom: 1rem; }
+  /* El texto va en blanco a propósito: no cambiar sin revisar los ~26 botones
+     de app.js que sobrescriben el background inline (var(--dark), #7c3aed,
+     getServiceColor()...) y dependen de heredar blanco. */
+  button.primary { background: var(--btn-primary); color: #fff; border: none; font-weight: 600; }
+  button.danger { background: transparent; color: var(--fest-d); border-color: var(--fest-d); }
+  button.merc { background: var(--btn-merc); color: #fff; border: none; font-weight: 600; }
+  button.icon-btn { padding: 4px 8px; font-size: 0.85rem; border-radius: var(--r-sm); }
+  input, select { padding: 0.6rem; border-radius: var(--r-md); border: 1px solid var(--border); background: var(--surface-2); color: var(--text); width: 100%; margin-bottom: 1rem; }
 
   /* Calendars */
+  /* Cabecera y aviso del calendario — extraídos de index.html (Paso 2) */
+  .cal-notice { background: rgba(251,191,36,0.12); border-left: 4px solid var(--pac-d); border-radius: var(--r-sm); padding: var(--sp-3); margin-bottom: var(--sp-4); font-size: 0.9rem; color: var(--text); }
+  .cal-notice strong { color: var(--pac-d); }
+  .cal-header-center { text-align: center; }
+  .cal-title { margin: 0; font-size: 1.1rem; }
+  .cal-subtitle { font-size: 0.75rem; color: var(--text-2); font-weight: bold; }
+  .cal-filter-btn { margin-top: var(--sp-1); padding: 8px 14px; min-height: 44px; font-size: 0.75rem; border-radius: var(--r-pill); border: 1px solid var(--border-2); background: transparent; color: var(--text-2); }
+  .cal-filter-btn.active { background: var(--surface-2); color: var(--text); border-color: var(--text-2); }
+  /* Variante del mercadillo (Paso 5): mismo componente, acento morado dark-safe.
+     --merc-d sobre --surface da 4.99:1; el legacy --merc se quedaba en 3.2:1. */
+  .cal-filter-btn--merc { border-color: var(--merc-d); color: var(--merc-d); }
+  .cal-filter-btn--merc.active { background: var(--merc-d); color: var(--bg); border-color: var(--merc-d); }
+
   .cal-header-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
-  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
-  .cal-day-name { text-align: center; font-weight: bold; font-size: 0.75rem; padding: 0.5rem 0; color: #64748b; }
-  .cal-cell { background: white; border: 1px solid #e2e8f0; border-radius: 6px; min-height: 90px; padding: 4px; display: flex; flex-direction: column; cursor: pointer; transition: border-color 0.2s; }
-  .cal-cell:hover { border-color: #94a3b8; }
-  .cal-cell.empty { background: transparent; border: none; cursor: default; }
-  .day-number { font-weight: bold; font-size: 0.85rem; margin-bottom: 2px; color: #475569; }
-  
-  /* Specific Calendar Modes */
-  .cal-cell.is-festivo { border: 2px solid var(--fest); background: #fee2e2; }
-  .cal-cell.is-ped-ok { background: #fef9c3; border-color: #fde047; }
-  .cal-cell.is-fest-ped { border: 2px solid var(--fest); background: linear-gradient(135deg, #fee2e2 50%, #fef9c3 50%); }
-  .cal-cell.is-whitelisted { background: #ecfdf5; border-color: var(--ped); } 
-  .cal-cell.locked-ped { background: #f1f5f9; opacity: 0.6; } 
-  
-  /* Shift Badges */
-  .shift-badge { font-size: 0.7rem; padding: 2px 4px; border-radius: 4px; color: white; margin-bottom: 2px; font-weight: 700; letter-spacing: 0.2px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* minmax(0,1fr) y no 1fr: con `1fr` el contenido puede ENSANCHAR su columna
+     (un día con dos contadores descuadraba la semana entera). */
+  .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--sp-1); }
+  .cal-day-name { text-align: center; font-weight: 700; font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; padding: var(--sp-2) 0; color: var(--text-2); }
+  .cal-cell { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); min-height: 92px; padding: var(--sp-1); display: flex; flex-direction: column; gap: 2px; cursor: pointer; position: relative; transition: background 0.15s, border-color 0.15s; -webkit-tap-highlight-color: transparent; }
+  .cal-cell:hover { background: var(--surface-2); border-color: var(--border-2); }
+  .cal-cell:active { background: var(--border); }
+  .cal-cell.empty { background: transparent; border: none; cursor: default; min-height: 0; }
+  .day-number { font-weight: 700; font-size: 0.82rem; color: var(--text); line-height: 1; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; flex-shrink: 0; }
+
+  /* Hoy — disco de acento, estilo Google Calendar */
+  .cal-cell.is-today { border-color: var(--adu-d); }
+  .cal-cell.is-today .day-number { background: var(--adu-d); color: var(--bg); border-radius: var(--r-pill); }
+
+  /* Specific Calendar Modes — el tinte de fondo lo aporta getCellBackgroundStyle */
+  .cal-cell.is-festivo { border-color: var(--fest-d); }
+  .cal-cell.is-festivo .day-number { color: var(--fest-d); }
+  .cal-cell.is-festivo.is-today .day-number { color: var(--bg); }
+  .cal-cell.is-ped-ok { border-color: var(--pac-d); }
+  .cal-cell.is-fest-ped { border-color: var(--fest-d); }
+  .cal-cell.is-whitelisted { border-color: var(--ped-d); }
+  /* 0.65 y no menos: por debajo, el número del día cae de 4.5:1 */
+  .cal-cell.locked-ped { opacity: 0.65; cursor: not-allowed; }
+
+  /* Fila de cabecera de la celda: número de día + contadores de plazas */
+  .cal-dayrow { display: flex; align-items: center; gap: 4px; min-width: 0; }
+  /* Contador de plazas: texto suelto junto al día ("11 1/2"), SIN recuadro.
+     En esquina flotante absoluta se solapaba con las etiquetas de nombre. */
+  .cal-plazas { display: flex; gap: 6px; min-width: 0; overflow: hidden; }
+  .cal-plaza { display: inline-flex; align-items: center; gap: 3px; font-size: 0.66rem; font-weight: 700; line-height: 1; color: var(--text-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  /* El relleno es el svc.color EXACTO (dato del plan, sin derivar). El aro claro
+     garantiza que un color oscuro no se pierda sobre el fondo oscuro sin que
+     haya que tocar el color en sí. */
+  .cal-plaza__dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(232,234,237,0.45); }
+
+  /* Shift Badges — el color de texto lo calcula contrastText() en app.js */
+  /* `color: #fff` es la RED DE SEGURIDAD: un badge que se pinte sin color inline
+     heredaría el texto oscuro del contexto claro de .modal:not(.sheet) sobre un
+     svc.color oscuro = ilegible. Calendario y mercadillo lo sobrescriben inline
+     con contrastText(), que gana al ser inline. */
+  .shift-badge { font-size: 0.66rem; padding: 3px 5px; border-radius: var(--r-sm); margin-bottom: 2px; color: #fff; font-weight: 700; letter-spacing: 0.2px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; justify-content: center; gap: 3px; }
+  .shift-badge svg { width: 11px; height: 11px; flex-shrink: 0; }
   .bg-vre { background: #94a3b8 !important; }
 
   /* Modals & Config */
-  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000; }
-  .modal { background: white; padding: 1.5rem; border-radius: 12px; width: 90%; max-width: 550px; max-height: 90vh; overflow-y: auto; }
-  .shift-option { display: flex; flex-direction: column; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 0.5rem; background: var(--light); }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.65); display: flex; justify-content: center; align-items: center; z-index: 1000; }
+  .modal { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 1.5rem; border-radius: var(--r-lg); width: 90%; max-width: 550px; max-height: 90vh; overflow-y: auto; box-shadow: var(--shadow-2); }
+  /* ============================================================
+     MODALES AÚN NO MIGRADOS — crear promoción (app.js:809), importar
+     festivos (app.js:4135) y propuesta de mes (app.js:5864).
+     El del mercadillo salió de aquí en el Paso 5: ya lleva .sheet.
+     Su contenido son estilos inline del tema claro
+     (#64748b, #f8fafc, background:white...). Hasta que les toque su capa
+     (Pasos 5-6) se aíslan en contexto CLARO y legible, en lugar de
+     dejarlos con texto a ~2.9:1 sobre fondo oscuro.
+     El panel de día lleva .sheet y queda excluido: ese sí es oscuro.
+     ============================================================ */
+  /* `color-scheme: light` revierte los controles nativos dentro de estos modales:
+     sin él, con el SO en oscuro el navegador pintaba la lista desplegada del
+     <select> en oscuro dentro de un modal blanco. Afecta al modal de propuesta
+     de mes (N5 8.5), que lleva un <select> por fila. */
+  .modal:not(.sheet) { background: #ffffff; color: #334155; border-color: #e2e8f0; color-scheme: light; }
+  .modal:not(.sheet) h2, .modal:not(.sheet) h3, .modal:not(.sheet) h4 { color: #1e293b; }
+  .modal:not(.sheet) button { background: #ffffff; color: #334155; border-color: #cbd5e1; }
+  .modal:not(.sheet) button.primary { background: var(--btn-primary); color: #fff; border-color: transparent; }
+  .modal:not(.sheet) button.merc { background: var(--btn-merc); color: #fff; border-color: transparent; }
+  .modal:not(.sheet) button.danger { background: #ffffff; color: #dc2626; border-color: #dc2626; }
+  .modal:not(.sheet) input, .modal:not(.sheet) select, .modal:not(.sheet) textarea { background: #ffffff; color: #334155; border-color: #cbd5e1; }
+
+  .shift-option { display: flex; flex-direction: column; padding: 0.75rem; border: 1px solid var(--border); border-radius: var(--r-md); margin-bottom: var(--sp-2); background: var(--surface-2); }
   .shift-option-header { display: flex; justify-content: space-between; align-items: flex-start; width: 100%; }
-  
+
+  /* ============================================================
+     BOTTOM SHEET — panel de día (Paso 3). En escritorio se comporta
+     como diálogo centrado; en móvil sube desde abajo.
+     ============================================================ */
+  .svc-chip { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: var(--r-pill); font-size: 0.8rem; font-weight: 700; letter-spacing: 0.2px; }
+  /* Ocupación de plazas del servicio, en la cabecera de cada opción del panel.
+     En móvil este es el ÚNICO sitio donde se ve (la rejilla no lo pinta). */
+  .svc-plazas { font-size: 0.8rem; font-weight: 700; color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; flex-shrink: 0; margin-left: var(--sp-2); }
+  /* Los <select> del panel de día iban a 0.8rem inline. En escritorio se
+     mantiene ese tamaño; la @media móvil los sube a 16px por el auto-zoom de
+     iOS (ver ahí). El font-size vive aquí, no inline, para que la @media pueda
+     ganarle sin recurrir a !important. */
+  .sheet-select { font-size: 0.8rem; }
+  .sheet__grip { display: none; }
+  .sheet__title { margin: 0 0 var(--sp-1); font-size: 1.05rem; }
+  .sheet__mode { margin-bottom: var(--sp-4); font-weight: 700; font-size: 0.85rem; }
+  .sheet__mode--plain { color: var(--text-2); font-weight: 400; }
+  .sheet__footer { display: flex; justify-content: flex-end; margin-top: var(--sp-4); }
+  .sheet__close { min-height: 44px; padding: 0 var(--sp-5); }
+  /* Titular asignado (vista admin/delegado) */
+  .sheet__holder { background: var(--surface); border: 1px solid var(--border); padding: var(--sp-3); border-radius: var(--r-md); margin-top: var(--sp-2); }
+  /* Tu guardia elegida — se destaca con el acento PAC, dark-safe */
+  .sheet__mine { display: flex; flex-direction: column; gap: 6px; margin-top: var(--sp-2); background: rgba(251,191,36,0.10); padding: var(--sp-3); border-radius: var(--r-md); border: 1px solid var(--pac-d); }
+
+  @keyframes sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+  /* ============================================================
+     MERCADILLO (Paso 5). La rejilla y el panel de día son los mismos
+     componentes del calendario (.cal-grid, .cal-cell, .sheet): aquí solo
+     va lo propio de la vista — el acento morado y las filas de operación.
+     ============================================================ */
+  .merc-card { border: 2px solid var(--merc-d); }
+  .cal-title--merc, .cal-subtitle--merc { color: var(--merc-d); }
+  .merc-zone__title { margin-bottom: var(--sp-2); font-size: 1.05rem; }
+  .merc-zone__title--inbox { color: var(--adu-d); }
+  .merc-unlogged { text-align: center; background: rgba(251,191,36,0.12); border-left: 4px solid var(--pac-d); color: var(--text); }
+
+  /* Panel de día del mercadillo */
+  .sheet__title--merc { color: var(--merc-d); border-bottom: 2px solid var(--merc-d); padding-bottom: var(--sp-2); margin-bottom: var(--sp-4); }
+  .merc-mine { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; background: var(--surface-2); border: 1px solid var(--border); padding: var(--sp-3); border-radius: var(--r-md); margin-bottom: var(--sp-4); }
+  .merc-row { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-2); flex-wrap: wrap; background: var(--surface-2); border: 1px solid var(--border); padding: var(--sp-2); border-radius: var(--r-md); margin-bottom: var(--sp-2); }
+  .merc-row__who { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; }
+  .merc-row__name { font-size: 0.85rem; font-weight: 700; color: var(--text); }
+  /* 44px: son los dos botones que se pulsan de madrugada. Antes eran .icon-btn (~26px). */
+  .merc-actions { display: flex; gap: var(--sp-2); }
+  .merc-actions button { min-height: 44px; padding: 0 var(--sp-4); font-size: 0.8rem; }
+  .merc-btn-block { width: 100%; min-height: 44px; margin-top: var(--sp-2); }
+  .merc-note { display: block; font-size: 0.85rem; color: var(--text-2); margin-bottom: var(--sp-2); }
+  .merc-note--center { text-align: center; font-weight: 700; }
+  /* --text-2 y no --text-3: el suelo de --text-3 está calculado sobre --surface;
+     sobre --surface-2 (que es el fondo de estas filas) cae a 4.1:1. Medido. */
+  .merc-tag { font-size: 0.75rem; font-weight: 700; color: var(--text-2); }
+  /* Medido: --fest-d no llega a 4.5:1 sobre --surface-2 (se queda en 4.36) y el
+     tinte rojo translúcido lo EMPEORA, porque aclara el fondo (3.59). Estas
+     etiquetas se hunden a --bg, donde el mismo rojo da 5.8:1, y el aviso lo
+     aporta el borde — el mismo patrón de outline que ya usa button.danger. */
+  .merc-warn { font-size: 0.75rem; font-weight: 700; color: var(--fest-d); background: var(--bg); border: 1px solid var(--fest-d); padding: 4px 8px; border-radius: var(--r-sm); }
+  .merc-error { font-size: 0.85rem; font-weight: 700; color: var(--fest-d); }
+  .merc-error--block { background: var(--bg); border-left: 3px solid var(--fest-d); padding: var(--sp-3); border-radius: var(--r-md); }
+  .merc-ext { margin-top: var(--sp-4); padding-top: var(--sp-4); border-top: 1px dashed var(--border-2); }
+  .merc-ext__title { margin-bottom: var(--sp-2); font-size: 0.9rem; color: var(--text-2); }
+  .merc-ext__grid { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+  .merc-ext__grid button { flex: 1 1 140px; min-height: 44px; font-size: 0.8rem; }
+  .merc-form__title { margin-bottom: var(--sp-4); font-size: 1rem; }
+  .merc-form__title--adu { color: var(--adu-d); }
+  .merc-form__label { display: block; font-size: 0.85rem; color: var(--text-2); margin-bottom: var(--sp-2); }
+  .merc-form__area { margin-top: var(--sp-4); }
+  .merc-recap { background: var(--surface-2); border: 1px solid var(--border); padding: var(--sp-2); border-radius: var(--r-md); margin-bottom: var(--sp-4); font-size: 0.85rem; }
+
   .rot-group { background: var(--light); padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border: 1px solid #e2e8f0; }
   .editor-row { display: flex; align-items: center; gap: 4px; margin-bottom: 6px; }
-  .account-row { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; border-bottom: 1px solid #e2e8f0; }
-  .trade-row { display: flex; flex-direction: column; gap: 6px; padding: 10px; background: white; border: 1px solid #cbd5e1; border-radius: 8px; margin-bottom: 8px; font-size: 0.85rem; }
+  /* Buzón y log del mercadillo (Paso 5) */
+  .trade-row { display: flex; flex-direction: column; gap: 6px; padding: var(--sp-3); background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-md); margin-bottom: var(--sp-2); font-size: 0.85rem; }
+  .trade-row--inbox { border-left: 3px solid var(--merc-d); }
+  .trade-row.is-undone { opacity: 0.6; }
+  .trade-row.is-undo-pending { border-left: 3px solid var(--pac-d); }
+  .trade-row.is-pending { border-left: 3px solid var(--border-2); }
+  /* Etiqueta de estado. El rojo NO es viable en la fila deshecha: con el
+     opacity 0.6 de .is-undone, --fest-d cae a 2.5:1 (medido). Ahí el estado
+     lo comunican la palabra y el atenuado, y el texto se queda en --text
+     (4.7:1 ya contando el opacity). */
+  .trade-tag { white-space: nowrap; }
+  .trade-tag--undone { color: var(--text); }
+  .trade-tag--undo { color: var(--pac-d); }
+  .trade-tag--pending { color: var(--text-2); }
+  .trade-row__head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--sp-2); }
+  .trade-row__actions { display: flex; gap: var(--sp-2); flex-shrink: 0; }
+  /* Igual que .merc-tag: sobre --surface-2, --text-3 se queda en 4.1:1. */
+  .trade-row__ts { font-size: 0.7rem; color: var(--text-2); }
+  .trade-row__actions button { min-height: 44px; padding: 0 var(--sp-3); font-size: 0.75rem; white-space: nowrap; }
+  /* Mismo caso que .merc-warn: button.danger es --fest-d sobre transparente, y
+     al pasar la fila a --surface-2 se quedaba en 4.36:1. Con --bg detrás sube
+     a 5.82:1 y el botón sigue leyéndose como outline rojo. */
+  .trade-row__actions button.danger { background: var(--bg); }
+  /* Aceptar en verde: --ped con texto blanco daba 2.5:1. Con --ped-d y texto
+     --bg sube a 8.4:1 sin perder la lectura de "verde = confirmar".
+     Va calificado con .trade-row para ganarle a `button.primary`. */
+  .trade-row button.trade-btn-ok { background: var(--ped-d); color: var(--bg); }
 
   .cfg-card { background: white; border: 1px solid #cbd5e1; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+  /* Nombre del servicio y aviso de nombre repetido (D-04). El panel de admin
+     sigue en tema CLARO hasta el Paso 6, así que estos colores se juzgan sobre
+     la .cfg-card blanca, no sobre los tokens oscuros. El `color` explícito no
+     es decorativo: sin él el input hereda --text (gris muy claro) del estilo
+     global y el nombre queda ilegible sobre blanco. */
+  .cfg-nom-input { margin: 0; max-width: 200px; font-size: 1.1rem; font-weight: bold; border: none; background: transparent; color: #1e293b; }
+  /* Nombre del plan (D-08). Mismos estilos que traía inline; sale a clase para
+     que .cfg-nom-dup —declarada después, misma especificidad— pueda ganarle. */
+  .cfg-plan-nom-input { margin: 0; max-width: 250px; font-size: 1.2rem; font-weight: bold; border: 1px solid transparent; background: transparent; color: #1e293b; }
+  /* El padding se mantiene en 0.6rem: con 4px el campo marcado se encogía a
+     ~31px, y es justo el que hay que tocar para arreglar el conflicto. */
+  .cfg-nom-dup { background: #fef2f2; color: #991b1b; border: 1px solid #dc2626; border-radius: var(--r-sm); padding: 0.6rem; }
+  .cfg-nom-aviso { margin-bottom: 12px; padding: 8px 10px; font-size: 0.8rem; font-weight: 600; color: #991b1b; background: #fef2f2; border-left: 3px solid #dc2626; border-radius: var(--r-sm); }
   .tag-btn { padding: 4px 8px; font-size: 0.75rem; border-radius: 4px; border: 1px solid #cbd5e1; background: white; cursor: pointer; transition: 0.2s; }
   .tag-btn.active { background: var(--dark); color: white; border-color: var(--dark); }
 
   /* ============================================================
      SIMULATION BANNER — Admin "visualizar como" mode
      ============================================================ */
-  :root { --header-h: 62px; }
-
   .simulation-banner {
     position: sticky;
     top: var(--header-h);
@@ -190,7 +416,7 @@
   }
   .admin-action-toolbar__skipped-label { font-size: 0.72rem; color: var(--fest); flex: 1; min-width: 0; }
 
-  .footer { text-align: center; padding: 1.5rem; color: #64748b; font-size: 0.8rem; background: #e2e8f0; margin-top: 2rem; }
+  .footer { text-align: center; padding: 1.5rem; color: var(--text-2); font-size: 0.8rem; background: var(--surface); border-top: 1px solid var(--border); margin-top: 2rem; }
   .help-section { margin-bottom: 1.5rem; }
   .help-section h4 { color: var(--dark); border-bottom: 2px solid #e2e8f0; padding-bottom: 0.5rem; margin-bottom: 0.5rem; }
   .help-section p, .help-section li { font-size: 0.95rem; color: #475569; line-height: 1.6; margin-bottom: 0.5rem; }
@@ -200,27 +426,28 @@
      ============================================================ */
   .notif-bell-btn {
     position: relative;
-    background: #f1f5f9;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 6px 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: 10px 12px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--dark);
+    color: var(--text);
     line-height: 1;
-    min-height: 36px;
+    min-height: 44px;
+    min-width: 44px;
   }
-  .notif-bell-btn:hover { background: #e2e8f0; }
+  .notif-bell-btn:hover { background: var(--border); }
   .notif-bell-btn svg { display: block; }
 
   .notif-badge {
     position: absolute;
     top: -5px;
     right: -5px;
-    background: #ef4444;
-    color: white;
+    background: var(--fest-d);
+    color: var(--bg);
     border-radius: 10px;
     min-width: 18px;
     height: 18px;
@@ -231,7 +458,7 @@
     justify-content: center;
     padding: 0 3px;
     pointer-events: none;
-    border: 2px solid white;
+    border: 2px solid var(--surface);
     line-height: 1;
   }
 
@@ -242,10 +469,10 @@
     width: 340px;
     max-width: calc(100vw - 2rem);
     max-height: 70vh;
-    background: white;
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
-    box-shadow: 0 8px 28px rgba(0,0,0,0.14);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-2);
     z-index: 98;
     display: none;
     flex-direction: column;
@@ -258,18 +485,18 @@
     justify-content: space-between;
     align-items: center;
     padding: 12px 16px;
-    border-bottom: 1px solid #e2e8f0;
+    border-bottom: 1px solid var(--border);
     flex-shrink: 0;
-    background: white;
+    background: var(--surface-2);
   }
   .notif-panel__title {
     font-weight: 700;
     font-size: 0.88rem;
-    color: var(--dark);
+    color: var(--text);
   }
   .notif-panel__read-all {
     font-size: 0.73rem;
-    color: var(--adu);
+    color: var(--adu-d);
     cursor: pointer;
     text-decoration: underline;
     background: none;
@@ -284,7 +511,7 @@
 
   .notif-empty {
     text-align: center;
-    color: #94a3b8;
+    color: var(--text-2);
     font-size: 0.84rem;
     padding: 2.5rem 1rem;
   }
@@ -294,14 +521,14 @@
     align-items: flex-start;
     gap: 10px;
     padding: 11px 14px;
-    border-bottom: 1px solid #f1f5f9;
+    border-bottom: 1px solid var(--border);
     cursor: pointer;
     transition: background 0.12s;
     position: relative;
   }
-  .notif-item:hover { background: #f8fafc; }
-  .notif-item--unread { background: #eff6ff; }
-  .notif-item--unread:hover { background: #dbeafe; }
+  .notif-item:hover { background: var(--surface-2); }
+  .notif-item--unread { background: rgba(96,165,250,0.10); }
+  .notif-item--unread:hover { background: rgba(96,165,250,0.18); }
   .notif-item:last-child { border-bottom: none; }
 
   .notif-item__icon {
@@ -320,19 +547,19 @@
   .notif-item__title {
     font-weight: 600;
     font-size: 0.79rem;
-    color: var(--dark);
+    color: var(--text);
     margin-bottom: 2px;
   }
   .notif-item__desc {
     font-size: 0.74rem;
-    color: #475569;
+    color: var(--text-2);
     line-height: 1.4;
     margin-bottom: 3px;
     white-space: normal;
   }
   .notif-item__time {
     font-size: 0.67rem;
-    color: #94a3b8;
+    color: var(--text-3);
   }
   .notif-item__actions {
     display: flex;
@@ -340,17 +567,363 @@
     margin-top: 6px;
   }
   .notif-item__actions button {
-    padding: 3px 10px !important;
-    font-size: 0.73rem !important;
-    min-height: unset;
+    padding: 6px 14px !important;
+    font-size: 0.76rem !important;
+    /* Acción crítica (aceptar/rechazar un cambio de guardia) pulsada con el
+       pulgar y poca luz: nunca por debajo del mínimo táctil. */
+    min-height: 44px;
   }
 
   .notif-item__dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: var(--adu);
+    background: var(--adu-d);
     flex-shrink: 0;
     align-self: center;
     margin-left: 4px;
+  }
+
+  /* ============================================================
+     PASO 6 · Lista de cuentas del panel de admin
+     Las filas se elevan a --surface-2 sobre la --surface de la card, así
+     que todo texto secundario va a --text-2: --text-3 cae a 4.1:1 ahí.
+     La fila pendiente NO lleva tinte ámbar translúcido — aclararía el
+     fondo y hundiría el contraste. Se hunde a --bg y avisa por el borde,
+     igual que button.danger.
+     ============================================================ */
+  .accounts-title { margin-bottom: var(--sp-3); color: var(--text); }
+  .accounts-title--spaced { margin-top: var(--sp-5); }
+  .accounts-note { display: block; font-size: 0.85rem; color: var(--text-2); margin-bottom: var(--sp-5); }
+  .accounts-error { color: var(--fest-d); font-weight: bold; }
+
+  .account-row {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    margin-bottom: var(--sp-2);
+    padding: var(--sp-3);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+  }
+  .account-row--pending { background: var(--bg); border-color: var(--pac-d); }
+
+  .account-row__actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); }
+  /* Mínimo táctil: aquí viven Expulsar, Quitar Delegado y Coronar Dueño.
+     Con el .icon-btn de serie se quedaban en 26-27px de alto, y un toque
+     mal dado en el móvil expulsa a alguien. Mismo patrón que
+     .trade-row__actions button del mercadillo. */
+  .account-row__actions button { min-height: 44px; padding: 0 var(--sp-3); font-size: 0.75rem; white-space: nowrap; }
+  .account-row__role { font-size: 0.8rem; color: var(--text-2); margin-left: var(--sp-3); }
+  .account-row__wait { font-size: 0.8rem; color: var(--pac-d); font-weight: 600; margin-left: var(--sp-3); }
+  .account-row__meta { font-size: 0.8rem; color: var(--text-2); margin-top: var(--sp-1); }
+  .account-row__meta strong { color: var(--text); font-weight: 600; }
+  .account-row__locked { font-size: 0.75rem; color: var(--pac-d); }
+
+  button.btn-approve { background: var(--ped-d); color: var(--bg); border-color: transparent; font-weight: 600; }
+  button.btn-crown { background: var(--adu-d); color: var(--bg); border-color: transparent; font-weight: 600; }
+
+  /* ============================================================
+     PASO 6 · Rotación (vista + editor manual de órdenes)
+     Clases propias: .rot-group y .editor-row siguen en uso en Excepciones
+     y migran con esa vista.
+     Capas: card --surface → grupo --surface-2 → fila --bg. Los botones de
+     acento van sobre --bg porque --fest-d no llega a 4.5:1 sobre --surface-2.
+     El color significa: ámbar = fijos, rojo = excluido de subastas,
+     azul = grupo anterior / fusionar, verde = grupo siguiente.
+     ============================================================ */
+  .rot-intro { color: var(--text-2); font-size: 0.9rem; margin-bottom: var(--sp-4); }
+  .rot-plan-note { margin-bottom: var(--sp-4); font-size: 0.9rem; color: var(--text-2); }
+  .rot-plan-note strong { color: var(--text); }
+  .rot-plan-bar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-4); padding: var(--sp-3); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); }
+  .rot-plan-bar label { font-weight: 600; font-size: 0.9rem; color: var(--text); }
+  /* 16px: por debajo, iOS Safari hace zoom al enfocar el control. */
+  .rot-plan-bar select, .rot-add select { flex: 1 1 200px; width: auto; margin: 0; min-height: 44px; font-size: 16px; border-color: var(--border-2); }
+
+  .rot-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-3); margin-bottom: var(--sp-3); }
+  .rot-card--fijos { border: 2px solid var(--pac-d); }
+  .rot-card__title { margin-bottom: var(--sp-2); color: var(--text); }
+  .rot-card__head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-2); padding-bottom: var(--sp-2); border-bottom: 1px solid var(--border-2); }
+  .rot-card--fijos .rot-card__head { border-bottom-color: var(--pac-d); }
+  .rot-card__count { font-size: 0.85rem; font-weight: 400; color: var(--text-2); }
+  .rot-card__count--fijos { color: var(--pac-d); }
+  .rot-card__actions { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+  .rot-line { padding: var(--sp-1) 0; border-bottom: 1px dashed var(--border); font-size: 0.9rem; color: var(--text); }
+  .rot-line:last-child { border-bottom: none; }
+
+  .rot-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-1) var(--sp-2); background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-1) var(--sp-2); margin-bottom: var(--sp-1); }
+  .rot-row--fijo { border-color: var(--pac-d); }
+  /* Antes era opacity:0.7, que apagaba también los botones. El aviso lo da el borde. */
+  .rot-row--excluido { border-style: dashed; border-color: var(--fest-d); }
+  .rot-row--excluido .rot-row__name { color: var(--text-2); }
+  .rot-row__name { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; font-weight: 500; font-size: 1rem; color: var(--text); overflow-wrap: anywhere; }
+  .rot-row__spacer { display: inline-block; width: 44px; flex-shrink: 0; }
+  .rot-row__actions { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+
+  /* Mínimo táctil: con el .icon-btn de serie estos controles medían 18-27px,
+     y son los que reordenan la fila india de toda la promoción. */
+  /* Borde --border-2: con el --border global, los neutros (↑ ↓ ⬆️ ✂️) eran
+     surface-2 sobre surface-2 a 1.15:1 y parecían texto suelto. */
+  .rot-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; padding: 0 var(--sp-2); font-size: 0.85rem; border-radius: var(--r-md); border-color: var(--border-2); white-space: nowrap; flex-shrink: 0; }
+  /* ✕ quita de la rotación sin confirmación: tamaño fijo, separado del resto
+     y empujado a la derecha, para que no herede el ancho sobrante de la línea. */
+  .rot-row__actions .rot-btn.danger { flex: 0 0 44px; margin-left: auto; }
+  .rot-btn--adu { background: var(--bg); color: var(--adu-d); border-color: var(--adu-d); }
+  .rot-btn--ped { background: var(--bg); color: var(--ped-d); border-color: var(--ped-d); }
+  .rot-btn--pac { background: var(--bg); color: var(--pac-d); border-color: var(--pac-d); }
+  .rot-btn--toggle-fest.is-on { background: var(--fest-d); color: var(--bg); border-color: var(--fest-d); }
+  .rot-btn--toggle-pac.is-on  { background: var(--pac-d);  color: var(--bg); border-color: var(--pac-d); }
+
+  .rot-add { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin: var(--sp-3) 0 var(--sp-4); }
+  .rot-add button { min-height: 44px; }
+  .rot-danger-zone { margin-top: var(--sp-5); padding-top: var(--sp-4); border-top: 2px dashed var(--border-2); }
+  .rot-danger-zone__label { display: block; margin-bottom: var(--sp-2); font-size: 0.85rem; color: var(--text-2); }
+  .rot-danger-zone button { width: 100%; min-height: 44px; font-size: 0.85rem; }
+
+  .rot-tools { margin-top: var(--sp-6); padding-top: var(--sp-4); border-top: 2px dashed var(--border-2); }
+  .rot-tools__title { margin-bottom: var(--sp-2); color: var(--text); }
+  .rot-tools__add-group { min-height: 44px; margin-bottom: var(--sp-4); }
+  .rot-save-bar { display: flex; flex-wrap: wrap; gap: var(--sp-2); padding: var(--sp-3); background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); }
+  .rot-save-bar button { min-height: 44px; }
+
+  /* ============================================================
+     PASO 6 · Grupos (pestaña del residente)
+     Mismas capas que Rotación: card --surface → fila --surface-2, y los
+     botones de acento en outline sobre --bg (--fest-d no llega a 4.5:1
+     sobre --surface-2). Texto secundario a --text-2 por la misma razón
+     que en Cuentas.
+     ============================================================ */
+  .grp-card--current { border-left: 4px solid var(--adu-d); }
+  .grp-card__title { color: var(--text); margin-bottom: var(--sp-3); }
+  .grp-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-3); }
+  .grp-head__title { margin: 0; color: var(--text); }
+  .grp-create { min-height: 44px; font-size: 0.9rem; }
+  .grp-intro { color: var(--text-2); font-size: 1rem; margin-bottom: var(--sp-5); }
+
+  .grp-muted { color: var(--text-2); }
+  .grp-muted--italic { font-style: italic; }
+  .grp-error { color: var(--fest-d); font-weight: 600; }
+  .grp-empty { color: var(--text-2); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-4); }
+
+  .grp-current { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--sp-3); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-4); }
+  .grp-current__info { min-width: 0; }
+  .grp-current__hosp { margin: 0; color: var(--text); font-size: 1.1rem; overflow-wrap: anywhere; }
+  .grp-current__svc { margin-top: var(--sp-1); color: var(--text); font-size: 0.95rem; overflow-wrap: anywhere; }
+  /* --text-2 sobre --surface-2 se queda en 4.57:1: sin margen para texto pequeño. */
+  .grp-current__name { color: var(--text); }
+  .grp-current__status { margin-top: var(--sp-3); }
+  /* Rellenos con texto --bg: el blanco sobre --ped/--pac de antes no pasaba de 2.5:1. */
+  .grp-badge { display: inline-block; padding: var(--sp-1) var(--sp-3); border-radius: var(--r-pill); font-size: 0.9rem; font-weight: 700; color: var(--bg); }
+  .grp-badge--ok { background: var(--ped-d); }
+  .grp-badge--wait { background: var(--pac-d); }
+  button.grp-leave { background: var(--bg); min-height: 44px; }
+
+  .grp-hosp { margin-bottom: var(--sp-5); }
+  .grp-hosp__title { color: var(--text); border-bottom: 1px solid var(--border-2); padding-bottom: var(--sp-2); margin-bottom: var(--sp-3); overflow-wrap: anywhere; }
+  .grp-hosp__list { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .grp-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--sp-2) var(--sp-3); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-3); }
+  .grp-row__info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  /* El azul queda solo para la acción: con el servicio también en --adu-d parecía un enlace. */
+  .grp-row__svc { color: var(--text); font-weight: 600; font-size: 1rem; overflow-wrap: anywhere; }
+  .grp-row__name { color: var(--text); font-size: 0.9rem; overflow-wrap: anywhere; }
+  .grp-request { background: var(--bg); color: var(--adu-d); border-color: var(--adu-d); min-height: 44px; font-weight: 600; white-space: nowrap; }
+
+  /* ============================================================
+     PASO 6 · Horas (panel de gestión: admins y delegados)
+     Tabla en escritorio; en móvil cada fila se apila como tarjeta
+     --surface-2 con las cifras etiquetadas por data-label, en vez de
+     una tabla de 5 columnas con scroll horizontal.
+     ============================================================ */
+  .hrs-title { margin-bottom: var(--sp-4); font-size: 1.1rem; color: var(--text); }
+  .hrs-empty { color: var(--text-2); }
+  .hrs-wrap { overflow-x: auto; }
+  .hrs-table { width: 100%; border-collapse: collapse; font-size: 0.95rem; color: var(--text); }
+  .hrs-table thead th { background: var(--surface-2); color: var(--text); font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; text-align: left; padding: var(--sp-3); border-bottom: 2px solid var(--border-2); }
+  .hrs-table td, .hrs-table tbody th { padding: var(--sp-3); border-bottom: 1px solid var(--border); }
+  .hrs-table .hrs-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .hrs-name { text-align: left; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+  .hrs-num--main { font-weight: 700; }
+  .hrs-num--muted { color: var(--text-2); }
+
+  /* ============================================================
+     PASO 6 · Mi Perfil (vista de residente)
+     Capas: card --surface → bloques internos --surface-2. Texto
+     secundario a --text-2 (en --surface-2 --text-3 cae a 4.1:1).
+     Los colores del estado de carga usan los -d: los legacy son de
+     la paleta clara.
+     ============================================================ */
+  .prf-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--sp-3); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: var(--sp-4); margin-bottom: var(--sp-5); box-shadow: var(--shadow-1); }
+  .prf-head__info { min-width: 0; }
+  .prf-head__title { margin: 0; font-size: 1.5rem; color: var(--text); }
+  .prf-head__who { margin-top: var(--sp-1); color: var(--text-2); font-size: 0.95rem; overflow-wrap: anywhere; }
+  .prf-head__who strong { color: var(--text); }
+  .prf-plan { display: inline-block; padding: var(--sp-1) var(--sp-3); border: 1px solid var(--adu-d); border-radius: var(--r-pill); color: var(--adu-d); font-weight: 700; font-size: 0.9rem; overflow-wrap: anywhere; }
+
+  /* min(): con 320px a secas, en móviles de 320px la columna desborda. */
+  .prf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: var(--sp-5); }
+  .prf-card { display: flex; flex-direction: column; justify-content: space-between; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: var(--sp-5); box-shadow: var(--shadow-1); min-width: 0; }
+  /* 1 / -1 y no `span 2`: en una rejilla de una columna, span 2 crea una
+     columna implícita y la página entera hace scroll horizontal. */
+  .prf-card--wide { grid-column: 1 / -1; }
+  .prf-card__title { margin-bottom: var(--sp-3); font-size: 1.1rem; color: var(--text); }
+  .prf-card__title--flush { margin: 0; }
+
+  .prf-label { display: block; margin-bottom: var(--sp-1); font-size: 0.875rem; font-weight: 600; color: var(--text-2); }
+  .prf-sublabel { display: block; margin-bottom: var(--sp-1); font-size: 0.875rem; color: var(--text-2); }
+  .prf-input { margin: 0; min-height: 44px; font-size: 16px; border-color: var(--border-input); }
+  .prf-input::placeholder { color: var(--text-2); opacity: 1; }
+  .prf-readonly { padding: var(--sp-2) var(--sp-3); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); color: var(--text); font-size: 1rem; overflow-wrap: anywhere; }
+  .prf-note { margin-top: var(--sp-3); font-size: 0.875rem; line-height: 1.45; color: var(--text-2); }
+  .prf-intro { margin-bottom: var(--sp-4); font-size: 0.95rem; line-height: 1.45; color: var(--text-2); }
+  .prf-action { width: 100%; min-height: 44px; margin-top: var(--sp-4); }
+
+  .prf-bajas { display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-4); }
+  .prf-empty { color: var(--text-2); font-size: 0.95rem; }
+  .prf-baja { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-3); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-2) var(--sp-3); }
+  .prf-baja__info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .prf-baja__motivo { color: var(--text); font-size: 1rem; overflow-wrap: anywhere; }
+  .prf-baja__fechas { color: var(--text-2); font-size: 0.875rem; }
+  /* Fondo --bg: --fest-d no llega a 4.5:1 sobre --surface-2 (4.36). */
+  button.prf-baja__del { flex: 0 0 44px; min-height: 44px; padding: 0; background: var(--bg); font-size: 1rem; }
+
+  .prf-new { padding-top: var(--sp-3); border-top: 1px dashed var(--border-2); }
+  .prf-new__dates { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+  .prf-new__field { flex: 1 1 140px; min-width: 0; }
+
+  .prf-hours-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--sp-3); margin-bottom: var(--sp-4); }
+  .prf-filters { display: flex; gap: var(--sp-2); }
+  .prf-filters .prf-input { width: auto; }
+
+  .prf-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: var(--sp-3); margin-bottom: var(--sp-4); }
+  .prf-stat { display: flex; flex-direction: column; gap: var(--sp-1); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-3); }
+  .prf-stat__label { font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; color: var(--text-2); }
+  .prf-stat__value { font-size: 1.8rem; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+  .prf-stat__value--adu { color: var(--adu-d); }
+  .prf-stat__value--merc { color: var(--merc-d); }
+  .prf-totals { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-6); margin-bottom: var(--sp-5); font-size: 0.95rem; color: var(--text-2); }
+  .prf-totals strong { color: var(--text); font-variant-numeric: tabular-nums; }
+
+  .prf-load { --load: var(--pac-d); }
+  .prf-load--ok { --load: var(--ped-d); }
+  .prf-load--exceso { --load: var(--fest-d); }
+  .prf-load__head { display: flex; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); margin-bottom: var(--sp-2); font-size: 0.95rem; font-weight: 700; }
+  .prf-load__state { color: var(--load); }
+  .prf-load__count { color: var(--text); font-variant-numeric: tabular-nums; }
+  .prf-load__track { position: relative; width: 100%; height: 12px; background: var(--surface-2); border: 1px solid var(--border-input); border-radius: var(--r-pill); overflow: hidden; }
+  .prf-load__fill { width: var(--w, 0%); height: 100%; background: var(--load); transition: width 0.3s ease; }
+  /* Halo --bg: sin él, la marca de máximo (--fest-d) desaparece justo en
+     «exceso», cuando el relleno es del mismo rojo, y la de mínimo cae a 1.6:1
+     sobre el verde. */
+  .prf-load__mark { position: absolute; top: 0; left: var(--x); width: 3px; height: 100%; z-index: 2; box-shadow: 0 0 0 1px var(--bg); }
+  .prf-load__mark--min { background: var(--text); }
+  .prf-load__mark--max { background: var(--fest-d); }
+
+  /* ============================================================
+     RESPONSIVE — el calendario se juzga primero en móvil
+     ============================================================ */
+  @media (max-width: 640px) {
+    body { padding: 0; }
+    .header { padding: var(--sp-3); }
+    .header h2 { font-size: 1rem !important; }
+    .container { margin: var(--sp-2) auto; padding: 0 var(--sp-2); }
+    .card { padding: var(--sp-3); border-radius: var(--r-md); }
+
+    .tabs { gap: var(--sp-1); }
+    .tab { padding: 0.6rem 0.9rem; font-size: 0.82rem; }
+
+    /* Rejilla: celdas más bajas pero con objetivo táctil holgado (~51x70px) */
+    .cal-grid { gap: 2px; }
+    /* 76px para que quepa el badge sin encoger su tipografía por debajo
+       de ~10.6px: las iniciales de quién está de guardia se leen de un vistazo. */
+    .cal-cell { min-height: 76px; padding: 3px; border-radius: var(--r-sm); }
+    .cal-day-name { font-size: 0.62rem; padding: var(--sp-1) 0; }
+    .day-number { width: 20px; height: 20px; font-size: 0.75rem; }
+    .shift-badge { padding: 2px 4px; }
+    .shift-badge svg { width: 10px; height: 10px; }
+
+    /* Los contadores de plazas NO caben en una celda de ~46px sin descuadrarla.
+       En móvil se ven en el panel de día (.svc-plazas), que es donde se decide
+       la asignación. En escritorio sí se muestran en la rejilla. */
+    .cal-plazas { display: none; }
+
+    .cal-header-nav { gap: var(--sp-2); }
+    /* Solo los hijos directos (◀ Ant / Sig ▶): con `button` a secas se pisaba
+       por especificidad el min-height de .cal-filter-btn, que va anidado. */
+    .cal-header-nav > button { white-space: nowrap; padding: 0.5rem 0.7rem; font-size: 0.8rem; min-height: 40px; }
+    .cal-title { font-size: 1rem; }
+    .cal-subtitle { font-size: 0.68rem; }
+    .cal-notice { font-size: 0.82rem; padding: var(--sp-2); }
+
+    .notif-panel { right: var(--sp-2); left: var(--sp-2); width: auto; max-width: none; }
+
+    /* El panel de día se convierte en bottom sheet: sube desde abajo,
+       al alcance del pulgar, con asa de arrastre y acciones a ancho completo. */
+    .sheet-overlay { align-items: flex-end; }
+    .sheet {
+      width: 100%; max-width: none; max-height: 88vh;
+      border-radius: var(--r-xl) var(--r-xl) 0 0;
+      border-bottom: none;
+      padding: var(--sp-2) var(--sp-4) var(--sp-5);
+      animation: sheet-up 0.22s ease-out;
+    }
+    .sheet__grip { display: block; width: 40px; height: 4px; border-radius: var(--r-pill); background: var(--border-2); margin: var(--sp-2) auto var(--sp-3); }
+    .sheet__footer { position: sticky; bottom: 0; background: var(--surface); border-top: 1px solid var(--border); padding-top: var(--sp-3); margin-top: var(--sp-3); }
+    .sheet__close { width: 100%; }
+    /* Objetivos táctiles holgados en las acciones del día */
+    .shift-option button { min-height: 44px; }
+    /* Los controles de formulario del sheet se quedaban en 40px con el padding
+       global: el input de fecha del cambio y los <select> de contraparte y de
+       régimen de guardia. Medido, no estimado.
+       Y 16px de tipografía NO es una elección estética: iOS Safari hace zoom
+       automático de la página al enfocar cualquier control por debajo de 16px,
+       y el viewport no lleva maximum-scale. Con los 0.8rem que tenían, tocar
+       "Ajustar Modalidad" sacaba el bottom sheet de la pantalla y obligaba a
+       pellizcar para volver. Chromium no reproduce esto ni emulando móvil. */
+    .sheet input, .sheet select { min-height: 44px; font-size: 16px; }
+
+    /* Mercadillo: la fila de compañero se apila y sus acciones ocupan el ancho,
+       en vez de quedar dos botones estrechos pegados al borde derecho. */
+    .merc-row { flex-direction: column; align-items: stretch; }
+    .merc-actions { width: 100%; }
+    .merc-actions button, .trade-row__actions button, .account-row__actions button { flex: 1; }
+    .merc-ext__grid button { flex: 1 1 100%; }
+
+    /* Rotación: el nombre ocupa su línea y los controles se reparten debajo
+       a ancho completo, en vez de quedar 7 botones apiñados a la derecha. */
+    .rot-row { flex-direction: column; align-items: stretch; }
+    /* Gap de 8px: el ✕ sin confirmación no puede quedar a 4px de Grp ▶ / ↓. */
+    .rot-row__actions { gap: var(--sp-2); }
+    .rot-row__actions .rot-btn { flex: 1 0 auto; }
+    .rot-row__actions .rot-btn.danger { flex: 0 0 44px; }
+    .rot-card__actions { width: 100%; }
+    .rot-card__actions .rot-btn, .rot-save-bar button { flex: 1 1 auto; }
+
+    /* Horas: una tarjeta por residente. Nombre arriba, cifras en 2x2 con su
+       etiqueta; la cabecera de la tabla sale del flujo visual pero no del lector. */
+    .hrs-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    .hrs-table, .hrs-table tbody { display: block; }
+    .hrs-table tr { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2) var(--sp-3); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-3); margin-bottom: var(--sp-2); }
+    .hrs-table td, .hrs-table tbody th { display: block; padding: 0; border: none; }
+    .hrs-table .hrs-name { grid-column: 1 / -1; font-size: 1rem; padding-bottom: var(--sp-2); border-bottom: 1px solid var(--border-2); }
+    /* Valor a 16px y en --text; la etiqueta se atenúa a --text-2 (4.57:1 sobre
+       --surface-2) y sube a 14px para compensar. */
+    .hrs-table .hrs-num { text-align: left; font-size: 1rem; }
+    .hrs-table .hrs-num--main { font-size: 1.05rem; }
+    .hrs-table td.hrs-num::before { content: attr(data-label); display: block; font-size: 0.875rem; font-weight: 400; color: var(--text-2); white-space: normal; }
+    .hrs-table .hrs-num--muted { color: var(--text); }
+
+    /* Mi Perfil: menos aire en las cards, y cada cifra del mes en una fila
+       etiqueta–valor en vez de tres bloques de 1.8rem apilados. */
+    .prf-head { padding: var(--sp-3); margin-bottom: var(--sp-3); }
+    .prf-head__title { font-size: 1.4rem; }
+    .prf-grid { gap: var(--sp-3); }
+    .prf-card { padding: var(--sp-4); }
+    .prf-filters { width: 100%; }
+    .prf-filters .prf-input { flex: 1; }
+    .prf-stats { gap: var(--sp-2); }
+    .prf-stat { flex-direction: row; justify-content: space-between; align-items: center; gap: var(--sp-3); }
+    .prf-stat__value { font-size: 1.4rem; white-space: nowrap; }
   }

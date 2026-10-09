@@ -13,7 +13,7 @@ function getCellBackgroundStyle(dk, y, m, d, filterLevel = 'ALL') {
     
     // Si es festivo
     if (state.festivos[dk] || isWeekend) {
-        colors.push('#fee2e2'); // Rojo clarito
+        colors.push('rgba(248,113,113,0.16)'); // 🎨 tinte rojo translúcido, legible sobre --surface
     }
     
     // Si hay servicios habilitados
@@ -134,6 +134,11 @@ function getCurrentRotPlan(dk) {
 }
 let isAdmin = false;
 let isDelegado = false;
+// Dueño = creador de la especialidad. NO es un rol (PRD §3.2): hasta que
+// existió «Hacer Admin», el único `rol:'admin'` era el Dueño y daba igual
+// confundirlos. Ya no: lo que es de toda la especialidad —borrarla, cambiar
+// hospital/nombre— se cierra con esto, no con isAdmin.
+let esDueño = false;
 let loggedInUser = null;
 let simulatedViewUser = null;
 let currentAdminView = 'pediatria';
@@ -537,12 +542,13 @@ function normalizeConfig(config) {
 
 /** Descarga y normaliza la configuración de la promoción desde Supabase; rellena promoConfig. */
 async function loadPromoConfig() {
-  if (!currentUserProfile?.promocion_id) return;
+  if (!currentUserProfile?.promocion_id) { esDueño = false; return; }
   try {
-    const { data, error } = await supabaseClient.from('promociones').select('configuracion').eq('id', currentUserProfile.promocion_id).single();
+    const { data, error } = await supabaseClient.from('promociones').select('configuracion, creador_id').eq('id', currentUserProfile.promocion_id).single();
+    esDueño = !!(data && data.creador_id === currentUserProfile.id);
     if (data && data.configuracion) promoConfig = normalizeConfig(data.configuracion);
     else promoConfig = normalizeConfig({});
-  } catch (e) { console.error("Error cargando config", e); promoConfig = normalizeConfig({}); }
+  } catch (e) { console.error("Error cargando config", e); esDueño = false; promoConfig = normalizeConfig({}); }
 }
 	
 /**
@@ -1855,49 +1861,61 @@ function checkTradeConflicts(newTrade) {
 async function renderGruposView() {
     const currentContainer = document.getElementById('grupos-current-info');
     const listContainer = document.getElementById('grupos-list-container');
-    
-    currentContainer.innerHTML = '<p style="color:#64748b;">Cargando...</p>';
-    listContainer.innerHTML = '<p style="color:#64748b;">Cargando...</p>';
+    // Guarda de sesión: el visibilitychange de initApp puede llamar aquí sin perfil cargado.
+    if (!currentContainer || !listContainer || !currentUserProfile) return;
+    _bindGruposActions(document.getElementById('pane-grupos'));
+
+    currentContainer.innerHTML = '<p class="grp-muted">Cargando...</p>';
+    listContainer.innerHTML = '<p class="grp-muted">Cargando...</p>';
 
     const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout de red")), 5000));
     const fetchPromos = supabaseClient.from('promociones').select('*');
-    
+
     let promos;
     try {
         const { data, error } = await Promise.race([fetchPromos, timeout]);
         if (error) throw error;
-        promos = data;
+        promos = data || [];
     } catch (err) {
-        return currentContainer.innerHTML = `<p style="color:red;">Error de conexión: ${err.message}</p>`;
+        const msg = `<p class="grp-error">Error de conexión: ${escapeHtml(err.message)}</p>`;
+        currentContainer.innerHTML = msg;
+        listContainer.innerHTML = '';
+        return;
     }
 
     // 1. DIBUJAR GRUPO ACTUAL
-    if (currentUserProfile.promocion_id) {
-        const myPromo = promos.find(p => p.id === currentUserProfile.promocion_id);
-        if (myPromo) {
-            let statusBadge = currentUserProfile.estado === 'aprobado' 
-                ? `<span style="background:var(--ped); color:white; padding:4px 10px; border-radius:12px; font-size:0.8rem; font-weight:bold;">✅ Acceso Activo</span>`
-                : `<span style="background:#f59e0b; color:white; padding:4px 10px; border-radius:12px; font-size:0.8rem; font-weight:bold;">⏳ Pendiente de aprobación</span>`;
+    const myPromo = currentUserProfile.promocion_id
+        ? promos.find(p => p.id === currentUserProfile.promocion_id)
+        : null;
+    if (myPromo) {
+        const statusBadge = currentUserProfile.estado === 'aprobado'
+            ? `<span class="grp-badge grp-badge--ok">✓ Acceso activo</span>`
+            : `<span class="grp-badge grp-badge--wait">⏳ Pendiente de aprobación</span>`;
 
-            currentContainer.innerHTML = `
-                <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:15px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom: 15px;">
-                    <div>
-                        <h4 style="margin:0; color:var(--dark); font-size:1.1rem;">${myPromo.hospital}</h4>
-                        <div style="color:#475569; font-size:0.95rem; margin-top:4px;">${myPromo.servicio} <span style="color:#94a3b8;">(${myPromo.nombre})</span></div>
-                        <div style="margin-top:10px;">${statusBadge}</div>
-                    </div>
-                    <button class="danger" style="background:white;" onclick="abandonarGrupo()">🚪 Salir de este grupo</button>
+        currentContainer.innerHTML = `
+            <div class="grp-current">
+                <div class="grp-current__info">
+                    <h4 class="grp-current__hosp">${escapeHtml(myPromo.hospital)}</h4>
+                    <div class="grp-current__svc">${escapeHtml(myPromo.servicio)} <span class="grp-current__name">(${escapeHtml(myPromo.nombre)})</span></div>
+                    <div class="grp-current__status">${statusBadge}</div>
                 </div>
-                `;
-        	}
+                <button class="danger grp-leave" data-grp-act="salir">🚪 Salir de este grupo</button>
+            </div>`;
+    } else if (currentUserProfile.promocion_id) {
+        // El id apunta a una promoción que ya no existe: antes se quedaba en «Cargando...».
+        currentContainer.innerHTML = `
+            <div class="grp-current">
+                <p class="grp-muted">Tu grupo ya no figura en el sistema.</p>
+                <button class="danger grp-leave" data-grp-act="salir">🚪 Salir de este grupo</button>
+            </div>`;
     } else {
-        currentContainer.innerHTML = `<p style="color:#64748b; font-style:italic;">No estás en ningún grupo actualmente.</p>`;
+        currentContainer.innerHTML = `<p class="grp-muted grp-muted--italic">No estás en ningún grupo actualmente.</p>`;
     }
 
     // 2. DIBUJAR LISTA DE OTROS GRUPOS (las especialidades cerradas no admiten solicitudes)
     const otherPromos = promos.filter(p => p.id !== currentUserProfile.promocion_id && p.activa !== false);
     if (otherPromos.length === 0) {
-        listContainer.innerHTML = `<p style="color:#64748b; background:#f1f5f9; padding:15px; border-radius:8px;">No hay otros grupos registrados en el sistema.</p>`;
+        listContainer.innerHTML = `<p class="grp-empty">No hay otros grupos registrados en el sistema.</p>`;
         return;
     }
 
@@ -1909,22 +1927,36 @@ async function renderGruposView() {
 
     let html = '';
     for (const hosp in byHospital) {
-        html += `<div style="margin-bottom:1.5rem;">
-            <h4 style="color:var(--dark); border-bottom:2px solid #e2e8f0; padding-bottom:6px; margin-bottom:10px;">🏥 ${hosp}</h4>
-            <div style="display:flex; flex-direction:column; gap:8px;">`;
-        
+        html += `<div class="grp-hosp">
+            <h4 class="grp-hosp__title">🏥 ${escapeHtml(hosp)}</h4>
+            <div class="grp-hosp__list">`;
+
         byHospital[hosp].forEach(p => {
-            html += `<div style="background:white; border:1px solid #e2e8f0; border-radius:8px; padding:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-                <div>
-                    <strong style="color:var(--adu); font-size:1rem;">${p.servicio}</strong>
-                    <span style="color:#64748b; font-size:0.85rem; margin-left:6px;">Contenedor: ${p.nombre}</span>
+            html += `<div class="grp-row">
+                <div class="grp-row__info">
+                    <strong class="grp-row__svc">${escapeHtml(p.servicio)}</strong>
+                    <span class="grp-row__name">Contenedor: ${escapeHtml(p.nombre)}</span>
                 </div>
-                <button class="primary icon-btn" style="background:white; color:var(--adu); border:1px solid var(--adu);" onclick="solicitarCambioGrupo('${p.id}')">Solicitar Acceso</button>
+                <button class="grp-request" data-grp-act="solicitar" data-grp-id="${escapeHtml(p.id)}">Solicitar acceso</button>
             </div>`;
         });
         html += `</div></div>`;
     }
     listContainer.innerHTML = html;
+}
+
+/** Delegado de clics de la pestaña Grupos: los botones llevan data-grp-act, sin onclick interpolado. */
+function _bindGruposActions(root) {
+    if (!root || root._grpBound) return;
+    root._grpBound = true;
+    root.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-grp-act]');
+        if (!btn || !root.contains(btn)) return;
+        switch (btn.dataset.grpAct) {
+            case 'salir':     return abandonarGrupo();
+            case 'solicitar': return solicitarCambioGrupo(btn.dataset.grpId);
+        }
+    });
 }
 
 /**
@@ -2091,6 +2123,7 @@ async function ejecutarSalidaFinal(destinoId) {
     currentUserProfile.estado = 'pendiente';
     isAdmin = false;
     isDelegado = false;
+    esDueño = false; // al salir del grupo dejas de ser su Dueño, aunque la corona tarde en pasar
 
     alert(destinoId ? "Solicitud enviada al nuevo grupo." : "Has salido del grupo correctamente.");
     evaluarEstadoUsuario(); 
@@ -2136,15 +2169,18 @@ function nav(tab) {
 function navAdmin(sub) {
   // 🧭 B5: 'calendario' ya no es solo-admin — el delegado puede pintar los días
   // habilitados de SU plan (renderAdminCalendar restringe pinceles y filtro).
+  // Ajustes y Seguridad son de la ESPECIALIDAD entera (borrarla, cambiarle
+  // hospital y nombre), así que van con `esDueño`, no con `isAdmin`. Desde que
+  // el Dueño puede nombrar admins, isAdmin ya no implica ser el Dueño.
   const adminOnlySubs = ['ajustes', 'seguridad'];
-  if (adminOnlySubs.includes(sub) && !isAdmin) sub = 'excepciones';
+  if (adminOnlySubs.includes(sub) && !esDueño) sub = 'excepciones';
   currentAdminView = sub;
   ['calendario','excepciones','export','cuentas','horas','seguridad','ajustes'].forEach(t => {
     const view = document.getElementById(`aview-${t}`); if (view) view.style.display = t === sub ? 'block' : 'none';
     const tab = document.getElementById(`atab-${t}`);
     if (tab) {
       tab.className = `tab ${t === sub ? 'active' : ''}`;
-      if (adminOnlySubs.includes(t)) tab.style.display = isAdmin ? '' : 'none';
+      if (adminOnlySubs.includes(t)) tab.style.display = esDueño ? '' : 'none';
     }
   });
   document.getElementById('admin-nav-header').style.display = (sub === 'calendario' || sub === 'horas' || sub === 'excepciones') ? 'block' : 'none';
@@ -2203,6 +2239,8 @@ function onEditPromoHospitalChange() {
 
 /** 🏥 B6: Guarda especialidad, hospital y estado (abierta/cerrada) de la promoción propia. */
 async function adminUpdatePromoDetails() {
+    // Hospital y nombre son de la especialidad entera, no de un plan.
+    if (!esDueño) return alert("⚠️ Solo el Dueño de la especialidad puede cambiar su hospital o su nombre.");
     const newServicio = document.getElementById('edit-promo-servicio').value.trim();
     if (!newServicio) return alert("El campo de la especialidad no puede estar vacío.");
 
@@ -2245,7 +2283,7 @@ async function adminUpdatePromoDetails() {
  * se informa — imposible cargarse un grupo activo por accidente.
  */
 async function adminBorrarPromocionVacia(promoId) {
-    if (!isAdmin) return alert('⚠️ Solo el admin puede borrar grupos.');
+    if (!esDueño) return alert('⚠️ Solo el Dueño de una especialidad puede borrar grupos.');
     if (promoId === currentUserProfile.promocion_id) return alert('Esa es tu propia promoción: usa la Zona de Peligro si de verdad quieres borrarla.');
     const p = (todasLasPromociones || []).find(x => x.id === promoId);
     if (!confirm(`¿Borrar el grupo "${p ? p.servicio + ' — ' + p.hospital : promoId}"?\n\nSolo se borrará si está completamente vacío (sin ningún perfil vinculado).`)) return;
@@ -2304,14 +2342,17 @@ function renderAll() {
 function toggleFilter() {
   if (!loggedInUser) { alert("⚠️ Identifícate primero arriba a la derecha para poder filtrar tus guardias."); return; }
   showOnlyMine = !showOnlyMine;
-  const btnMain = document.getElementById('btn-filter'); const btnMerc = document.getElementById('btn-filter-merc');
-  if (showOnlyMine) {
-    if(btnMain) { btnMain.style.background = 'var(--dark)'; btnMain.style.color = 'white'; btnMain.innerHTML = '👁️ Viendo SOLO las mías'; }
-    if(btnMerc) { btnMerc.style.background = 'var(--merc)'; btnMerc.style.color = 'white'; btnMerc.innerHTML = '👁️ Viendo SOLO las mías'; }
-  } else {
-    if(btnMain) { btnMain.style.background = 'transparent'; btnMain.style.color = 'var(--dark)'; btnMain.innerHTML = '👁️ Ver solo mis guardias'; }
-    if(btnMerc) { btnMerc.style.background = 'transparent'; btnMerc.style.color = 'var(--merc)'; btnMerc.innerHTML = '👁️ Ver solo mis guardias'; }
-  }
+  // 🎨 Rediseño Paso 2 (calendario) y Paso 5 (mercadillo): ambos botones son
+  // .cal-filter-btn y alternan con la clase .active. Sin estilos inline: el acento
+  // morado del mercadillo lo aporta el modificador .cal-filter-btn--merc.
+  const label = showOnlyMine ? '👁️ Viendo SOLO las mías' : '👁️ Ver solo mis guardias';
+  ['btn-filter', 'btn-filter-merc'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.classList.toggle('active', showOnlyMine);
+    btn.setAttribute('aria-pressed', showOnlyMine ? 'true' : 'false');
+    btn.innerHTML = label;
+  });
   checkAutomaticGraduation();
     renderAll();
 }
@@ -2348,6 +2389,61 @@ function getServiceColor(svcName) {
         if (svc && svc.color) return svc.color;
     }
     return '#3b82f6';
+}
+
+/**
+ * 🎨 Color de texto legible sobre un svc.color cualquiera (rediseño Paso 3).
+ * Blanco por defecto — conserva el look blanco-sobre-color de siempre —, y solo
+ * cae a casi-negro cuando el blanco no alcanza 3:1 (umbral de texto en negrita).
+ * Así cualquier hex que elija el usuario en su plan queda legible.
+ * @param {string} hex - color de servicio, formato #rrggbb
+ * @returns {string} '#ffffff' o '#202124'
+ */
+function contrastText(hex) {
+    if (typeof hex !== 'string') return '#ffffff';
+    const c = hex.replace('#', '');
+    if (c.length !== 6) return '#ffffff';
+    const r = parseInt(c.substr(0, 2), 16), g = parseInt(c.substr(2, 2), 16), b = parseInt(c.substr(4, 2), 16);
+    if ([r, g, b].some(isNaN)) return '#ffffff';
+    const lin = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+    const L = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+    return (1.05 / (L + 0.05)) >= 3 ? '#ffffff' : '#202124';
+}
+
+/**
+ * Escapa texto para incrustarlo con seguridad en HTML generado por template string.
+ * Los nombres de servicio, plan y residente son texto libre que escribe el admin: sin
+ * esto, un `UCI "Peque"` rompe el atributo que lo contiene y un `<b>` inyecta markup.
+ * Cuando se pueda, es preferible construir el nodo y usar textContent.
+ * @param {*} s
+ * @returns {string}
+ */
+function escapeHtml(s) {
+    return String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+/**
+ * 🎨 Iconos SVG inline temables (rediseño Paso 3). Heredan currentColor, así que
+ * se adaptan solos al color de texto calculado del chip o al token del tema.
+ * De momento solo los usa la vista calendario; el resto migra en el Paso 6.
+ * @param {string} name
+ * @returns {string} markup SVG
+ */
+function icon(name) {
+    const paths = {
+        user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+        lock: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+        check: '<path d="M20 6 9 17l-5-5"/>',
+        x: '<path d="M18 6 6 18M6 6l12 12"/>',
+        calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>'
+    };
+    if (!paths[name]) return '';
+    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]}</svg>`;
 }
 
 /**
@@ -2498,6 +2594,8 @@ function renderMainCalendar() {
              html += `<button class="primary" style="padding:4px 8px; font-size:0.75rem; background:var(--fest); color:white;" onclick="ejecutarAsignacionForzosa(${y}, ${m}, '${af.svcNombre}')">⚡ Forzosa</button>`;
          }
        }
+       // 📋 N5 §8.5: propuesta de asignación con revisión previa — exclusiva del admin
+       if (isAdmin) html += `<button class="primary" style="padding:4px 8px; font-size:0.75rem; background:var(--dark); color:white;" onclick="abrirPropuestaMesModal(${y}, ${m})">📋 Proponer asignación</button>`;
        // El reset borra el mes de TODOS los planes → exclusivo del admin
        if (isAdmin) html += `<button class="danger" style="padding:4px 8px; font-size:0.75rem; background:var(--fest); color:white;" onclick="adminResetMonth(${y}, ${m})">⚠️ Reset Mes</button>`;
        html += `</div></div>`;
@@ -2631,22 +2729,27 @@ function renderMainCalendar() {
   const planVistaCtx = getPlanVistaContext(y, m);
   const userLevelName = planVistaCtx ? planVistaCtx.planName : 'ALL';
 
+  // 🎨 Paso 3: día de hoy, para resaltarlo en la rejilla
+  const _hoy = new Date();
+  const hoyKey = formatDateKey(_hoy.getFullYear(), _hoy.getMonth(), _hoy.getDate());
+
   for(let d=1; d<=getDaysInMonth(y,m); d++) {
     const dateKey = formatDateKey(y, m, d);
     const dayShifts = state.shifts[dateKey] || {};
     const isFest = state.festivos[dateKey];
-    
+
     // Verificación de si el día está habilitado (para la clase CSS)
     // Nota: Aquí usamos una comprobación genérica ya que no estamos en el contexto de un solo servicio
     const cell = document.createElement('div');
-    
+
     let cClass = 'cal-cell';
     if (isFest) cClass += ' is-festivo';
+    if (dateKey === hoyKey) cClass += ' is-today';
     cell.className = cClass;
     const bgStyle = getCellBackgroundStyle(dateKey, y, m, d, userLevelName);
     if (bgStyle) cell.setAttribute('style', bgStyle);
     
-    let html = `<div class="day-number">${d}</div>`;
+    let badgesHtml = '';
     const multihuecoItems = [];
 
     // 🛡️ AQUÍ ESTABA EL ERROR: Recorremos los servicios definidos arriba
@@ -2657,7 +2760,7 @@ function renderMainCalendar() {
             dayShifts[u] === svc.nombre && esTitularVisibleEnPlan(u, svc.nombre, planVistaCtx));
         if (showOnlyMine && (simulatedViewUser || loggedInUser)) assigned = assigned.filter(u => u === (simulatedViewUser ?? loggedInUser));
         assigned.forEach(u => {
-            html += `<div class="shift-badge" style="background:${svc.color};">👤 ${getInitials(u)}</div>`;
+            badgesHtml += `<div class="shift-badge" style="background:${svc.color}; color:${contrastText(svc.color)};">${icon('user')}${escapeHtml(getInitials(u))}</div>`;
         });
         // 🧭 B7: plan explícito — los objetos de getAllUniqueServices pertenecen por
         // identidad al primer plan con ese nombre, no necesariamente al visualizado
@@ -2669,17 +2772,19 @@ function renderMainCalendar() {
         }
     });
 
-    cell.innerHTML = html;
+    // 🎨 Los contadores de plazas van junto al número de día ("11 ● 1/2"), sin
+    // recuadro: en esquina flotante se solapaban con las etiquetas de nombre.
+    // §3.1: el svc.color va en el PUNTO (hex exacto, sin derivar, así coincide
+    // siempre con el chip de su servicio) y el número en texto neutro legible.
+    // El punto lleva un aro sutil por CSS para que un color oscuro no se pierda
+    // sobre el fondo oscuro — el relleno sigue siendo el color tal cual.
+    const plazasHtml = multihuecoItems.length > 0
+        ? `<span class="cal-plazas">${multihuecoItems.map(item =>
+              `<span class="cal-plaza"><i class="cal-plaza__dot" style="background:${item.color};"></i>${item.filled}/${item.pd}</span>`
+          ).join('')}</span>`
+        : '';
 
-    if (multihuecoItems.length > 0) {
-        cell.style.position = 'relative';
-        const badgeDiv = document.createElement('div');
-        badgeDiv.setAttribute('style', 'font-size:0.6rem; background:rgba(255,255,255,0.7); border-radius:3px; padding:1px 4px; position:absolute; bottom:2px; right:2px; display:flex; flex-direction:column; align-items:flex-end; gap:1px;');
-        badgeDiv.innerHTML = multihuecoItems.map(item =>
-            `<span style="color:${item.color}; font-weight:bold; white-space:nowrap;">${item.filled}/${item.pd}</span>`
-        ).join('');
-        cell.appendChild(badgeDiv);
-    }
+    cell.innerHTML = `<div class="cal-dayrow"><div class="day-number">${d}</div>${plazasHtml}</div>${badgesHtml}`;
 
     cell.onclick = () => openShiftModal(y, m, d, dateKey);
     grid.appendChild(cell);
@@ -2736,45 +2841,66 @@ function openShiftModal(y, m, d, dateKey) {
   const pDataFull = getUserProgress(viewUser, y, m).progress;
   const theTag = getDayTag(y, m, d);
 
-  const modal = document.createElement('div'); modal.className = 'modal-overlay'; modal.id = 'shift-modal';
-  let html = `<div class="modal"><h3 style="margin-bottom:0.5rem;">${d} de ${MONTHS[m]} ${y}</h3>`;
-  if (simulatedViewUser !== null) html += `<p style="margin-bottom:1.5rem; color:#7c3aed; font-weight:bold;">👁 Viendo como: ${simulatedViewUser}</p>`;
-  else if (isAdmin) html += `<p style="margin-bottom:1.5rem; color:var(--fest); font-weight:bold;">👑 MODO ADMIN (Control Total)</p>`;
-  else if (isDelegado) html += `<p style="margin-bottom:1.5rem; color:var(--adu); font-weight:bold;">⭐ MODO DELEGADO</p>`;
-  else html += `<p style="margin-bottom:1.5rem; color:#64748b; font-size:0.9rem;">Usuario actual: <b>${loggedInUser}</b> (Evaluando: ${myPlanOnDate ? myPlanOnDate.nombre : 'Sin Plan'})</p>`;
+  // 🎨 Paso 3: el modal centrado pasa a ser bottom sheet (sube desde abajo, al
+  // alcance del pulgar). Solo cambia cómo se DIBUJA el día: toggleShift y el resto
+  // de la lógica de asignación quedan intactos.
+  // 🎨 Un doble-toque rápido en la celda llegaba a crear DOS overlays con el mismo
+  // id="shift-modal". Como "Cerrar" resuelve por getElementById, borraba siempre el
+  // primero del DOM y no el que se veía: hacían falta dos pulsaciones para cerrar.
+  const _prevSheet = document.getElementById('shift-modal');
+  if (_prevSheet) _prevSheet.remove();
+
+  const modal = document.createElement('div'); modal.className = 'modal-overlay sheet-overlay'; modal.id = 'shift-modal';
+  let html = `<div class="modal sheet" role="dialog" aria-modal="true">
+    <div class="sheet__grip" aria-hidden="true"></div>
+    <h3 class="sheet__title">${d} de ${MONTHS[m]} ${y}</h3>`;
+  if (simulatedViewUser !== null) html += `<p class="sheet__mode" style="color:var(--merc-d);">👁 Viendo como: ${simulatedViewUser}</p>`;
+  else if (isAdmin) html += `<p class="sheet__mode" style="color:var(--fest-d);">👑 MODO ADMIN (Control Total)</p>`;
+  else if (isDelegado) html += `<p class="sheet__mode" style="color:var(--adu-d);">⭐ MODO DELEGADO</p>`;
+  else html += `<p class="sheet__mode sheet__mode--plain">Usuario actual: <b>${loggedInUser}</b> (Evaluando: ${myPlanOnDate ? myPlanOnDate.nombre : 'Sin Plan'})</p>`;
   
   // Cambiamos el bucle para que recorra SOLO tus servicios autorizados para esta fecha
 serviciosDisponibles.forEach((svc, svcIdx) => {
-    html += `<div class="shift-option" style="flex-direction:column; align-items:stretch;"><div class="shift-option-header"><strong style="color:${svc.color};">${svc.nombre}</strong></div>`;
     // 🧭 B4: los titulares se filtran con el mismo criterio de plan que el calendario
     const holders = Object.keys(dayShifts || {}).filter(u =>
         dayShifts[u] === svc.nombre && esTitularVisibleEnPlan(u, svc.nombre, planCtxModal));
+
+    // 🎨 Contador de plazas en la cabecera del servicio. En móvil la rejilla ya no
+    // lo pinta (no cabe sin descuadrar la celda): aquí es donde de verdad hace
+    // falta, justo al decidir si te asignas la guardia.
+    const pdSvc = getPlazasForDay(svc, dateKey);
+    const plazasChip = pdSvc > 1 ? `<span class="svc-plazas">${holders.length}/${pdSvc}</span>` : '';
+
+    // 🎨 Paso 3 (§3.1): el nombre del servicio va como CHIP con texto de contraste.
+    // Antes se pintaba con svc.color como color de texto: sobre fondo oscuro, un
+    // color de servicio oscuro se volvía ilegible.
+    html += `<div class="shift-option" style="flex-direction:column; align-items:stretch;"><div class="shift-option-header"><span class="svc-chip" style="background:${svc.color}; color:${contrastText(svc.color)};">${svc.nombre}</span>${plazasChip}</div>`;
 
     if (isDelegado && simulatedViewUser === null) {
 // A) INTERFAZ PARA ADMIN/DELEGADO (edición solo si gestiona el plan visualizado)
 holders.forEach(h => {
     let currentMode = state.shiftModifiers?.[dateKey]?.[h]?.tipo || 'normal';
     const modeLabels = { normal: 'Guardia Normal', partida_primera: 'Partida Diurna (50% H / Sin Saliente)', partida_segunda: 'Partida Nocturna (50% H / Con Saliente)' };
-    html += `<div style="background:#f8fafc; border:1px solid #e2e8f0; padding:10px; border-radius:6px; margin-top:8px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-            <span style="font-size:0.85rem; color:#64748b;">Asignado: <b>${h}</b></span>
+    html += `<div class="sheet__holder">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; gap:8px;">
+            <span style="font-size:0.85rem; color:var(--text-2);">Asignado: <b style="color:var(--text);">${h}</b></span>
             ${esGestorModal ? `<button class="danger icon-btn" onclick="adminForceRemove('${dateKey}', '${h}', ${y}, ${m}, ${d})">Quitar</button>` : ''}
         </div>`;
     if (esGestorModal) {
-        html += `<label style="font-size:0.75rem; color:#475569; display:block; margin-bottom:2px;">Regimen de Guardia:</label>
-        <select onchange="updateShiftMode('${dateKey}', '${h}', this.value)" style="margin:0; padding:4px; font-size:0.8rem; width:100%; background:white;">
+        html += `<label style="font-size:0.75rem; color:var(--text-2); display:block; margin-bottom:2px;">Regimen de Guardia:</label>
+        <select class="sheet-select" onchange="updateShiftMode('${dateKey}', '${h}', this.value)" style="margin:0; padding:4px; width:100%;">
             <option value="normal" ${currentMode === 'normal' ? 'selected' : ''}>Guardia Normal</option>
             <option value="partida_primera" ${currentMode === 'partida_primera' ? 'selected' : ''}>Partida Diurna (50% H / Sin Saliente)</option>
             <option value="partida_segunda" ${currentMode === 'partida_segunda' ? 'selected' : ''}>Partida Nocturna (50% H / Con Saliente)</option>
         </select>`;
     } else {
-        html += `<span style="font-size:0.75rem; color:#94a3b8;">Régimen: ${modeLabels[currentMode] || currentMode} (solo lectura: no es tu plan)</span>`;
+        html += `<span style="font-size:0.75rem; color:var(--text-3);">Régimen: ${modeLabels[currentMode] || currentMode} (solo lectura: no es tu plan)</span>`;
     }
     html += `</div>`;
 	}); // ⚠️ ESTE CIERRE ES EL QUE HABÍAS BORRADO
         if (esGestorModal) {
             // Solo residentes del plan visualizado, activos este mes (B4)
-            html += `<div style="display:flex; gap:4px; margin-top:12px; border-top:1px solid #e2e8f0; padding-top:8px;"><select id="force-sel-${svcIdx}" style="margin:0; padding:4px; font-size:0.8rem;"><option value="">Añadir Residente...</option>${candidatosForce.map(r => `<option value="${r}">${r}</option>`).join('')}</select><button class="primary" style="background:var(--dark); color:white;" onclick="adminForceAssign('${dateKey}', '${svc.nombre}', ${y}, ${m}, ${d}, 'force-sel-${svcIdx}')">Poner</button></div>`;
+            html += `<div style="display:flex; gap:4px; margin-top:12px; border-top:1px solid #e2e8f0; padding-top:8px;"><select id="force-sel-${svcIdx}" class="sheet-select" style="margin:0; padding:4px;"><option value="">Añadir Residente...</option>${candidatosForce.map(r => `<option value="${r}">${r}</option>`).join('')}</select><button class="primary" style="background:var(--dark); color:white;" onclick="adminForceAssign('${dateKey}', '${svc.nombre}', ${y}, ${m}, ${d}, 'force-sel-${svcIdx}')">Poner</button></div>`;
         }
     } else {
         const isMine = dayShifts[viewUser] === svc.nombre;
@@ -2784,7 +2910,7 @@ holders.forEach(h => {
         
         let disabled = false; let reason = "";
         let pData = pDataFull[svc.nombre];
-        let pd = getPlazasForDay(svc, dateKey);
+        let pd = pdSvc; // mismo valor: ya calculado arriba para la cabecera
 
         if (isUserPending && !isMine) { disabled = true; reason = "Turno bloqueado (Pendiente Admin)."; }
         else if (isIllegal && !isMine) { disabled = true; reason = "Ilegal: Choca con Saliente"; }
@@ -2805,14 +2931,14 @@ holders.forEach(h => {
 // B) INTERFAZ PARA EL RESIDENTE LOGUEADO
 if (isMine) {
     let currentMode = state.shiftModifiers?.[dateKey]?.[viewUser]?.tipo || 'normal';
-    html += `<div style="display:flex; flex-direction:column; gap:6px; margin-top:8px; background:#fffbeb; padding:10px; border-radius:6px; border:1px solid #fde047;">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-            <span style="font-size:0.85rem; color:#713f12;"><b>Tu Guardia Seleccionada</b></span>
+    html += `<div class="sheet__mine">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+            <span style="font-size:0.85rem; color:var(--pac-d);"><b>Tu Guardia Seleccionada</b></span>
             <button class="danger" ${simulatedViewUser !== null ? 'disabled style="opacity:0.4"' : ''} onclick="toggleShift('${dateKey}', '${svc.nombre}')">Quitar</button>
         </div>
         <div style="margin-top:4px;">
-            <label style="font-size:0.75rem; color:#713f12; display:block; margin-bottom:2px; font-weight:bold;">Ajustar Modalidad:</label>
-            <select ${simulatedViewUser !== null ? 'disabled' : `onchange="updateShiftMode('${dateKey}', '${viewUser}', this.value)"`} style="margin:0; padding:6px; font-size:0.8rem; width:100%; background:white; border:1px solid #ca8a04; border-radius:4px;">
+            <label style="font-size:0.75rem; color:var(--pac-d); display:block; margin-bottom:2px; font-weight:bold;">Ajustar Modalidad:</label>
+            <select class="sheet-select" ${simulatedViewUser !== null ? 'disabled' : `onchange="updateShiftMode('${dateKey}', '${viewUser}', this.value)"`} style="margin:0; padding:6px; width:100%;">
                 <option value="normal" ${currentMode === 'normal' ? 'selected' : ''}>Guardia Normal</option>
                 <option value="partida_primera" ${currentMode === 'partida_primera' ? 'selected' : ''}>Partida Diurna (50% Horas / Sin Saliente)</option>
                 <option value="partida_segunda" ${currentMode === 'partida_segunda' ? 'selected' : ''}>Partida Nocturna (50% Horas / Con Saliente)</option>
@@ -2820,14 +2946,16 @@ if (isMine) {
         </div>
     </div>`;
 } else {
-            html += `<div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;"><span style="font-size:0.85rem; color:${isIllegal && !isMine ? 'var(--fest)' : '#64748b'}; font-weight:${isIllegal && !isMine ? 'bold' : 'normal'}">${reason || occStr}</span>`;
+            html += `<div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; gap:8px;"><span style="font-size:0.85rem; color:${isIllegal && !isMine ? 'var(--fest-d)' : 'var(--text-2)'}; font-weight:${isIllegal && !isMine ? 'bold' : 'normal'}">${reason || occStr}</span>`;
             html += `<button class="primary" ${(disabled || simulatedViewUser !== null) ? 'disabled style="opacity:0.4"' : ''} onclick="toggleShift('${dateKey}', '${svc.nombre}')">Elegir</button></div>`;
         }
     }
     html += `</div>`;
   });
-  html += `<div style="text-align:right; margin-top:1rem;"><button onclick="document.getElementById('shift-modal').remove()">Cerrar</button></div></div>`;
+  html += `<div class="sheet__footer"><button class="sheet__close" onclick="document.getElementById('shift-modal').remove()">Cerrar</button></div></div>`;
   modal.innerHTML = html; document.body.appendChild(modal);
+  // 🎨 Paso 3: tocar fuera del panel lo cierra (patrón bottom sheet)
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
 }
 
 /**
@@ -2980,6 +3108,8 @@ function renderMercadoCalendar() {
   const y = curDate.getFullYear(), m = curDate.getMonth();
   const grid = document.getElementById('merc-cal-body'); grid.innerHTML = '';
   const computed = getComputedShifts();
+  const _hoy = new Date();
+  const hoyKey = formatDateKey(_hoy.getFullYear(), _hoy.getMonth(), _hoy.getDate());
   if (loggedInUser) { document.getElementById('merc-logged-zone').style.display = 'block'; document.getElementById('merc-unlogged-zone').style.display = 'none'; } 
   else { document.getElementById('merc-logged-zone').style.display = 'none'; document.getElementById('merc-unlogged-zone').style.display = 'block'; }
   for(let i=0; i<getFirstDayOffset(y,m); i++) grid.innerHTML += `<div class="cal-cell empty"></div>`;
@@ -2987,23 +3117,33 @@ function renderMercadoCalendar() {
   // 🧭 B1: mismo contexto de plan visualizado que el calendario principal
   const planVistaCtxMerc = getPlanVistaContext(y, m);
   const userLevelName = planVistaCtxMerc ? planVistaCtxMerc.planName : 'ALL';
+  // 🧭 Misma fuente de servicios que el calendario principal, y izada fuera del
+  // bucle igual que allí. Con promoConfig.servicios la rejilla se quedaba SIN
+  // badges en promociones de varios planes: adminSaveConfig lo machaca con los
+  // servicios del primer plan, así que al mirar otro plan la intersección con
+  // svcNames era vacía hasta recargar (normalizeConfig sí reconstruye la unión).
+  const todosLosServiciosMerc = getAllUniqueServices();
   for(let d=1; d<=getDaysInMonth(y,m); d++) {
     const dk = formatDateKey(y, m, d);
     const dayShifts = computed[dk] || {};
     const cell = document.createElement('div');
-    cell.className = `cal-cell ${state.festivos[dk]?'is-festivo':''}`;
+    cell.className = `cal-cell ${state.festivos[dk]?'is-festivo':''} ${dk === hoyKey ? 'is-today' : ''}`.trim();
     const bgStyle = getCellBackgroundStyle(dk, y, m, d, userLevelName);
     if (bgStyle) cell.setAttribute('style', bgStyle);
     let html = `<div class="day-number">${d}</div>`;
 
-    promoConfig.servicios.forEach(svc => {
+    todosLosServiciosMerc.forEach(svc => {
         if (planVistaCtxMerc && !planVistaCtxMerc.svcNames.includes(svc.nombre)) return;
         let assigned = Object.keys(dayShifts || {}).filter(u =>
             dayShifts[u] === svc.nombre && esTitularVisibleEnPlan(u, svc.nombre, planVistaCtxMerc));
         if (showOnlyMine && (simulatedViewUser || loggedInUser)) assigned = assigned.filter(u => u === (simulatedViewUser ?? loggedInUser));
         assigned.forEach(u => {
             let isVre = u.startsWith('VRE');
-            html += `<div class="shift-badge ${isVre ? 'bg-vre' : ''}" style="background:${isVre ? '#94a3b8' : svc.color};">👤 ${isVre ? 'VRE' : getInitials(u)}</div>`;
+            // 🎨 Paso 5 (§3.1): mismo badge que el calendario. El texto lo calcula
+            // contrastText() sobre el color REAL del fondo — para el VRE ese fondo es
+            // el #94a3b8 que impone .bg-vre con !important, no svc.color.
+            const bg = isVre ? '#94a3b8' : svc.color;
+            html += `<div class="shift-badge ${isVre ? 'bg-vre' : ''}" style="background:${bg}; color:${contrastText(bg)};">${icon('user')}${isVre ? 'VRE' : escapeHtml(getInitials(u))}</div>`;
         });
     });
     
@@ -3028,57 +3168,112 @@ function openMercadoModal(y, m, d, dk, dayShifts) {
   if (!loggedInUser) return alert("Debes identificarte para usar el Mercadillo.");
   let myShift = null; for (let u in dayShifts) { if (u === loggedInUser) myShift = dayShifts[u]; }
   const past = isPastDate(dk);
-  const modal = document.createElement('div'); modal.className = 'modal-overlay'; modal.id = 'mercado-modal';
-  let html = `<div class="modal"><h3 style="color:var(--merc); border-bottom:2px solid var(--merc); padding-bottom:5px; margin-bottom:1rem;">🛒 Mercadillo: ${d}/${m+1}/${y}</h3><div id="mercado-dynamic">`;
-  
+
+  // 🎨 Paso 5: mismo blindaje que el panel de día (Paso 3). Un doble-toque rápido en
+  // la celda creaba DOS overlays con id="mercado-modal"; como "Cancelar" resuelve por
+  // getElementById, borraba el primero del DOM y no el que se veía.
+  const _prevSheet = document.getElementById('mercado-modal');
+  if (_prevSheet) _prevSheet.remove();
+
+  const modal = document.createElement('div'); modal.className = 'modal-overlay sheet-overlay'; modal.id = 'mercado-modal';
+  let html = `<div class="modal sheet" role="dialog" aria-modal="true">
+    <div class="sheet__grip" aria-hidden="true"></div>
+    <h3 class="sheet__title sheet__title--merc">🛒 Mercadillo: ${d}/${m+1}/${y}</h3>
+    <div id="mercado-dynamic">`;
+
   if (myShift) {
     const sColor = getServiceColor(myShift);
-    html += `<div style="background:#f1f5f9; padding:10px; border-radius:8px; margin-bottom:1rem;"><strong>Tienes guardia de:</strong> <span class="shift-badge" style="background:${sColor}; display:inline-block; margin-left:8px; padding: 4px 8px;">${myShift}</span></div>`;
-    
-    if (past) html += `<p style="color:#64748b; font-size:0.85rem; font-weight:bold; text-align:center;">Esta guardia ya se ha realizado en el mundo real.</p>`;
-    else html += `<button class="primary" style="width:100%; margin-bottom:10px;" onclick="renderMercadoVender('${dk}','${myShift}')">💵 Vender guardia</button><button class="merc" style="width:100%;" onclick="renderMercadoCambiar('${dk}','${myShift}')">🔄 Cambiar por otra fecha / residente</button>`;
+    html += `<div class="merc-mine"><strong>Tienes guardia de:</strong> <span class="svc-chip" style="background:${sColor}; color:${contrastText(sColor)};">${escapeHtml(myShift)}</span></div>`;
+
+    if (past) html += `<p class="merc-note merc-note--center">Esta guardia ya se ha realizado en el mundo real.</p>`;
+    else html += `<button class="primary merc-btn-block" data-act="vender" data-dk="${escapeHtml(dk)}" data-svc="${escapeHtml(myShift)}">💵 Vender guardia</button><button class="merc merc-btn-block" data-act="cambiar" data-dk="${escapeHtml(dk)}" data-svc="${escapeHtml(myShift)}">🔄 Cambiar por otra fecha / residente</button>`;
   } else {
-    let canBuy = false;
-    
+    // Contador real de filas pintadas: antes había un `canBuy` que nunca se ponía a
+    // true, así que el aviso de "no hay guardias" salía incluso listando compañeros.
+    let companeros = 0;
+
     // Bucle restaurado: Evaluamos a cada compañero que tiene guardia este día
     for (let u in dayShifts) {
 			if (u !== loggedInUser && !u.startsWith('VRE')) {
-            html += `<div style="display:flex; justify-content:space-between; align-items:center; border:1px solid #e2e8f0; padding:8px; border-radius:8px; margin-bottom:8px;">`;
-            html += `<div><span style="font-size:0.85rem; font-weight:bold;">${u}</span> <span class="shift-badge" style="background:${getServiceColor(dayShifts[u])}; margin-left:4px;">${dayShifts[u]}</span></div>`;
+            companeros++;
+            const cColor = getServiceColor(dayShifts[u]);
+            html += `<div class="merc-row">`;
+            html += `<div class="merc-row__who"><span class="merc-row__name">${escapeHtml(u)}</span> <span class="svc-chip" style="background:${cColor}; color:${contrastText(cColor)};">${escapeHtml(dayShifts[u])}</span></div>`;
 
             if (past) {
-                html += `<span style="font-size:0.75rem; color:#94a3b8; font-weight:bold;">Pasada</span>`;
+                html += `<span class="merc-tag">Pasada</span>`;
             } else {
                 // Inyección de la regla de intercambio temporal
                 let iCanTake = canUserTakeShift(loggedInUser, u, dk, dayShifts[u]);
                 if (iCanTake) {
-                    html += `<div style="display:flex; gap:4px;"><button class="merc icon-btn" onclick="executeBuyRequest('${dk}', '${dayShifts[u]}', '${u}')">Comprar</button><button class="primary icon-btn" style="background:var(--adu);" onclick="renderMercadoCambiarAjena('${dk}', '${dayShifts[u]}', '${u}')">Cambiar</button></div>`;
+                    const attrs = `data-dk="${escapeHtml(dk)}" data-svc="${escapeHtml(dayShifts[u])}" data-user="${escapeHtml(u)}"`;
+                    html += `<div class="merc-actions"><button class="merc" data-act="comprar" ${attrs}>Comprar</button><button class="primary" style="background:var(--adu-d); color:var(--bg);" data-act="cambiar-ajena" ${attrs}>Cambiar</button></div>`;
                 } else {
-                    html += `<span style="font-size:0.75rem; color:var(--fest); font-weight:bold; background:#fee2e2; padding:2px 6px; border-radius:4px;">Incompatible por R</span>`;
+                    html += `<span class="merc-warn">Incompatible por R</span>`;
                 }
             }
             html += `</div>`;
         }
     }
 
-    if(!canBuy) html += `<p style="font-size:0.85rem; color:#64748b; margin-bottom:1rem;">No hay guardias de compañeros disponibles en este día.</p>`;
-    
+    if(!companeros) html += `<p class="merc-note">No hay guardias de compañeros disponibles en este día.</p>`;
+
     if (!past) {
-        html += `<div style="margin-top:1rem; padding-top:1rem; border-top:1px dashed #cbd5e1;"><h4 style="margin-bottom:0.5rem; color:#64748b;">Comprar a Externo (Añadir guardia)</h4><div style="display:flex; gap:8px; flex-wrap:wrap;">`;
-        getAllUniqueServices().forEach(svc => { 
-            html += `<button class="primary" style="flex:1; background:${getServiceColor(svc.nombre)}; font-size:0.8rem;" onclick="executeBuyRequest('${dk}', '${svc.nombre}', 'Externo')">+ ${svc.nombre}</button>`; 
+        html += `<div class="merc-ext"><h4 class="merc-ext__title">Comprar a Externo (Añadir guardia)</h4><div class="merc-ext__grid">`;
+        getAllUniqueServices().forEach(svc => {
+            const eColor = getServiceColor(svc.nombre);
+            html += `<button class="primary" style="background:${eColor}; color:${contrastText(eColor)};" data-act="comprar-externo" data-dk="${escapeHtml(dk)}" data-svc="${escapeHtml(svc.nombre)}">+ ${escapeHtml(svc.nombre)}</button>`;
         });
         html += `</div></div>`;
     }
   }
-  html += `</div><div style="text-align:right; margin-top:1.5rem;"><button onclick="document.getElementById('mercado-modal').remove()">Cancelar</button></div></div>`;
-  modal.innerHTML = html; document.body.appendChild(modal);
+  html += `</div><div class="sheet__footer"><button class="sheet__close" data-act="close">Cancelar</button></div></div>`;
+  modal.innerHTML = html;
+  _bindMercadoActions(modal);
+  document.body.appendChild(modal);
+}
+
+/**
+ * Enlaza por DOM los controles `[data-act]` del modal del Mercadillo.
+ * Los nombres de servicio y de residente son texto libre del admin: interpolarlos
+ * dentro de un `onclick` rompe el atributo (un `UCI "Peque"` lo parte por la mitad),
+ * el mismo fallo que ya se corrigió en el selector de propuesta. Aquí el valor viaja
+ * por `data-*` escapado y se lee ya decodificado desde `dataset`.
+ * Se llama tras cada repintado de #mercado-dynamic.
+ * @param {HTMLElement} root - contenedor recién pintado
+ */
+function _bindMercadoActions(root) {
+  if (!root) return;
+  root.querySelectorAll('[data-act]').forEach(el => {
+    const act = el.dataset.act;
+    const dk = el.dataset.dk || '', svc = el.dataset.svc || '', user = el.dataset.user || '';
+    const evt = (act === 'load-cambio-targets') ? 'change' : 'click';
+    el.addEventListener(evt, () => {
+      switch (act) {
+        // closest() y no getElementById: inmune por construcción a que llegue a
+        // haber dos overlays con el mismo id, que es lo que hacía falta pulsar
+        // "Cerrar" dos veces en el panel de día antes del Paso 3.
+        case 'close': el.closest('.modal-overlay')?.remove(); break;
+        case 'vender': renderMercadoVender(dk, svc); break;
+        case 'cambiar': renderMercadoCambiar(dk, svc); break;
+        case 'comprar': executeBuyRequest(dk, svc, user); break;
+        case 'cambiar-ajena': renderMercadoCambiarAjena(dk, svc, user); break;
+        case 'comprar-externo': executeBuyRequest(dk, svc, 'Externo'); break;
+        case 'confirmar-venta': executeSellRequest(dk, svc); break;
+        case 'load-cambio-targets': loadCambioTargets(dk, svc); break;
+        case 'solicitar-cambio': proxySwapRequest(dk, svc, el.dataset.target || ''); break;
+        case 'enviar-cambio-ajena': executeSwapRequestAjena(dk, svc, user); break;
+      }
+    });
+  });
 }
 
 /** Reemplaza la zona dinámica del modal con el formulario de venta de guardia. */
 function renderMercadoVender(dk, svc) {
     const res = getAllResidents().filter(r => r !== loggedInUser && canUserTakeShift(r, loggedInUser, dk, svc));
-    document.getElementById('mercado-dynamic').innerHTML = `<h4 style="margin-bottom:1rem;">Vender guardia de ${svc}</h4><label style="font-size:0.85rem; color:#64748b;">¿A quién se la vendes?</label><select id="vender-to-user"><option value="">-- Selecciona --</option><option value="Externo">👽 Otro Residente (Externo)</option>${res.map(r => `<option value="${r}">${r}</option>`).join('')}</select><button class="primary" style="width:100%" onclick="executeSellRequest('${dk}', '${svc}')">Confirmar Venta</button>`; 
+    const cont = document.getElementById('mercado-dynamic');
+    cont.innerHTML = `<h4 class="merc-form__title">Vender guardia de ${escapeHtml(svc)}</h4><label class="merc-form__label">¿A quién se la vendes?</label><select id="vender-to-user"><option value="">-- Selecciona --</option><option value="Externo">👽 Otro Residente (Externo)</option>${res.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select><button class="primary merc-btn-block" data-act="confirmar-venta" data-dk="${escapeHtml(dk)}" data-svc="${escapeHtml(svc)}">Confirmar Venta</button>`;
+    _bindMercadoActions(cont);
 }
 /** Crea y procesa un trade de tipo 'venta'; si es a Externo, se aprueba directamente. */
 function executeSellRequest(dk, svc) { const target = document.getElementById('vender-to-user').value; if (!target) return alert("Selecciona a quién vender."); const trade = { id: Date.now(), type: 'venta', requester: loggedInUser, target: target, d1: dk, s1: svc, timestamp: new Date().toLocaleString('es-ES') }; let conflicts = checkTradeConflicts(trade); if (conflicts.length > 0) { if (!confirm("⚠️ ATENCIÓN: Conflictos:\n\n" + conflicts.join("\n") + "\n\n¿Proponer de todos modos?")) return; } if (target === 'Externo') { trade.status = 'approved'; alert("Venta a externo realizada."); } else { trade.status = 'pending'; alert(`Solicitud enviada a ${target}.`); } if(!state.trades) state.trades = []; state.trades.push(trade); _notifyNewTrade(trade); saveState(); document.getElementById('mercado-modal').remove(); checkAutomaticGraduation();
@@ -3099,12 +3294,194 @@ function executeBuyRequest(dk, svc, targetUser) { if (targetUser !== 'Externo' &
 // Dependencias externas: promoConfig, supabaseClient, currentUserProfile
 // Helpers que usa: syncConfigFromUI, saveState, setStatus, renderAll, checkAutomaticGraduation, MONTHS
 // ============================================================
+/**
+ * Normaliza un nombre para compararlo. `Pediatría ` y `pediatría` son el mismo
+ * servicio para quien lo escribe y dos distintos para el código, y esa asimetría
+ * es justo la que deja guardias sin encontrar su configuración.
+ *
+ * `normalize('NFC')` no es adorno: `Pediatría` tecleada en Windows y la misma
+ * palabra pegada desde un documento de macOS son cadenas DISTINTAS —una lleva la
+ * tilde como carácter combinante— y en pantalla son idénticas carácter por
+ * carácter. Sin esto, dos servicios visualmente iguales pasaban la validación y
+ * el segundo quedaba inalcanzable para siempre. En una app en español, con
+ * Pediatría / Cirugía / Urgencias, no es un caso teórico.
+ *
+ * El colapso de espacios cubre el mismo problema por otra vía: espacio doble
+ * interno y espacio duro (` `), que `\s` sí captura.
+ *
+ * @param {string} nombre
+ * @returns {string} clave de comparación
+ */
+function claveNombreServicio(nombre) {
+    return String(nombre ?? '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/**
+ * D-04. Detecta nombres de servicio inválidos DENTRO de cada plan.
+ *
+ * El mismo nombre en planes DISTINTOS es legítimo y está en uso: es como se
+ * expresa "R1 y R2 hacen Pediatría con cupos distintos", y getAllUniqueServices()
+ * lo deduplica a propósito. Lo que rompe es repetirlo dentro del mismo plan:
+ * todo lookup se hace por nombre (getSvcConfig, isServiceEnabledOnDate,
+ * getServiceColor, el selector de propuesta) y todos devuelven SIEMPRE el
+ * primero, así que el segundo servicio existe en la configuración pero es
+ * inalcanzable — sus reglas, su cupo y su color no se aplican nunca.
+ *
+ * Un nombre vacío es igual de destructivo: state.shifts guarda el nombre como
+ * valor, y una cadena vacía no vuelve a resolver a ningún servicio.
+ *
+ * @returns {Array<{tipo:'duplicado'|'vacio', plan:string, pIdx:number, nombre:string, indices:number[]}>}
+ */
+function getConflictosNombreServicio() {
+    const conflictos = [];
+    (promoConfig.planes || []).forEach((plan, pIdx) => {
+        const porClave = new Map();
+        const vacios = [];
+        (plan.servicios || []).forEach((svc, i) => {
+            const clave = claveNombreServicio((svc || {}).nombre);
+            if (!clave) { vacios.push(i); return; }
+            if (!porClave.has(clave)) porClave.set(clave, []);
+            porClave.get(clave).push(i);
+        });
+        if (vacios.length) conflictos.push({ tipo: 'vacio', plan: plan.nombre, pIdx, nombre: '', indices: vacios });
+        porClave.forEach(indices => {
+            if (indices.length > 1) {
+                conflictos.push({ tipo: 'duplicado', plan: plan.nombre, pIdx, nombre: (plan.servicios[indices[0]] || {}).nombre, indices });
+            }
+        });
+    });
+    return conflictos;
+}
+
+/**
+ * D-08 (parcial). Índices de planes cuyo nombre choca con el de otro plan.
+ *
+ * Dos planes homónimos hacen que `getSvcConfig` y `getPlanVistaContext`, que
+ * resuelven el plan por nombre con `find`, devuelvan siempre el primero: los
+ * residentes del segundo cobrarían cupos, horas y reglas del otro plan sin que
+ * nada falle a la vista. Aquí solo se AVISA — no se bloquea el guardado —
+ * porque una promoción que ya arrastre el duplicado se quedaría sin poder
+ * guardar nada hasta renombrar, y renombrar un plan tiene el mismo efecto
+ * colateral que renombrar un servicio (D-07: la clave `svc@@plan`).
+ * El nombre VACÍO es harina de otro costal y sí bloquea: no puede
+ * preexistir en ninguna config que funcione —los ~30 `find(p => p.nombre ===
+ * planName)` del código devolverían `undefined` para todos los residentes de
+ * ese plan, que perderían servicios, cupos y calendario— así que solo puede
+ * crearse en la sesión de edición actual y ahí es donde hay que atajarlo.
+ *
+ * @returns {Array<{tipo:'plan'|'plan-vacio', pIdx:number, nombre:string}>}
+ */
+function getConflictosNombrePlan() {
+    const porClave = new Map();
+    const conflictos = [];
+    (promoConfig.planes || []).forEach((plan, pIdx) => {
+        const nombre = (plan || {}).nombre;
+        const clave = claveNombreServicio(nombre);
+        if (!clave) { conflictos.push({ tipo: 'plan-vacio', pIdx, nombre: '' }); return; }
+        if (!porClave.has(clave)) porClave.set(clave, []);
+        porClave.get(clave).push({ pIdx, nombre });
+    });
+    porClave.forEach(items => {
+        if (items.length > 1) items.forEach(it => conflictos.push({ tipo: 'plan', pIdx: it.pIdx, nombre: it.nombre }));
+    });
+    return conflictos;
+}
+
+/**
+ * Mensaje que ve el admin en el campo en conflicto.
+ * @param {{tipo:string, nombre:string}} c
+ * @returns {string}
+ */
+function mensajeConflictoNombre(c) {
+    // Una línea y punto: esto se lee de reojo en un móvil, no se estudia. El
+    // porqué y el criterio de comparación ("ignorando mayúsculas y espacios")
+    // viven en el alert del guardado bloqueado, que es donde hay sitio.
+    // "dentro del mismo plan" sí se queda: sin esa coletilla el aviso
+    // contradiría a la app, que permite el mismo servicio en planes distintos.
+    if (c.tipo === 'vacio') return '⚠️ El servicio necesita un nombre.';
+    if (c.tipo === 'plan-vacio') return '⚠️ El plan necesita un nombre.';
+    if (c.tipo === 'plan') return '⚠️ No se permiten planes con nombres duplicados.';
+    return '⚠️ No se permiten servicios con nombres duplicados dentro del mismo plan.';
+}
+
+/**
+ * Valida los nombres SIN repintar el formulario y actualiza el marcado in situ.
+ *
+ * Se dispara al terminar de escribir un nombre (`change`), que es cuando el
+ * admin espera el aviso: enterarse al pulsar Guardar, tres pantallas después,
+ * llega tarde. No se puede resolver con `renderAdminAjustes()` porque el
+ * repintado cierra los acordeones y roba el foco a media edición.
+ *
+ * Recorre TODOS los campos, no solo el editado: corregir un nombre resuelve el
+ * choque de su pareja, y esa otra caja también tiene que dejar de estar roja.
+ *
+ * Cubre servicios (D-04, además bloquean el guardado) y planes (D-08, solo
+ * avisan). Deliberadamente no repinta: `renderAdminAjustes()` cerraría los
+ * acordeones y sacaría el foco del campo que se está escribiendo.
+ */
+function revalidarNombresConfig() {
+    syncConfigFromUI();
+    const conflictos = getConflictosNombreServicio();
+    const planesMalos = getConflictosNombrePlan();
+    const pintar = (inp, aviso, conflicto) => {
+        if (!inp || !aviso) return;
+        inp.classList.toggle('cfg-nom-dup', !!conflicto);
+        aviso.hidden = !conflicto;
+        if (conflicto) aviso.textContent = mensajeConflictoNombre(conflicto);
+    };
+    (promoConfig.planes || []).forEach((plan, pIdx) => {
+        pintar(
+            document.getElementById(`cfg-plan-nom-${pIdx}`),
+            document.getElementById(`cfg-plan-aviso-${pIdx}`),
+            planesMalos.find(c => c.pIdx === pIdx) || null
+        );
+        // El nombre del plan aparece además en la cabecera del acordeón y en el
+        // botón de añadir servicio. Como aquí NO se repinta, hay que refrescarlos
+        // a mano o se quedan diciendo el nombre viejo hasta el siguiente render.
+        const resumen = document.getElementById(`cfg-plan-summary-${pIdx}`);
+        if (resumen) resumen.textContent = `👉 Desplegar/Ocultar: ${(plan || {}).nombre || ''}`;
+        const btnAdd = document.getElementById(`cfg-plan-addsvc-${pIdx}`);
+        if (btnAdd) btnAdd.textContent = `+ Servicio al ${(plan || {}).nombre || ''}`;
+        ((plan || {}).servicios || []).forEach((svc, i) => {
+            pintar(
+                document.getElementById(`cfg-nom-${pIdx}-${i}`),
+                document.getElementById(`cfg-nom-aviso-${pIdx}-${i}`),
+                conflictos.find(x => x.pIdx === pIdx && x.indices.includes(i)) || null
+            );
+        });
+    });
+}
+
+/**
+ * Devuelve un nombre libre dentro del plan a partir de una base ("Nuevo
+ * Servicio", "Nuevo Servicio 2"...). Evita que el camino más común —pulsar
+ * "+ Servicio" dos veces— cree ya un duplicado que luego bloquea el guardado.
+ * @param {object} plan
+ * @param {string} base
+ * @returns {string}
+ */
+function generarNombreServicioLibre(plan, base) {
+    const usados = new Set((plan.servicios || []).map(s => claveNombreServicio(s.nombre)));
+    if (!usados.has(claveNombreServicio(base))) return base;
+    let n = 2;
+    while (usados.has(claveNombreServicio(`${base} ${n}`))) n++;
+    return `${base} ${n}`;
+}
+
 /** Renderiza el formulario de ajustes de la promoción: planes, servicios, reglas y pernoctas. */
 function renderAdminAjustes() {
   const container = document.getElementById('admin-config-container');
   let html = ``;
 
   if (!promoConfig.planes) promoConfig.planes = [];
+
+  // D-04: se recalcula en cada repintado, así que el aviso siempre refleja el
+  // estado real de promoConfig sin necesidad de guardar una bandera aparte.
+  const conflictosNombre = getConflictosNombreServicio();
+  const conflictoDe = (pIdx, i) => conflictosNombre.find(c => c.pIdx === pIdx && c.indices.includes(i));
+  const svcEnConflicto = (pIdx, i) => !!conflictoDe(pIdx, i);
+  // D-08: los nombres de plan solo AVISAN, no bloquean el guardado (ver §18 del PRD).
+  const planesMalos = getConflictosNombrePlan();
 
   // ── Configuración general del contenedor (solo admin) ──
   html += `
@@ -3120,15 +3497,25 @@ function renderAdminAjustes() {
   </div>`;
 
   promoConfig.planes.forEach((plan, pIdx) => {
+    // D-04: un plan con conflicto se pinta ABIERTO. El acordeón no conserva
+    // estado entre repintados, así que sin esto el aviso rojo que acabamos de
+    // pintar quedaba dentro de un <details> cerrado — justo en el momento en
+    // que hace falta verlo, al volver del alert de guardado fallido.
+    const cPlan = planesMalos.find(c => c.pIdx === pIdx);
+    // Se abre solo por lo que BLOQUEA el guardado. Un nombre de plan duplicado
+    // es advertencia y puede convivir indefinidamente: abrir su acordeón en cada
+    // repintado dejaría dos planes enteros desplegados para siempre.
+    const planEnConflicto = conflictosNombre.some(c => c.pIdx === pIdx) || (cPlan && cPlan.tipo === 'plan-vacio');
     html += `
-    <details style="background:#f1f5f9; border:2px solid #cbd5e1; border-radius:12px; padding:15px; margin-bottom:20px;"><summary style="font-weight:bold; cursor:pointer; font-size:1.1rem; color:var(--dark);">👉 Desplegar/Ocultar: ${plan.nombre}</summary><div style="margin-top: 15px;">
+    <details ${planEnConflicto ? 'open' : ''} style="background:#f1f5f9; border:2px solid #cbd5e1; border-radius:12px; padding:15px; margin-bottom:20px;"><summary id="cfg-plan-summary-${pIdx}" style="font-weight:bold; cursor:pointer; font-size:1.1rem; color:var(--dark);">👉 Desplegar/Ocultar: ${escapeHtml(plan.nombre)}</summary><div style="margin-top: 15px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom:2px solid #94a3b8; padding-bottom:10px; flex-wrap:wrap; gap:10px;">
-            <input type="text" id="cfg-plan-nom-${pIdx}" value="${plan.nombre}" style="margin:0; font-size:1.2rem; font-weight:bold; color:var(--dark); border:1px solid transparent; background:transparent; max-width:250px;">
+            <input type="text" id="cfg-plan-nom-${pIdx}" value="${escapeHtml(plan.nombre)}" class="cfg-plan-nom-input${cPlan ? ' cfg-nom-dup' : ''}" onchange="revalidarNombresConfig()">
             <div style="display:flex; gap:8px;">
-                <button class="primary icon-btn" style="background:var(--adu);" onclick="adminAddService(${pIdx})">+ Servicio al ${plan.nombre}</button>
+                <button class="primary icon-btn" id="cfg-plan-addsvc-${pIdx}" style="background:var(--adu);" onclick="adminAddService(${pIdx})">+ Servicio al ${escapeHtml(plan.nombre)}</button>
                 <button class="danger icon-btn" onclick="adminRemovePlan(${pIdx})">Borrar Plan</button>
             </div>
-        </div>`;
+        </div>
+        <p class="cfg-nom-aviso" id="cfg-plan-aviso-${pIdx}" ${cPlan ? '' : 'hidden'}>${escapeHtml(mensajeConflictoNombre(cPlan || { tipo: 'plan' }))}</p>`;
     
     if (plan.servicios.length === 0) {
         html += `<p style="color:#64748b; font-size:0.85rem; font-style:italic; padding-bottom:10px;">No hay servicios en este plan.</p>`;
@@ -3138,10 +3525,11 @@ function renderAdminAjustes() {
         html += `
         <div class="cfg-card" id="cfg-card-${pIdx}-${i}" style="border-left: 4px solid ${svc.color || 'var(--dark)'};">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom:1px solid #e2e8f0; padding-bottom:10px;">
-             <input type="text" id="cfg-nom-${pIdx}-${i}" value="${svc.nombre}" style="margin:0; font-size:1.1rem; font-weight:bold; border:none; background:transparent; max-width:200px;">
+             <input type="text" id="cfg-nom-${pIdx}-${i}" value="${escapeHtml(svc.nombre)}" class="cfg-nom-input${svcEnConflicto(pIdx, i) ? ' cfg-nom-dup' : ''}" onchange="revalidarNombresConfig()">
              <button class="danger icon-btn" onclick="adminRemoveService(${pIdx}, ${i})">Borrar Servicio 🗑️</button>
           </div>
-          
+          <p class="cfg-nom-aviso" id="cfg-nom-aviso-${pIdx}-${i}" ${svcEnConflicto(pIdx, i) ? '' : 'hidden'}>${escapeHtml(mensajeConflictoNombre(conflictoDe(pIdx, i) || { tipo: 'duplicado' }))}</p>
+
           <div style="display:flex; gap:15px; flex-wrap:wrap; margin-bottom:15px;">
              <div style="flex:1; min-width:120px;">
                 <label style="font-size:0.8rem; color:#64748b; display:block; margin-bottom:4px;">Cupo total/mes</label>
@@ -3299,8 +3687,15 @@ function renderAdminAjustes() {
 /** Añade un nuevo plan vacío al final de promoConfig.planes y re-renderiza ajustes. */
 function adminAddPlan() {
     syncConfigFromUI();
-    let numPlanes = promoConfig.planes.length + 1;
-    promoConfig.planes.push({ id: 'plan-' + Date.now(), nombre: `Plan R${numPlanes}`, servicios: [] });
+    // `planes.length + 1` repetía nombre en cuanto se borraba un plan: con R1 y
+    // R2, borrar R1 y añadir otro volvía a calcular 1+1 y creaba un segundo
+    // "Plan R2". Dos planes homónimos hacen que getSvcConfig resuelva por nombre
+    // al primero, así que los residentes del segundo cobran cupos y horas del
+    // plan equivocado, sin error visible.
+    const usados = new Set(promoConfig.planes.map(p => claveNombreServicio(p.nombre)));
+    let n = promoConfig.planes.length + 1;
+    while (usados.has(claveNombreServicio(`Plan R${n}`))) n++;
+    promoConfig.planes.push({ id: 'plan-' + Date.now(), nombre: `Plan R${n}`, servicios: [] });
     renderAdminAjustes();
 }
 /** Elimina el plan en la posición pIdx y todos sus servicios tras confirmación. */
@@ -3312,8 +3707,8 @@ function adminRemovePlan(pIdx) {
 /** Añade un servicio con valores por defecto al plan indicado y re-renderiza ajustes. */
 function adminAddService(pIdx) {
   syncConfigFromUI();
-  promoConfig.planes[pIdx].servicios.push({ 
-      nombre: "Nuevo Servicio", cupoMensualTotal: 1, plazasPorDia: 1, color: "#94a3b8", 
+  promoConfig.planes[pIdx].servicios.push({
+      nombre: generarNombreServicioLibre(promoConfig.planes[pIdx], "Nuevo Servicio"), cupoMensualTotal: 1, plazasPorDia: 1, color: "#94a3b8",
       requiereHabilitacion: false, 
       dadasPorSecretaria: false,
       subastaTrigger: [],
@@ -3381,6 +3776,16 @@ function syncConfigFromUI() {
     // 2. Recorremos los servicios que pertenecen a este plan concreto
     if (!plan.servicios) plan.servicios = [];
     plan.servicios.forEach((svc, i) => {
+      // D-04: aquí NO se recorta. Recortar al leer parecía higiene inofensiva y
+      // era una migración silenciosa: una config que ya tuviera `PAC Balaguer `
+      // guardado se renombraba sola con solo tocar cualquier campo del panel, y
+      // state.shifts y state.habilitaciones —que guardan el nombre como valor y
+      // como parte de la clave `svc@@plan`— se quedaban apuntando al nombre
+      // viejo. Resultado: las guardias de ese servicio desaparecían del
+      // calendario y el servicio perdía todos sus días habilitados.
+      // El espacio sobrante se DETECTA en getConflictosNombreServicio (choca con
+      // su gemelo sin espacio) y lo corrige el admin a propósito, no la app a su
+      // espalda. Renombrar sigue dejando guardias huérfanas: ver D-07 en el PRD.
       const nomSvc = document.getElementById(`cfg-nom-${pIdx}-${i}`);
       if (nomSvc) svc.nombre = nomSvc.value;
 
@@ -3528,6 +3933,37 @@ function exportarReglasTexto() {
 /** Sincroniza promoConfig desde la UI y lo persiste en Supabase (tabla promociones). */
 async function adminSaveConfig() {
   syncConfigFromUI();
+
+  // D-04: la puerta está aquí y no en cada tecleo. Un duplicado a medio escribir
+  // es normal mientras se edita; lo que no puede pasar es que se PERSISTA, porque
+  // a partir de ahí el segundo servicio homónimo queda inalcanzable para todos
+  // los lookups por nombre y sus guardias no encuentran configuración.
+  // Los nombres de plan DUPLICADOS solo avisan (D-08), pero un plan sin nombre sí
+  // bloquea: no puede preexistir en ninguna config que funcione, así que solo se
+  // crea aquí y aquí hay que pararlo.
+  const conflictos = [...getConflictosNombreServicio(), ...getConflictosNombrePlan().filter(c => c.tipo === 'plan-vacio')];
+  if (conflictos.length > 0) {
+      renderAdminAjustes();
+      // El repintado deja abiertos los planes en conflicto; llevamos además la
+      // vista al primer campo marcado, que con varios planes queda fuera de
+      // pantalla y el admin no sabría dónde mirar tras cerrar el aviso.
+      // Se prioriza el campo de SERVICIO: los nombres de plan comparten la clase
+      // .cfg-nom-dup y los duplicados NO bloquean, así que con `.cfg-nom-dup` a
+      // secas un plan duplicado —que puede quedarse ahí para siempre— secuestraba
+      // el scroll y llevaba a un campo rojo que no era el motivo del bloqueo.
+      const foco = document.querySelector('.cfg-nom-input.cfg-nom-dup')
+                || document.querySelector('.cfg-plan-nom-input.cfg-nom-dup');
+      foco?.scrollIntoView({ block: 'center' });
+      const detalle = conflictos.map(c => {
+          if (c.tipo === 'plan-vacio') return `• El plan en la posición ${c.pIdx + 1} no tiene nombre.`;
+          if (c.tipo === 'vacio') return `• Plan "${c.plan}": ${c.indices.length} servicio(s) sin nombre.`;
+          return `• Plan "${c.plan}": "${c.nombre}" está repetido ${c.indices.length} veces.`;
+      }).join('\n');
+      setStatus('Sin guardar ⚠️', true);
+      alert(`⚠️ No se ha guardado nada.\n\nCada plan necesita nombre, y dentro de cada plan cada servicio necesita un nombre propio y no vacío:\n\n${detalle}\n\nSe comparan ignorando mayúsculas y espacios sobrantes. El mismo nombre de servicio en planes distintos sí es válido.`);
+      return;
+  }
+
   setStatus('Guardando ajustes...');
   try {
       const { error } = await supabaseClient.from('promociones').update({ configuracion: promoConfig }).eq('id', currentUserProfile.promocion_id);
@@ -4352,37 +4788,31 @@ function renderAdminHoras() {
         })
         .sort((a, b) => b.horasMes - a.horasMes);
 
+    // data-label: en móvil cada fila se apila como tarjeta y la cabecera se oculta.
+    const cols = ['Horas mes', 'Completas / Partidas', `Total ${y}`, 'Histórico'];
     let tablaHtml = '';
     if (residentes.length > 0) {
         const filas = residentes.map(r =>
-            `<tr style="border-bottom:1px solid #f1f5f9;">
-                <td style="padding:10px 12px; font-weight:bold; color:var(--dark);">${r.nombre}</td>
-                <td style="padding:10px 12px; text-align:right; font-weight:bold;">${r.horasMes.toFixed(1)} h</td>
-                <td style="padding:10px 12px; text-align:right; color:#475569;">${r.completasMes} / ${r.partidasMes}</td>
-                <td style="padding:10px 12px; text-align:right; color:#475569;">${r.horasAnio.toFixed(1)} h</td>
-                <td style="padding:10px 12px; text-align:right; color:#94a3b8;">${r.horasTotal.toFixed(1)} h</td>
+            `<tr>
+                <th scope="row" class="hrs-name">${escapeHtml(r.nombre)}</th>
+                <td class="hrs-num hrs-num--main" data-label="${cols[0]}">${r.horasMes.toFixed(1)} h</td>
+                <td class="hrs-num" data-label="${cols[1]}">${r.completasMes} / ${r.partidasMes}</td>
+                <td class="hrs-num" data-label="${cols[2]}">${r.horasAnio.toFixed(1)} h</td>
+                <td class="hrs-num hrs-num--muted" data-label="${cols[3]}">${r.horasTotal.toFixed(1)} h</td>
             </tr>`).join('');
-        tablaHtml = `<div style="overflow-x:auto;">
-            <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
-                <thead>
-                    <tr style="background:#f1f5f9;">
-                        <th style="padding:10px 12px; font-size:0.78rem; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0; text-align:left;">RESIDENTE</th>
-                        <th style="padding:10px 12px; font-size:0.78rem; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0; text-align:right;">HORAS MES</th>
-                        <th style="padding:10px 12px; font-size:0.78rem; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0; text-align:right;">COMPLETAS / PARTIDAS</th>
-                        <th style="padding:10px 12px; font-size:0.78rem; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0; text-align:right;">TOTAL ${y}</th>
-                        <th style="padding:10px 12px; font-size:0.78rem; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0; text-align:right;">HISTÓRICO</th>
-                    </tr>
-                </thead>
+        tablaHtml = `<div class="hrs-wrap">
+            <table class="hrs-table">
+                <thead><tr><th scope="col">Residente</th>${cols.map(c => `<th scope="col" class="hrs-num">${c}</th>`).join('')}</tr></thead>
                 <tbody>${filas}</tbody>
             </table>
         </div>`;
     } else {
-        tablaHtml = '<p style="color:#94a3b8; font-style:italic;">No hay residentes aprobados.</p>';
+        tablaHtml = '<p class="hrs-empty">No hay residentes aprobados.</p>';
     }
     const _elHoras = document.getElementById('aview-horas');
     if (!_elHoras) return;
     _elHoras.innerHTML =
-        `<h3 style="margin-bottom:16px; font-size:1.1rem; color:var(--dark);">⏱️ Horas por Residente — ${MONTHS[m]} ${y}</h3>${tablaHtml}`;
+        `<h3 class="hrs-title">⏱️ Horas por Residente — ${MONTHS[m]} ${y}</h3>${tablaHtml}`;
 }
 
 /** Restaura todos los turnos saltados del mes, devolviendo al grupo su turno natural. */
@@ -4396,6 +4826,12 @@ async function adminResetMonth(y, m) { if (!isAdmin) return alert('⚠️ El res
  * Mantiene las reglas de promoConfig. Requiere confirmación doble con texto "VACIAR".
  */
 async function adminVaciarGeneracion() {
+    // Sin guarda de rol y sin ningún llamador: no hay botón que la invoque,
+    // solo la consola. Se cierra igualmente porque expulsa a toda la
+    // promoción, y desde que existen admins nombrados esa es la familia de
+    // operaciones que acabamos de cerrar. Ver [P-10] del backlog: decidir si
+    // se borra o se conecta.
+    if (!esDueño) return alert('⚠️ Solo el Dueño de la especialidad puede vaciar la generación.');
     if (!confirm("⚠️ ATENCIÓN: Vas a expulsar a todos los residentes normales y borrar todas las guardias y calendarios. Las reglas se mantendrán. ¿Estás seguro?")) return;
     if (prompt("Escribe VACIAR en mayúsculas para confirmar:") !== "VACIAR") return;
 
@@ -4445,11 +4881,25 @@ async function adminVaciarGeneracion() {
     window.location.reload();
 }
 /** Borra permanentemente toda la promoción de Supabase. Requiere confirmación doble con texto "BORRAR". */
-async function adminDeletePromotion() { if (!confirm("⚠️ ¡ALERTA ROJA! ⚠️\nEstás a punto de borrar TODA la promoción y sus calendarios.\nNO se puede deshacer.")) return; if (prompt("Escribe BORRAR en mayúsculas para confirmar:") !== "BORRAR") return; setStatus('Destruyendo grupo...'); const { error } = await supabaseClient.from('promociones').delete().eq('id', currentUserProfile.promocion_id); if (error) alert("Error: " + error.message); else window.location.reload(); }
+async function adminDeletePromotion() {
+    // Única operación que destruye los datos de todos. Se revalida contra el
+    // servidor, no contra `esDueño`: esa variable se fija al iniciar sesión y
+    // quedaría obsoleta si la corona cambia de manos a mitad de sesión.
+    const { data: promo, error: errP } = await supabaseClient.from('promociones').select('creador_id').eq('id', currentUserProfile.promocion_id).single();
+    if (errP || !promo) return alert("No se ha podido comprobar quién es el Dueño de la especialidad. No se ha borrado nada.");
+    if (promo.creador_id !== currentUserProfile.id) return alert("⚠️ Solo el Dueño de la especialidad puede borrarla.");
+
+    if (!confirm("⚠️ ¡ALERTA ROJA! ⚠️\nEstás a punto de borrar TODA la promoción y sus calendarios.\nNO se puede deshacer.")) return;
+    if (prompt("Escribe BORRAR en mayúsculas para confirmar:") !== "BORRAR") return;
+    setStatus('Destruyendo grupo...');
+    const { error } = await supabaseClient.from('promociones').delete().eq('id', currentUserProfile.promocion_id);
+    if (error) { setStatus('Conectado ✅'); alert("Error: " + error.message); }
+    else window.location.reload();
+}
 
 /** Actualiza el buzón de solicitudes entrantes y el historial de operaciones del Mercadillo. */
 function renderMercadoInboxAndLog() {
-  if (!loggedInUser) return; const inb = document.getElementById('merc-inbox'); const log = document.getElementById('merc-log'); let myInbox = (state.trades || []).filter(t => (t.status === 'pending' && t.target === loggedInUser) || (t.status === 'undo_pending' && t.undoRequester !== loggedInUser && (t.requester === loggedInUser || t.target === loggedInUser))); if (myInbox.length === 0) inb.innerHTML = `<span style="font-size:0.85rem; color:#94a3b8;">No tienes solicitudes pendientes.</span>`; else { inb.innerHTML = myInbox.map(t => { let desc = ""; if (t.status === 'undo_pending') desc = `⚠️ <b>${t.undoRequester}</b> quiere DESHACER la operación del ${t.timestamp}.`; else if (t.type === 'venta') desc = `💵 <b>${t.requester}</b> te quiere VENDER su guardia de ${t.s1} (${formatDK(t.d1)}).`; else if (t.type === 'compra') desc = `🛒 <b>${t.requester}</b> te quiere COMPRAR tu guardia de ${t.s1} (${formatDK(t.d1)}).`; else if (t.type === 'cambio') desc = `🔄 <b>${t.requester}</b> quiere CAMBIAR su ${t.s1} (${formatDK(t.d1)}) por tu ${t.s2} (${formatDK(t.d2)}).`; return `<div class="trade-row" style="border-left:3px solid var(--merc);"><div>${desc}</div><div style="display:flex; gap:8px;"><button class="primary" style="background:var(--ped); font-size:0.75rem;" onclick="processTrade(${t.id}, true)">✅ Aceptar</button><button class="danger" style="font-size:0.75rem;" onclick="processTrade(${t.id}, false)">❌ Rechazar</button></div></div>`; }).join(''); } let allLogs = (state.trades || []).filter(t => {
+  if (!loggedInUser) return; const inb = document.getElementById('merc-inbox'); const log = document.getElementById('merc-log'); let myInbox = (state.trades || []).filter(t => (t.status === 'pending' && t.target === loggedInUser) || (t.status === 'undo_pending' && t.undoRequester !== loggedInUser && (t.requester === loggedInUser || t.target === loggedInUser))); if (myInbox.length === 0) inb.innerHTML = `<span class="merc-note">No tienes solicitudes pendientes.</span>`; else { inb.innerHTML = myInbox.map(t => { let desc = ""; const _r = escapeHtml(t.requester), _u = escapeHtml(t.undoRequester), _s1 = escapeHtml(t.s1), _s2 = escapeHtml(t.s2), _ts = escapeHtml(t.timestamp); if (t.status === 'undo_pending') desc = `⚠️ <b>${_u}</b> quiere DESHACER la operación del ${_ts}.`; else if (t.type === 'venta') desc = `💵 <b>${_r}</b> te quiere VENDER su guardia de ${_s1} (${formatDK(t.d1)}).`; else if (t.type === 'compra') desc = `🛒 <b>${_r}</b> te quiere COMPRAR tu guardia de ${_s1} (${formatDK(t.d1)}).`; else if (t.type === 'cambio') desc = `🔄 <b>${_r}</b> quiere CAMBIAR su ${_s1} (${formatDK(t.d1)}) por tu ${_s2} (${formatDK(t.d2)}).`; return `<div class="trade-row trade-row--inbox"><div>${desc}</div><div class="trade-row__actions"><button class="primary trade-btn-ok" onclick="processTrade(${t.id}, true)">✅ Aceptar</button><button class="danger" onclick="processTrade(${t.id}, false)">❌ Rechazar</button></div></div>`; }).join(''); } let allLogs = (state.trades || []).filter(t => {
     if (!['approved', 'undone', 'undo_pending', 'pending'].includes(t.status)) return false;
     
     let dates = [t.d1];
@@ -4470,7 +4920,7 @@ function renderMercadoInboxAndLog() {
         if (maxDateObj.getMonth() !== curDate.getMonth() || maxDateObj.getFullYear() !== curDate.getFullYear()) return false;
     }
     return true;
-}); if (allLogs.length === 0) log.innerHTML = `<span style="font-size:0.85rem; color:#94a3b8;">El historial de mercado está vacío.</span>`; else { log.innerHTML = allLogs.slice().reverse().map(t => { let desc = ""; let isPending = t.status === 'pending'; if (t.type === 'venta') desc = isPending ? `⏳ <b>${t.requester}</b> quiere VENDER su ${t.s1} (${formatDK(t.d1)}) a <b>${t.target}</b>.` : `💵 <b>${t.requester}</b> vendió su ${t.s1} (${formatDK(t.d1)}) a <b>${t.target}</b>.`; else if (t.type === 'compra') desc = isPending ? `⏳ <b>${t.requester}</b> quiere COMPRAR ${t.s1} (${formatDK(t.d1)}) a <b>${t.target}</b>.` : `🛒 <b>${t.requester}</b> compró ${t.s1} (${formatDK(t.d1)}) de <b>${t.target}</b>.`; else if (t.type === 'cambio') desc = isPending ? `⏳ <b>${t.requester}</b> quiere CAMBIAR su ${t.s1} (${formatDK(t.d1)}) por la de <b>${t.target}</b> (${formatDK(t.d2)}).` : `🔄 <b>${t.requester}</b> cambió su ${t.s1} (${formatDK(t.d1)}) por la de <b>${t.target}</b> (${formatDK(t.d2)}).`; let actionBtn = ""; if (t.status === 'approved' && (t.requester === loggedInUser || t.target === loggedInUser)) actionBtn = `<button class="danger icon-btn" style="font-size:0.7rem; padding:2px 6px;" onclick="requestTradeUndo(${t.id})">Deshacer</button>`; else if (isPending && t.requester === loggedInUser) actionBtn = `<button class="danger icon-btn" style="font-size:0.7rem; padding:2px 6px;" onclick="cancelPendingTrade(${t.id})">Cancelar Solicitud</button>`; if (isAdmin || isDelegado) actionBtn += `<button class="danger icon-btn" style="font-size:0.7rem; padding:2px 6px; margin-left:4px;" onclick="adminForceBorrarTrade(${t.id})" title="Eliminar entrada y guardia del calendario">🗑 Borrar</button>`; let statusStyle = ""; let statusLabel = ""; if (t.status === 'undone') { statusStyle = "opacity:0.5; background:#f1f5f9;"; statusLabel = '<b style="color:var(--fest);">(DESHECHO)</b>'; } else if (t.status === 'undo_pending') { statusStyle = "border-left: 3px solid var(--pac);"; statusLabel = '<b style="color:var(--pac);">(DESHACER PENDIENTE)</b>'; } else if (t.status === 'pending') { statusStyle = "border-left: 3px solid #cbd5e1; background:#f8fafc;"; statusLabel = '<b style="color:#64748b;">(PENDIENTE)</b>'; } return `<div class="trade-row" style="${statusStyle}"><div style="display:flex; justify-content:space-between; align-items:flex-start;"><span>${desc} ${statusLabel}</span>${actionBtn}</div><span style="font-size:0.7rem; color:#94a3b8;">${t.timestamp}</span></div>`; }).join(''); }
+}); if (allLogs.length === 0) log.innerHTML = `<span class="merc-note">El historial de mercado está vacío.</span>`; else { log.innerHTML = allLogs.slice().reverse().map(t => { let desc = ""; let isPending = t.status === 'pending'; const _r = escapeHtml(t.requester), _t = escapeHtml(t.target), _s1 = escapeHtml(t.s1), _s2 = escapeHtml(t.s2); if (t.type === 'venta') desc = isPending ? `⏳ <b>${_r}</b> quiere VENDER su ${_s1} (${formatDK(t.d1)}) a <b>${_t}</b>.` : `💵 <b>${_r}</b> vendió su ${_s1} (${formatDK(t.d1)}) a <b>${_t}</b>.`; else if (t.type === 'compra') desc = isPending ? `⏳ <b>${_r}</b> quiere COMPRAR ${_s1} (${formatDK(t.d1)}) a <b>${_t}</b>.` : `🛒 <b>${_r}</b> compró ${_s1} (${formatDK(t.d1)}) de <b>${_t}</b>.`; else if (t.type === 'cambio') desc = isPending ? `⏳ <b>${_r}</b> quiere CAMBIAR su ${_s1} (${formatDK(t.d1)}) por la de <b>${_t}</b> (${formatDK(t.d2)}).` : `🔄 <b>${_r}</b> cambió su ${_s1} (${formatDK(t.d1)}) por la de <b>${_t}</b> (${formatDK(t.d2)}).`; let actionBtn = ""; if (t.status === 'approved' && (t.requester === loggedInUser || t.target === loggedInUser)) actionBtn = `<button class="danger" onclick="requestTradeUndo(${t.id})">Deshacer</button>`; else if (isPending && t.requester === loggedInUser) actionBtn = `<button class="danger" onclick="cancelPendingTrade(${t.id})">Cancelar Solicitud</button>`; if (isAdmin || isDelegado) actionBtn += `<button class="danger" onclick="adminForceBorrarTrade(${t.id})" title="Eliminar entrada y guardia del calendario">🗑 Borrar</button>`; let statusClass = ""; let statusLabel = ""; if (t.status === 'undone') { statusClass = " is-undone"; statusLabel = '<b class="trade-tag trade-tag--undone">(DESHECHO)</b>'; } else if (t.status === 'undo_pending') { statusClass = " is-undo-pending"; statusLabel = '<b class="trade-tag trade-tag--undo">(DESHACER PENDIENTE)</b>'; } else if (t.status === 'pending') { statusClass = " is-pending"; statusLabel = '<b class="trade-tag trade-tag--pending">(PENDIENTE)</b>'; } return `<div class="trade-row${statusClass}"><div class="trade-row__head"><span>${desc} ${statusLabel}</span><span class="trade-row__actions">${actionBtn}</span></div><span class="trade-row__ts">${escapeHtml(t.timestamp)}</span></div>`; }).join(''); }
 }
 /** Cancela una solicitud de trade pendiente enviada por el usuario. */
 async function cancelPendingTrade(id) { if (!confirm("¿Cancelar solicitud?")) return; state.trades = state.trades.filter(t => t.id !== id); await saveState(); checkAutomaticGraduation();
@@ -4520,13 +4970,13 @@ async function requestTradeUndo(id) { let t = state.trades.find(x => x.id === id
     renderAll(); }
 
 /** Muestra el formulario de cambio propio: elige la fecha destino para intercambiar la guardia del usuario. */
-function renderMercadoCambiar(dk, svc) { const container = document.getElementById('mercado-dynamic'); container.innerHTML = `<h4 style="margin-bottom:1rem;">Cambiar guardia de ${svc}</h4><label style="font-size:0.85rem; color:#64748b;">1. Elige la fecha objetivo:</label><input type="date" id="cambio-date" onchange="loadCambioTargets('${dk}', '${svc}')"><div id="cambio-targets-area" style="margin-top:1rem;"></div>`; }
+function renderMercadoCambiar(dk, svc) { const container = document.getElementById('mercado-dynamic'); container.innerHTML = `<h4 class="merc-form__title">Cambiar guardia de ${escapeHtml(svc)}</h4><label class="merc-form__label">1. Elige la fecha objetivo:</label><input type="date" id="cambio-date" data-act="load-cambio-targets" data-dk="${escapeHtml(dk)}" data-svc="${escapeHtml(svc)}"><div id="cambio-targets-area" class="merc-form__area"></div>`; _bindMercadoActions(container); }
 /** Carga el selector de contrapartes disponibles para la fecha destino elegida en el cambio propio. */
-function loadCambioTargets(myDk, mySvc) { const dateVal = document.getElementById('cambio-date').value; if (!dateVal) return; const [y, mStr, dStr] = dateVal.split('-'); const targetDk = `${y}_${mStr}_${dStr}`; if (isPastDate(targetDk)) { document.getElementById('cambio-targets-area').innerHTML = `<p style="color:var(--fest); font-size:0.85rem;">No puedes seleccionar una fecha del pasado para hacer un cambio.</p>`; return; } const computed = getComputedShifts(); const dayShifts = computed[targetDk] || {}; let html = `<label style="font-size:0.85rem; color:#64748b;">2. ¿Con quién la cambias?</label><select id="cambio-to-user"><option value="">-- Selecciona opción --</option>`; html += `<option value="Externo|">👽 Mover a este día (Otro Residente Externo)</option>`; for (let u in dayShifts) { if (u !== loggedInUser && !u.startsWith('VRE')) { if (canUserTakeShift(u, loggedInUser, myDk, mySvc) && canUserTakeShift(loggedInUser, u, targetDk, dayShifts[u])) { html += `<option value="${u}|${dayShifts[u]}">🔄 ${u} (Su ${dayShifts[u]})</option>`; } } } html += `</select><button class="merc" style="width:100%; margin-top:10px;" onclick="proxySwapRequest('${myDk}', '${mySvc}', '${targetDk}')">Solicitar Cambio</button>`; document.getElementById('cambio-targets-area').innerHTML = html; }
+function loadCambioTargets(myDk, mySvc) { const dateVal = document.getElementById('cambio-date').value; if (!dateVal) return; const [y, mStr, dStr] = dateVal.split('-'); const targetDk = `${y}_${mStr}_${dStr}`; const area = document.getElementById('cambio-targets-area'); if (isPastDate(targetDk)) { area.innerHTML = `<p class="merc-error">No puedes seleccionar una fecha del pasado para hacer un cambio.</p>`; return; } const computed = getComputedShifts(); const dayShifts = computed[targetDk] || {}; let html = `<label class="merc-form__label">2. ¿Con quién la cambias?</label><select id="cambio-to-user"><option value="">-- Selecciona opción --</option>`; html += `<option value="Externo|">👽 Mover a este día (Otro Residente Externo)</option>`; for (let u in dayShifts) { if (u !== loggedInUser && !u.startsWith('VRE')) { if (canUserTakeShift(u, loggedInUser, myDk, mySvc) && canUserTakeShift(loggedInUser, u, targetDk, dayShifts[u])) { html += `<option value="${escapeHtml(u + '|' + dayShifts[u])}">🔄 ${escapeHtml(u)} (Su ${escapeHtml(dayShifts[u])})</option>`; } } } html += `</select><button class="merc merc-btn-block" data-act="solicitar-cambio" data-dk="${escapeHtml(myDk)}" data-svc="${escapeHtml(mySvc)}" data-target="${escapeHtml(targetDk)}">Solicitar Cambio</button>`; area.innerHTML = html; _bindMercadoActions(area); }
 /** Lee el select de contrapartes y delega en executeSwapRequestDirect con los parámetros correctos. */
 function proxySwapRequest(myDk, mySvc, targetDk) { const val = document.getElementById('cambio-to-user').value; if (!val) return alert("Selecciona una opción de cambio."); const [targetUser, targetSvc] = val.split('|'); executeSwapRequestDirect(myDk, mySvc, targetDk, targetSvc, targetUser); }
 /** Muestra el formulario para proponer un cambio sobre la guardia de otro residente: elige tu guardia a ofrecer. */
-function renderMercadoCambiarAjena(targetDk, targetSvc, targetUser) { const container = document.getElementById('mercado-dynamic'); if (!canUserTakeShift(loggedInUser, targetUser, targetDk, targetSvc)) { container.innerHTML = `<p style="color:var(--fest); padding:10px; background:#fee2e2; border-radius:8px;">⚠️ Tu nivel actual no te permite asumir esta guardia de ${targetSvc}.</p>`; return; } const computed = getComputedShifts(); let myFutureShifts = []; for (let dk in computed) { if (!isPastDate(dk) && computed[dk][loggedInUser]) { if (canUserTakeShift(targetUser, loggedInUser, dk, computed[dk][loggedInUser])) { myFutureShifts.push({dk: dk, svc: computed[dk][loggedInUser]}); } } } let html = `<h4 style="margin-bottom:1rem; color:var(--adu);">Ofrecer cambio a ${targetUser}</h4><div style="background:#f8fafc; padding:8px; border-radius:8px; margin-bottom:1rem; font-size:0.85rem; border:1px solid #cbd5e1;">Te quedarías su: <b>${targetSvc} (${formatDK(targetDk)})</b></div>`; if (myFutureShifts.length === 0) { html += `<p style="font-size:0.85rem; color:var(--fest); font-weight:bold;">No tienes guardias futuras programadas para ofrecerle a cambio.</p>`; } else { html += `<label style="font-size:0.85rem; color:#64748b;">¿Qué guardia tuya le ofreces a cambio?</label><select id="cambio-ajena-sel"><option value="">-- Selecciona una de tus guardias --</option>${myFutureShifts.map(s => `<option value="${s.dk}|${s.svc}">${formatDK(s.dk)} - ${s.svc}</option>`).join('')}</select><button class="primary" style="width:100%; margin-top:10px; background:var(--adu);" onclick="executeSwapRequestAjena('${targetDk}', '${targetSvc}', '${targetUser}')">Enviar Propuesta de Cambio</button>`; } container.innerHTML = html; }
+function renderMercadoCambiarAjena(targetDk, targetSvc, targetUser) { const container = document.getElementById('mercado-dynamic'); if (!canUserTakeShift(loggedInUser, targetUser, targetDk, targetSvc)) { container.innerHTML = `<p class="merc-error merc-error--block">⚠️ Tu nivel actual no te permite asumir esta guardia de ${escapeHtml(targetSvc)}.</p>`; return; } const computed = getComputedShifts(); let myFutureShifts = []; for (let dk in computed) { if (!isPastDate(dk) && computed[dk][loggedInUser]) { if (canUserTakeShift(targetUser, loggedInUser, dk, computed[dk][loggedInUser])) { myFutureShifts.push({dk: dk, svc: computed[dk][loggedInUser]}); } } } let html = `<h4 class="merc-form__title merc-form__title--adu">Ofrecer cambio a ${escapeHtml(targetUser)}</h4><div class="merc-recap">Te quedarías su: <b>${escapeHtml(targetSvc)} (${formatDK(targetDk)})</b></div>`; if (myFutureShifts.length === 0) { html += `<p class="merc-error">No tienes guardias futuras programadas para ofrecerle a cambio.</p>`; } else { html += `<label class="merc-form__label">¿Qué guardia tuya le ofreces a cambio?</label><select id="cambio-ajena-sel"><option value="">-- Selecciona una de tus guardias --</option>${myFutureShifts.map(s => `<option value="${escapeHtml(s.dk + '|' + s.svc)}">${formatDK(s.dk)} - ${escapeHtml(s.svc)}</option>`).join('')}</select><button class="primary merc-btn-block" style="background:var(--adu-d); color:var(--bg);" data-act="enviar-cambio-ajena" data-dk="${escapeHtml(targetDk)}" data-svc="${escapeHtml(targetSvc)}" data-user="${escapeHtml(targetUser)}">Enviar Propuesta de Cambio</button>`; } container.innerHTML = html; _bindMercadoActions(container); }
 /** Lee el select de "mi guardia a ofrecer" y ejecuta el cambio con la guardia ajena. */
 function executeSwapRequestAjena(targetDk, targetSvc, targetUser) { const val = document.getElementById('cambio-ajena-sel').value; if(!val) return alert("Selecciona una guardia tuya para ofrecer."); const [myDk, mySvc] = val.split('|'); executeSwapRequestDirect(myDk, mySvc, targetDk, targetSvc, targetUser); }
 // ============================================================
@@ -4540,7 +4990,12 @@ function executeSwapRequestAjena(targetDk, targetSvc, targetUser) { const val = 
 async function renderAccountsList() {
   const el = document.getElementById('accounts-list');
   if (!el) return;
-  el.innerHTML = '<span style="color:#64748b;">Cargando lista de usuarios...</span>';
+  // Sin sesión no hay nada que listar. Sin esta guarda se lanzaba más abajo, en
+  // la línea del fetch, DESPUÉS de crear la promesa de timeout y antes del
+  // Promise.race: el timeout se quedaba sin nadie escuchando y reventaba sin
+  // capturar a los 5 segundos, en cada carga sin sesión.
+  if (!currentUserProfile?.promocion_id) { el.innerHTML = ''; return; }
+  el.innerHTML = '<span class="accounts-note">Cargando lista de usuarios...</span>';
 
   // 1. Cargamos usuarios con timeout anti-congelamiento
   const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout de red")), 5000));
@@ -4552,98 +5007,161 @@ async function renderAccountsList() {
       if (error) throw error;
       usuarios = data;
   } catch (err) {
-      return el.innerHTML = `<span style="color:var(--fest); font-weight:bold;">Error de red: ${err.message}</span>`;
+      return el.innerHTML = `<span class="accounts-error">Error de red: ${escapeHtml(err.message)}</span>`;
   }
 
-  if (!usuarios || usuarios.length === 0) return el.innerHTML = `<span style="color:#854d0e;">No hay NADIE vinculado a esta promoción aún.</span>`;
+  if (!usuarios || usuarios.length === 0) return el.innerHTML = `<span class="accounts-note">No hay NADIE vinculado a esta promoción aún.</span>`;
 
   // 2. Comprobamos si somos el "Dueño" legítimo del contenedor
-  const { data: promo } = await supabaseClient.from('promociones').select('creador_id').eq('id', currentUserProfile.promocion_id).single();
+  const { data: promo, error: errPromo } = await supabaseClient.from('promociones').select('creador_id').eq('id', currentUserProfile.promocion_id).single();
   const isDueño = promo && promo.creador_id === currentUserProfile.id;
+  // Sin `promo` no hay forma de distinguir al Dueño de un Admin, y tanto las
+  // etiquetas como los botones se degradan. Antes esto fallaba en silencio:
+  // ahora se avisa, en vez de mostrar una lista que parece completa y no lo está.
+  const avisoPromo = (errPromo || !promo)
+      ? `<p class="accounts-error">⚠️ No se ha podido comprobar quién es el Dueño de la especialidad${errPromo ? `: ${escapeHtml(errPromo.message)}` : ''}. Las etiquetas de rango y las acciones disponibles pueden estar incompletas — recarga antes de actuar.</p>`
+      : '';
 
   // === LA MAGIA DEL DATALIST ===
   const datalist = document.getElementById('lista-usuarios-aprobados');
-  if (datalist) datalist.innerHTML = usuarios.filter(u => u.estado === 'aprobado').map(u => `<option value="${u.nombre_mostrar}">`).join('');
+  if (datalist) datalist.innerHTML = usuarios.filter(u => u.estado === 'aprobado').map(u => `<option value="${escapeHtml(u.nombre_mostrar)}">`).join('');
 
   // --- RENDER DE SOLICITUDES PENDIENTES ---
-  let html = `<h4 style="margin-bottom:10px; color:var(--dark);">🔔 Solicitudes Pendientes</h4>`;
+  let html = avisoPromo + `<h4 class="accounts-title">🔔 Solicitudes Pendientes</h4>`;
   const pendientes = usuarios.filter(u => u.estado === 'pendiente');
-  
+
   if(pendientes.length === 0) {
-      html += `<p style="font-size:0.85rem; color:#64748b; margin-bottom:20px;">No hay nadie en la sala de espera.</p>`;
+      html += `<p class="accounts-note">No hay nadie en la sala de espera.</p>`;
   } else {
       pendientes.forEach(u => {
-         html += `<div class="account-row" style="background:#fffbeb; border:1px solid #fde047; border-radius:8px; margin-bottom:8px; padding:10px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-            <div><strong>${u.nombre_mostrar}</strong> <span style="font-size:0.8rem; color:#854d0e; margin-left:10px;">⏳ Esperando acceso</span></div>
-            <div style="display:flex; gap:8px;">
-              <button class="primary icon-btn" style="background:var(--ped); border:none; color:white;" onclick="adminAprobarUsuario('${u.id}', '${u.nombre_mostrar}')">✅ Aprobar</button>
-              <button class="danger icon-btn" onclick="adminRechazarUsuario('${u.id}')">❌ Rechazar</button>
+         const n = escapeHtml(u.nombre_mostrar);
+         html += `<div class="account-row account-row--pending">
+            <div><strong>${n}</strong> <span class="account-row__wait">⏳ Esperando acceso</span></div>
+            <div class="account-row__actions">
+              <button class="primary icon-btn btn-approve" data-acc-act="aprobar" data-acc-id="${u.id}" data-acc-nombre="${n}">✅ Aprobar</button>
+              <button class="danger icon-btn" data-acc-act="rechazar" data-acc-id="${u.id}">❌ Rechazar</button>
             </div>
          </div>`;
       });
   }
   
   // --- RENDER DE MIEMBROS APROBADOS (LA ABDICACIÓN Y DELEGADOS) ---
-  html += `<h4 style="margin-top:20px; margin-bottom:10px; color:var(--dark);">🏥 Miembros de la Promoción</h4>`;
+  html += `<h4 class="accounts-title accounts-title--spaced">🏥 Miembros de la Promoción</h4>`;
   const aprobados = usuarios.filter(u => u.estado === 'aprobado');
-  
+
   aprobados.forEach(u => {
-      // Etiquetas visuales de Rango
+      // Etiquetas de rango. El Dueño NO es un rol: es `creador_id` de la
+      // especialidad (PRD §3.2). Antes se etiquetaba `rol==='admin'` como
+      // «Dueño», que confundía dos niveles distintos.
+      const esDueñoFila = promo && promo.creador_id === u.id;
       let rolBadge = '✅ Residente';
-      if (u.rol === 'admin') rolBadge = '👑 Dueño';
+      if (esDueñoFila) rolBadge = '👑 Dueño';
+      // El selector de variación (U+FE0F) no es opcional: sin él, 🛡 se
+      // dibuja en estilo texto y sale un contorno tipo corazón, no un escudo.
+      else if (u.rol === 'admin') rolBadge = '🛡️ Admin';
       else if (u.rol === 'delegado') rolBadge = '⭐ Delegado';
-      
+
+      const n = escapeHtml(u.nombre_mostrar);
       let acciones = '';
 
       if (u.id === currentUserProfile.id) {
           // Acciones para TI MISMO
           if (isDueño && aprobados.length > 1) {
-              acciones = `<span style="font-size:0.75rem; color:#854d0e;">No puedes abdicar sin traspasar la corona primero.</span>`;
+              acciones = `<span class="account-row__locked">No puedes abdicar sin traspasar la corona primero.</span>`;
           } else {
-              acciones = `<button class="danger icon-btn" style="border:1px solid var(--fest);" onclick="adminRenunciarPrivilegios()">Renunciar a Admin</button>`;
+              acciones = `<button class="danger icon-btn" data-acc-act="renunciar">Renunciar a Admin</button>`;
           }
       } else {
           // Acciones sobre TUS COMPAÑEROS
+          // NOTA: el reparto de poderes es el de hoy, sin tocar. Abrirlo al
+          // modelo de PRD §3.5 es [P-02] del backlog, no este punto.
           if (isDueño) {
               // El Dueño puede expulsar a cualquiera
-              acciones += `<button class="danger icon-btn" style="margin-right:4px;" onclick="adminExpulsarUsuario('${u.id}', '${u.nombre_mostrar}')">Expulsar</button>`;
-              
-              if (u.rol === 'delegado') {
-                  acciones += `<button class="danger icon-btn" style="margin-right:4px;" onclick="adminCambiarRol('${u.id}', 'residente')">Quitar Delegado</button>`;
-              } else if (u.rol !== 'admin') {
-                  acciones += `<button class="primary icon-btn" style="margin-right:4px; background:var(--dark);" onclick="adminCambiarRol('${u.id}', 'delegado')">Hacer Delegado</button>`;
+              acciones += `<button class="danger icon-btn" data-acc-act="expulsar" data-acc-id="${u.id}" data-acc-nombre="${n}">Expulsar</button>`;
+
+              // Gestión de rol. «Hacer Admin» es exclusivo del Dueño (PRD §3.2)
+              // y va siempre con su contrario: sin «Quitar Admin» la promoción
+              // sería una puerta de un solo sentido, porque una fila de admin
+              // no mostraba ningún botón de rol y solo se podía deshacer
+              // expulsando o coronando.
+              if (u.rol === 'admin') {
+                  acciones += `<button class="danger icon-btn" data-acc-act="rol" data-acc-id="${u.id}" data-acc-rol="residente" data-acc-confirm="¿Quitar el rol de Admin a ${n}? Volverá a ser residente.">Quitar Admin</button>`;
+              } else {
+                  if (u.rol === 'delegado') {
+                      acciones += `<button class="danger icon-btn" data-acc-act="rol" data-acc-id="${u.id}" data-acc-rol="residente">Quitar Delegado</button>`;
+                  } else {
+                      acciones += `<button class="primary icon-btn" data-acc-act="rol" data-acc-id="${u.id}" data-acc-rol="delegado">Hacer Delegado</button>`;
+                  }
+                  acciones += `<button class="primary icon-btn" data-acc-act="rol" data-acc-id="${u.id}" data-acc-rol="admin" data-acc-confirm="¿Hacer Admin a ${n}? Podrá aprobar, expulsar y gestionar delegados. NO podrá tocar los planes de guardias ni borrar la especialidad: eso sigue siendo solo tuyo. Solo tú podrás quitarle el rol.">Hacer Admin</button>`;
               }
-              acciones += `<button class="primary icon-btn" style="background:var(--adu);" onclick="adminTraspasarCorona('${u.id}', '${u.nombre_mostrar}')">Coronar Dueño</button>`;
+              acciones += `<button class="primary icon-btn btn-crown" data-acc-act="coronar" data-acc-id="${u.id}" data-acc-nombre="${n}">Coronar Dueño</button>`;
           } else {
               // Delegado: solo puede expulsar residentes, no a admins ni a otros delegados.
               if (u.rol !== 'admin' && u.rol !== 'delegado') {
-                  acciones += `<button class="danger icon-btn" style="margin-right:4px;" onclick="adminExpulsarUsuario('${u.id}', '${u.nombre_mostrar}')">Expulsar</button>`;
+                  acciones += `<button class="danger icon-btn" data-acc-act="expulsar" data-acc-id="${u.id}" data-acc-nombre="${n}">Expulsar</button>`;
               }
           }
       }
 
-      let escapedName = u.nombre_mostrar.replace(/'/g, "\\'");
-      let ev = state.historialEventos && state.historialEventos[u.nombre_mostrar] ? state.historialEventos[u.nombre_mostrar] : {};
-      html += `<div class="account-row" style="border:1px solid #e2e8f0; border-radius:8px; margin-bottom:8px; padding:10px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+      const fIni = escapeHtml(u.fecha_inicio_residencia || 'No definido');
+      const fCam = u.fecha_cambio_contrato ? escapeHtml(u.fecha_cambio_contrato.substring(0,7)) : 'No definido';
+      html += `<div class="account-row">
          <div>
-            <strong>${u.nombre_mostrar}</strong> <span style="font-size:0.8rem; color:#64748b; margin-left:10px;">${rolBadge}</span>
-            <div style="font-size:0.8rem; color:#475569; margin-top:4px;">
-               Inicio: <strong>${u.fecha_inicio_residencia || 'No definido'}</strong> | Mes cambio contrato: <strong>${u.fecha_cambio_contrato ? u.fecha_cambio_contrato.substring(0,7) : 'No definido'}</strong>
-               <br>${isDueño ? `<button class="secondary" style="font-size:0.7rem; padding:2px 6px; margin-left:8px;" onclick="window.adminEditarFechas('${u.id}', '${escapedName}', '${u.fecha_inicio_residencia || ''}', '${u.fecha_cambio_contrato || ''}')">✏️ Editar</button>` : ''}
+            <strong>${n}</strong> <span class="account-row__role">${rolBadge}</span>
+            <div class="account-row__meta">
+               Inicio: <strong>${fIni}</strong> | Mes cambio contrato: <strong>${fCam}</strong>
+               ${isDueño ? `<br><button class="secondary icon-btn" data-acc-act="fechas" data-acc-id="${u.id}" data-acc-nombre="${n}" data-acc-ini="${escapeHtml(u.fecha_inicio_residencia || '')}" data-acc-cam="${escapeHtml(u.fecha_cambio_contrato || '')}">✏️ Editar</button>` : ''}
             </div>
          </div>
-         <div style="display:flex; align-items:center;">${acciones}</div>
+         <div class="account-row__actions">${acciones}</div>
       </div>`;
   });
-  
+
   el.innerHTML = html;
+  _bindAccountActions(el);
+}
+
+/**
+ * Dispatcher de la lista de cuentas: un solo listener delegado en el
+ * contenedor, en vez de `onclick` con el nombre interpolado.
+ *
+ * Los nombres de residente son texto libre del admin, y la regla del Paso 6
+ * dice que cualquier `onclick` que los interpole es un bug latente: un
+ * `O'Brien` rompía el atributo. Los datos viajan en `data-*` escapado y se
+ * leen del dataset, donde las comillas ya no significan nada.
+ */
+function _bindAccountActions(root) {
+    if (!root || root._accBound) return;
+    root._accBound = true;
+    root.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-acc-act]');
+        if (!btn || !root.contains(btn)) return;
+        const d = btn.dataset;
+        // Botones que conceden o retiran poder piden confirmación. Comparten
+        // fila con «Coronar Dueño» y en el móvil envuelven a dos líneas, así
+        // que un toque desviado es fácil.
+        if (d.accConfirm && !confirm(d.accConfirm)) return;
+        switch (d.accAct) {
+            case 'aprobar':   return adminAprobarUsuario(d.accId, d.accNombre);
+            case 'rechazar':  return adminRechazarUsuario(d.accId);
+            case 'expulsar':  return adminExpulsarUsuario(d.accId, d.accNombre);
+            case 'rol':       return adminCambiarRol(d.accId, d.accRol);
+            case 'coronar':   return adminTraspasarCorona(d.accId, d.accNombre);
+            case 'renunciar': return adminRenunciarPrivilegios();
+            case 'fechas':    return window.adminEditarFechas(d.accId, d.accNombre, d.accIni, d.accCam);
+        }
+    });
 }
 
 /** Degrada al admin actual a residente normal, renunciando a todos los privilegios. */
 async function adminRenunciarPrivilegios() {
     if (!confirm("¿Seguro que quieres renunciar a tus privilegios de Administrador? Volverás a ser un residente normal y perderás el acceso a esta pestaña.")) return;
     setStatus('Renunciando...');
-    await supabaseClient.from('perfiles').update({ rol: null }).eq('id', currentUserProfile.id);
+    const { error } = await supabaseClient.from('perfiles').update({ rol: null }).eq('id', currentUserProfile.id);
+    if (error) {
+        setStatus('Conectado ✅');
+        return alert(`⚠️ No se ha podido renunciar a los privilegios.\n\n${error.message}\n\nSigues siendo administrador.`);
+    }
     window.location.reload();
 }
 
@@ -4669,9 +5187,29 @@ async function adminCambiarRol(userId, nuevoRol) {
 async function adminTraspasarCorona(userId, userName) {
     if (!confirm(`¿Estás seguro de que quieres ceder la corona a ${userName}? Perderás el control absoluto y pasarás a ser un Delegado normal.`)) return;
     setStatus('Traspasando corona...');
-    await supabaseClient.from('promociones').update({ creador_id: userId }).eq('id', currentUserProfile.promocion_id);
-    await supabaseClient.from('perfiles').update({ rol: 'admin' }).eq('id', userId);
-    await supabaseClient.from('perfiles').update({ rol: 'delegado' }).eq('id', currentUserProfile.id);
+
+    // Son tres escrituras sin transacción: Supabase no las agrupa desde el
+    // cliente. El orden está elegido para que CUALQUIER fallo parcial deje un
+    // estado recuperable, en vez del que había antes (creador_id primero), que
+    // podía mover la corona a alguien sin rol de admin y dejar la promoción
+    // sin nadie capaz de administrarla.
+    //   1. Promover al nuevo  → peor caso: dos admins. Inofensivo.
+    //   2. Mover la corona    → peor caso: sigues siendo Dueño. Reintentable.
+    //   3. Degradarte tú      → peor caso: eres un admin de más. Lo arregla él.
+    // Repinta al abortar: tras un fallo parcial la lista muestra los badges de
+    // ANTES de la escritura que sí entró, y el usuario podría reintentar
+    // creyendo que no cambió nada.
+    const abortar = async (msg) => { setStatus('Conectado ✅'); alert(msg); await renderAccountsList(); };
+
+    const r1 = await supabaseClient.from('perfiles').update({ rol: 'admin' }).eq('id', userId);
+    if (r1.error) return abortar(`⚠️ No se ha podido dar rol de admin a ${userName}.\n\n${r1.error.message}\n\nNo se ha cambiado nada: sigues siendo el Dueño.`);
+
+    const r2 = await supabaseClient.from('promociones').update({ creador_id: userId }).eq('id', currentUserProfile.promocion_id);
+    if (r2.error) return abortar(`⚠️ No se ha podido traspasar la corona.\n\n${r2.error.message}\n\nSigues siendo el Dueño, pero ${userName} se ha quedado como admin. Quítaselo o reintenta el traspaso.`);
+
+    const r3 = await supabaseClient.from('perfiles').update({ rol: 'delegado' }).eq('id', currentUserProfile.id);
+    if (r3.error) return abortar(`⚠️ La corona YA es de ${userName}, pero no has podido degradarte a Delegado.\n\n${r3.error.message}\n\nSigues como admin. Pídele que te cambie el rol.`);
+
     alert(`La corona ha sido cedida a ${userName}. Ahora eres un Delegado.`);
     window.location.reload();
 }
@@ -4749,7 +5287,7 @@ window.adminEditarFechas = async function adminEditarFechas(userId, userName, fI
 async function adminAprobarUsuario(userId, userName) {
     setStatus('Aprobando...');
     const { error } = await supabaseClient.from('perfiles').update({ estado: 'aprobado' }).eq('id', userId);
-    if(error) return alert("Error: " + error.message);
+    if(error) { setStatus('Conectado ✅'); return alert(`⚠️ No se ha podido aprobar a ${userName}.\n\n${error.message}\n\nSigue en la sala de espera.`); }
 
     // 🧭 B2: el plan de destino es el del USUARIO APROBADO (calculado por sus fechas de
     // contrato), NUNCA el del aprobador: un delegado R2 aprobando a una R1 la metía en
@@ -4800,9 +5338,21 @@ async function adminAprobarUsuario(userId, userName) {
 async function adminExpulsarUsuario(userId, userName) {
     if(!confirm(`¿Seguro que quieres dar de baja a ${userName}? Pasará al histórico y ya no estará en futuras listas de rotación.`)) return;
     setStatus('Expulsando...');
-    
-    await supabaseClient.from('perfiles').update({ estado: 'historico' }).eq('id', userId);
-    
+
+    // Se degrada el rol en la MISMA escritura. Antes solo se ponía
+    // `estado: 'historico'`, así que un delegado dado de baja conservaba
+    // `rol: 'delegado'` y volvía con privilegios si se le readmitía.
+    const { error } = await supabaseClient.from('perfiles')
+        .update({ estado: 'historico', rol: null }).eq('id', userId);
+
+    // El return va ANTES de tocar historialEventos a propósito: si la escritura
+    // falla y seguimos, el estado local registra una salida que en la base no
+    // ha ocurrido, y la app cree que esa persona se fue cuando sigue activa.
+    if (error) {
+        setStatus('Conectado ✅');
+        return alert(`⚠️ No se ha podido dar de baja a ${userName}.\n\n${error.message}\n\nNo se ha cambiado nada: sigue activa en la promoción.`);
+    }
+
     if (!state.historialEventos) state.historialEventos = {};
     if (!state.historialEventos[userName]) state.historialEventos[userName] = {};
     const mStr = String(curDate.getMonth() + 1).padStart(2, '0');
@@ -4820,9 +5370,10 @@ async function adminExpulsarUsuario(userId, userName) {
 async function adminRechazarUsuario(userId) {
     if(!confirm("¿Rechazar solicitud?")) return;
     setStatus('Rechazando...');
-    await supabaseClient.from('perfiles').update({ promocion_id: null, estado: 'pendiente' }).eq('id', userId);
-    await renderAccountsList();
+    const { error } = await supabaseClient.from('perfiles').update({ promocion_id: null, estado: 'pendiente' }).eq('id', userId);
     setStatus('Conectado ✅');
+    if (error) return alert(`⚠️ No se ha podido rechazar la solicitud.\n\n${error.message}\n\nSigue pendiente.`);
+    await renderAccountsList();
 }
 
 /** Renderiza la vista de rotación con el selector de plan (para delegados) y el orden de grupos del mes. */
@@ -4834,16 +5385,16 @@ function renderRotationView() {
     const containerTop = document.getElementById('rot-content');
     let planSelectorHtml = '';
     if (isDelegado && promoConfig.planes) {
-        planSelectorHtml = `<div style="margin-bottom:15px; padding:10px; background:#f8fafc; border-radius:8px; display:flex; align-items:center; gap:10px;">
-            <label style="font-weight:bold; font-size:0.9rem;">Viendo Rotacin de:</label>
-            <select id="rot-plan-select" style="padding:5px; border-radius:5px; border:1px solid #cbd5e1;" onchange="selectedRotPlan = this.value; editingGroups = null; renderAll();">
-                <option value="AUTO" ${!selectedRotPlan || selectedRotPlan === 'AUTO' ? 'selected' : ''}>Mi Plan Actual (Automtico)</option>
-                ${promoConfig.planes.map(p => `<option value="${p.nombre}" ${selectedRotPlan === p.nombre ? 'selected' : ''}>${p.nombre}</option>`).join('')}
+        planSelectorHtml = `<div class="rot-plan-bar">
+            <label for="rot-plan-select">Viendo Rotación de:</label>
+            <select id="rot-plan-select" onchange="selectedRotPlan = this.value; editingGroups = null; renderAll();">
+                <option value="AUTO" ${!selectedRotPlan || selectedRotPlan === 'AUTO' ? 'selected' : ''}>Mi Plan Actual (Automático)</option>
+                ${promoConfig.planes.map(p => `<option value="${escapeHtml(p.nombre)}" ${selectedRotPlan === p.nombre ? 'selected' : ''}>${escapeHtml(p.nombre)}</option>`).join('')}
             </select>
         </div>`;
     } else {
         const myPlan = getPlanForUserOnDate(currentUserProfile, dk);
-        planSelectorHtml = `<div style="margin-bottom:15px; font-size:0.9rem; color:#64748b;">Mostrando Fila India para: <strong>${myPlan ? myPlan.nombre : 'Plan Base'}</strong></div>`;
+        planSelectorHtml = `<div class="rot-plan-note">Mostrando Fila India para: <strong>${escapeHtml(myPlan ? myPlan.nombre : 'Plan Base')}</strong></div>`;
     }
     
     const groups = getRotation(y, m);
@@ -4855,8 +5406,8 @@ function renderRotationView() {
     /* container.innerHTML = ''; */ 
     let order = 1; 
     groups.forEach((g, i) => {
-        const div = document.createElement('div'); div.className = 'rot-group'; 
-        div.innerHTML = `<h4 style="margin-bottom:0.5rem; color:var(--dark);">Grupo ${i+1}</h4>` + g.map(res => `<div style="padding:4px 0; border-bottom:1px dashed #e2e8f0; font-size:0.9rem;"><strong>${order++}.</strong> ${res}</div>`).join(''); 
+        const div = document.createElement('div'); div.className = 'rot-card';
+        div.innerHTML = `<h4 class="rot-card__title">Grupo ${i+1}</h4>` + g.map(res => `<div class="rot-line"><strong>${order++}.</strong> ${escapeHtml(res)}</div>`).join('');
         listDiv.appendChild(div); 
     }); 
     containerTop.appendChild(listDiv);
@@ -4954,23 +5505,21 @@ function renderEditor() {
 
     editingGroups.forEach((g, i) => {
         const esGrupoDeFijos = (i === 0 && tieneGrupoFijos);
-        const tituloGrupo = esGrupoDeFijos 
-            ? `👑 Grupo Especial: Rotantes Fijos <span style="color:#a16207; font-size:0.85rem;">(${g.length} personas)</span>` 
-            : `Hospital Grupo ${grupoMovilContador++} <span style="color:#64748b; font-size:0.85rem;">(${g.length} personas)</span>`;
+        const tituloGrupo = esGrupoDeFijos
+            ? `👑 Grupo Especial: Rotantes Fijos <span class="rot-card__count rot-card__count--fijos">(${g.length} personas)</span>`
+            : `Hospital Grupo ${grupoMovilContador++} <span class="rot-card__count">(${g.length} personas)</span>`;
 
-        const gdiv = document.createElement('div'); 
-        gdiv.className = 'rot-group';
-        gdiv.style.border = esGrupoDeFijos ? '2px solid #f59e0b' : '1px solid #e2e8f0';
-        gdiv.style.background = esGrupoDeFijos ? '#fffdf5' : 'var(--light)';
+        const gdiv = document.createElement('div');
+        gdiv.className = esGrupoDeFijos ? 'rot-card rot-card--fijos' : 'rot-card';
 
         // Cabecera del grupo con acciones de grupo
-        let groupHeaderHtml = `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; border-bottom:2px solid ${esGrupoDeFijos ? '#f59e0b' : '#cbd5e1'}; padding-bottom:4px;">
+        let groupHeaderHtml = `<div class="rot-card__head">
             <strong>${tituloGrupo}</strong>
             ${!esGrupoDeFijos ? `
-            <div style="display:flex; gap: 4px; flex-wrap:wrap;">
-                <button class="icon-btn" style="padding:2px 6px; font-size:0.75rem; height:24px;" onclick="moveGroupEntirely(${i}, 'up')" title="Subir Grupo Entero">⬆️ Grupo</button>
-                <button class="icon-btn" style="padding:2px 6px; font-size:0.75rem; height:24px;" onclick="moveGroupEntirely(${i}, 'down')" title="Bajar Grupo Entero">⬇️ Grupo</button>
-                <button class="icon-btn" style="padding:2px 6px; font-size:0.75rem; height:24px; background:#e0f2fe;" onclick="mergeGroupWithNext(${i})" title="Fusionar con el siguiente grupo">🔗 Fusionar▼</button>
+            <div class="rot-card__actions">
+                <button class="rot-btn" onclick="moveGroupEntirely(${i}, 'up')" title="Subir Grupo Entero">⬆️ Grupo</button>
+                <button class="rot-btn" onclick="moveGroupEntirely(${i}, 'down')" title="Bajar Grupo Entero">⬇️ Grupo</button>
+                <button class="rot-btn rot-btn--adu" onclick="mergeGroupWithNext(${i})" title="Fusionar con el siguiente grupo">🔗 Fusionar▼</button>
             </div>` : ''}
         </div>`;
         gdiv.innerHTML = groupHeaderHtml +
@@ -4982,20 +5531,23 @@ function renderEditor() {
             const canNext = !esGrupoDeFijos && i < editingGroups.length - 1;
             const canSplit = !esGrupoDeFijos && rIdx > 0;
             
+            // Los toggles van por data-* y delegación (_bindRotEditorActions): un
+            // nombre con apóstrofo rompía el onclick interpolado.
+            const resAttr = escapeHtml(res);
             return `
-            <div class="editor-row" style="background:white; padding:5px 6px; border:1px solid ${esFijo ? '#fef08a' : '#e2e8f0'}; border-radius:6px; margin-bottom:3px; ${esExcluido ? 'opacity:0.7;' : ''}">
-                <span style="display:inline-block; min-width:120px; font-weight:500; font-size:0.9rem; color:var(--dark);">
-                    ${canSplit ? `<button class="icon-btn" style="padding:1px 4px; font-size:0.65rem; height:18px; background:#fef9c3; border-color:#ca8a04; margin-right:3px;" onclick="splitGroupAt(${i},${rIdx})" title="Dividir grupo aquí">✂️</button>` : '<span style="display:inline-block;width:26px"></span>'}
-                    ${res} ${esFijo ? '📌' : ''} ${esExcluido ? '👻' : ''}
-                </span>
-                <div style="display:flex; gap:3px; flex-wrap:wrap;">
-                    <button class="icon-btn" style="background:${esExcluido?'#fecaca':'#f1f5f9'}; border-color:${esExcluido?'#ef4444':'#cbd5e1'};" onclick="toggleResidenteExcluido('${res}')" title="Excluir de Subastas">👻</button>
-                    <button class="icon-btn" style="background:${esFijo?'#fef08a':'#f1f5f9'}; border-color:${esFijo?'#ca8a04':'#cbd5e1'};" onclick="toggleResidenteFijo('${res}')" title="Fijo/Móvil">📌</button>
-                    <button class="icon-btn" style="background:#f1f5f9;" onclick="moveResInGroup(${i},${rIdx},'up')" title="Subir dentro del grupo">↑</button>
-                    <button class="icon-btn" style="background:#f1f5f9;" onclick="moveResInGroup(${i},${rIdx},'down')" title="Bajar dentro del grupo">↓</button>
-                    ${canPrev ? `<button class="icon-btn" style="background:#dbeafe; font-size:0.75rem;" onclick="moveResToPrevGroup(${i},${rIdx})" title="Mover al grupo anterior">◀ Grp</button>` : ''}
-                    ${canNext ? `<button class="icon-btn" style="background:#dcfce7; font-size:0.75rem;" onclick="moveResToNextGroup(${i},${rIdx})" title="Mover al grupo siguiente">Grp ▶</button>` : ''}
-                    <button class="danger icon-btn" onclick="editorRemoveMemberLinear(${i},${rIdx})">✕</button>
+            <div class="rot-row${esFijo ? ' rot-row--fijo' : ''}${esExcluido ? ' rot-row--excluido' : ''}">
+                <div class="rot-row__name">
+                    ${canSplit ? `<button class="rot-btn" onclick="splitGroupAt(${i},${rIdx})" title="Dividir grupo aquí" aria-label="Dividir grupo aquí">✂️</button>` : '<span class="rot-row__spacer"></span>'}
+                    <span>${resAttr} ${esFijo ? '📌' : ''} ${esExcluido ? '👻' : ''}</span>
+                </div>
+                <div class="rot-row__actions">
+                    <button class="rot-btn rot-btn--toggle-fest${esExcluido ? ' is-on' : ''}" data-rot-act="excluir" data-rot-res="${resAttr}" aria-pressed="${esExcluido}" title="Excluir de Subastas" aria-label="Excluir de Subastas">👻</button>
+                    <button class="rot-btn rot-btn--toggle-pac${esFijo ? ' is-on' : ''}" data-rot-act="fijo" data-rot-res="${resAttr}" aria-pressed="${esFijo}" title="Fijo/Móvil" aria-label="Fijo/Móvil">📌</button>
+                    <button class="rot-btn" onclick="moveResInGroup(${i},${rIdx},'up')" title="Subir dentro del grupo" aria-label="Subir dentro del grupo">↑</button>
+                    <button class="rot-btn" onclick="moveResInGroup(${i},${rIdx},'down')" title="Bajar dentro del grupo" aria-label="Bajar dentro del grupo">↓</button>
+                    ${canPrev ? `<button class="rot-btn rot-btn--adu" onclick="moveResToPrevGroup(${i},${rIdx})" title="Mover al grupo anterior">◀ Grp</button>` : ''}
+                    ${canNext ? `<button class="rot-btn rot-btn--ped" onclick="moveResToNextGroup(${i},${rIdx})" title="Mover al grupo siguiente">Grp ▶</button>` : ''}
+                    <button class="rot-btn danger" onclick="editorRemoveMemberLinear(${i},${rIdx})" title="Quitar de la rotación" aria-label="Quitar de la rotación">✕</button>
                 </div>
             </div>`;
         }).join('');
@@ -5004,19 +5556,40 @@ function renderEditor() {
 
     const btnContainer = document.createElement('div');
     btnContainer.innerHTML = `
-    <div style="display:flex; gap:10px; margin-top:10px; margin-bottom:15px; width:100%;">
-        <select id="sel-add-res" style="flex:1; padding:8px; border-radius:6px; border:1px solid #cbd5e1;">
+    <div class="rot-add">
+        <select id="sel-add-res" aria-label="Añadir residente a la rotación">
             <option value="">-- Añadir Residente a la Rotación --</option>
             <option value="VIRTUAL">+ Nuevo Virtual (Ej: Aura)</option>
-            ${globalProfiles.filter(p => !editingGroups.flat().includes(p.nombre_mostrar) && p.promocion_id === currentUserProfile.promocion_id && residentePerteneceAPlan(p.nombre_mostrar, _edPlanName, curDate.getFullYear(), curDate.getMonth())).map(p => `<option value="${p.nombre_mostrar}">${p.nombre_mostrar} (Registrado)</option>`).join('')}
+            ${globalProfiles.filter(p => !editingGroups.flat().includes(p.nombre_mostrar) && p.promocion_id === currentUserProfile.promocion_id && residentePerteneceAPlan(p.nombre_mostrar, _edPlanName, curDate.getFullYear(), curDate.getMonth())).map(p => `<option value="${escapeHtml(p.nombre_mostrar)}">${escapeHtml(p.nombre_mostrar)} (Registrado)</option>`).join('')}
         </select>
-        <button class="primary" style="background:var(--dark);" onclick="editorAddSelectedRes()">Añadir</button>
+        <button class="primary" onclick="editorAddSelectedRes()">Añadir</button>
     </div>
-    <div style="margin-top:20px; padding-top:15px; border-top:2px dashed #cbd5e1;">
-        <span style="font-size:0.75rem; color:#94a3b8; display:block; margin-bottom:6px;">⚠️ ZONA DE CONFIGURACIÓN INICIAL (SOLO AL CREAR EL CONTENEDOR):</span>
-        <button id="btn-shuffle" class="danger" style="width:100%; background:#94a3b8; border:none; color:white; font-size:0.8rem; padding:6px;" onclick="adminAutoShuffleGroups()">🎲 Sorteo Inicial: Barajar Fila Completa Respetando Fijos</button>
+    <div class="rot-danger-zone">
+        <span class="rot-danger-zone__label">⚠️ ZONA DE CONFIGURACIÓN INICIAL (SOLO AL CREAR EL CONTENEDOR):</span>
+        <button id="btn-shuffle" class="danger" onclick="adminAutoShuffleGroups()">🎲 Sorteo Inicial: Barajar Fila Completa Respetando Fijos</button>
     </div>`;
     setupC.appendChild(btnContainer);
+    _bindRotEditorActions(setupC);
+}
+
+/**
+ * Delegación de los toggles del editor de rotación. Se engancha una sola vez
+ * al contenedor (que sobrevive a los re-render por innerHTML). Mismo patrón
+ * que _bindAccountActions: el nombre viaja en data-*, no interpolado en JS.
+ * @param {HTMLElement} root
+ */
+function _bindRotEditorActions(root) {
+    if (!root || root._rotBound) return;
+    root._rotBound = true;
+    root.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-rot-act]');
+        if (!btn || !root.contains(btn)) return;
+        const res = btn.dataset.rotRes;
+        switch (btn.dataset.rotAct) {
+            case 'excluir': return toggleResidenteExcluido(res);
+            case 'fijo':    return toggleResidenteFijo(res);
+        }
+    });
 }
 // ============================================================
 // MÓDULO: ROTACION_EDITOR_CONTROLES (sub-sección de ROTACION_EDITOR)
@@ -5558,13 +6131,409 @@ function proyectarAsignacionForzosa(y, m, analisis) {
     return { proyecciones, salvados };
 }
 
-async /**
- * Asigna automáticamente guardias pendientes de un servicio a los nominados por la subasta.
- * Respeta las restricciones de saliente y rota la carga entre los candidatos con fairness.
- * @param {number} y
- * @param {number} m - 0-indexed
- * @param {string} targetSvcNombre - nombre del servicio a cubrir
+// ============================================================
+// MÓDULO: PROPUESTA_ASIGNACION (N5 §8.5)
+// Exportar a: src/modules/propuestaAsignacion.js
+// Dependencias externas: promoConfig, state.shifts, state.excluidosSubastas
+// Helpers que usa: getResidentesActivosEnMes, residentePerteneceAPlan, getDayTag,
+//                  isServiceEnabledOnDate, getPlazasForDay, getIllegalShiftsForUser,
+//                  getHistoricoFestivosResidentes, hashHistorico, seededRandom,
+//                  registrarHuecoSinCandidato, insertNotificacion, saveState
+//
+// 🔮 BASE DE N6: este módulo es el esqueleto del optimizador con vacaciones. El motor es
+// GREEDY a propósito (sin vacaciones basta); N6 deberá sustituirlo por backtracking
+// "most-constrained-first" y añadir el informe de viabilidad completo. Para que ese salto
+// sea barato, TODA restricción sobre si alguien puede cubrir un hueco vive en un único
+// sitio: _candidatoElegible(). N6 solo tendrá que añadirle estaDeVacaciones().
+// ============================================================
+let _propuestaMes = null; // Propuesta en revisión (borrador en memoria; nada se persiste)
+
+/**
+ * Devuelve el mapa de históricos para un criterio de subasta (§8.4).
+ * Extraído de _getAnalisisFestivosImpl para poder reutilizarlo servicio a servicio.
+ * @returns {Object|null} mapa {residente: nº} o null si el criterio no se puede resolver
  */
+function _getHistoricoParaCriterio(crit, targetSvc, svcNombre, planRef, y, m) {
+    const TODAS = ['laborable', 'vispera', 'fin_de_semana', 'festivo_intersemanal'];
+    if (crit === 'historico_festivos') return getHistoricoFestivosResidentes(y, m, ['fin_de_semana', 'festivo_intersemanal'], null, true);
+    if (crit === 'historico_laborables') return getHistoricoFestivosResidentes(y, m, ['laborable'], null, true);
+    if (crit === 'historico_intersemanales') return getHistoricoFestivosResidentes(y, m, ['festivo_intersemanal'], null, true);
+    if (crit === 'historico_total') return getHistoricoFestivosResidentes(y, m, TODAS, null, true);
+    if (crit === 'historico_servicio') return getHistoricoFestivosResidentes(y, m, TODAS, svcNombre, true);
+    if (crit === 'historico_servicio_dinamico') {
+        if (!planRef.servicios.some(s => s.nombre === targetSvc)) return null;
+        return getHistoricoFestivosResidentes(y, m, TODAS, targetSvc, true);
+    }
+    return null;
+}
+
+/**
+ * Ordena a los candidatos de un servicio según su criterio de subasta (§8.4): primero
+ * quien menos carga histórica acumula. Mismo desempate que la subasta real, incluido el
+ * shuffle con semilla derivada del histórico para tramos empatados (reproducible).
+ * @returns {{orden: string[], historico: Object|null}}
+ */
+function _ordenarCandidatosPorCriterio(residentes, svc, planRef, y, m) {
+    const hist = _getHistoricoParaCriterio(svc.subastaCriterio, svc.subastaCriterioServicio, svc.nombre, planRef, y, m);
+    let histDes = null, fallbackDes = false;
+    if (svc.subastaDesempate && svc.subastaDesempate !== 'aleatorio') {
+        histDes = _getHistoricoParaCriterio(svc.subastaDesempate, svc.subastaDesempateServicio, svc.nombre, planRef, y, m);
+        if (!histDes) fallbackDes = true;
+    }
+    // Sin criterio determinista → orden aleatorio reproducible (semilla del mes)
+    if (!hist || svc.subastaCriterio === 'aleatorio') {
+        const rng = seededRandom(y * 100 + m);
+        return { orden: [...residentes].sort(() => rng() - 0.5), historico: null };
+    }
+    const ordenados = [...residentes].sort((a, b) => {
+        const diff = (hist[a] || 0) - (hist[b] || 0);
+        if (diff !== 0) return diff;
+        if (histDes && !fallbackDes) {
+            const dd = (histDes[a] || 0) - (histDes[b] || 0);
+            if (dd !== 0) return dd;
+        }
+        return 0;
+    });
+    // Barajar los tramos empatados con semilla del histórico: mismo orden para todos
+    const semilla = hashHistorico(hist) ^ (histDes && !fallbackDes ? hashHistorico(histDes) : 0);
+    const rng = seededRandom(semilla);
+    const salida = [];
+    let i = 0;
+    while (i < ordenados.length) {
+        const pri = hist[ordenados[i]] || 0;
+        const des = (histDes && !fallbackDes) ? (histDes[ordenados[i]] || 0) : null;
+        const tramo = [];
+        while (i < ordenados.length) {
+            const r = ordenados[i];
+            if ((hist[r] || 0) !== pri) break;
+            if (des !== null && (histDes[r] || 0) !== des) break;
+            tramo.push(r); i++;
+        }
+        salida.push(...(tramo.length > 1 ? [...tramo].sort(() => rng() - 0.5) : tramo));
+    }
+    return { orden: salida, historico: hist };
+}
+
+/**
+ * Recorta shifts a una ventana alrededor del mes (±5 días). Las reglas de saliente solo
+ * alcanzan al día siguiente (y al lunes si la guardia es en sábado), así que ±5 días basta
+ * para detectar cualquier conflicto real.
+ *
+ * ⚡ Por qué existe: getIllegalShiftsForUser recorre el objeto ENTERO de shifts en cada
+ * llamada, y el motor la invoca (candidatos × huecos) veces — cientos. Sin recortar,
+ * escanearía años de histórico en cada comprobación y el modal tardaría segundos en abrir,
+ * empeorando cada año que pasa.
+ * @returns {Object} copia recortada (segura de mutar)
+ */
+function _recortarShiftsAlMes(shifts, y, m) {
+    const desde = new Date(y, m, 1); desde.setDate(desde.getDate() - 5);
+    const hasta = new Date(y, m + 1, 0); hasta.setDate(hasta.getDate() + 5);
+    const out = {};
+    for (const dk in (shifts || {})) {
+        const [yy, mm, dd] = dk.split('_').map(Number);
+        if (isNaN(yy) || isNaN(mm) || isNaN(dd)) continue;
+        const f = new Date(yy, mm - 1, dd);
+        if (f >= desde && f <= hasta) out[dk] = { ...shifts[dk] };
+    }
+    return out;
+}
+
+/**
+ * 🚦 ÚNICO punto de verdad sobre si un residente puede cubrir un hueco concreto.
+ * Mismas reglas que ejecutarAsignacionForzosa: no doblar guardia el mismo día y no violar
+ * descansos de saliente/entrante.
+ *
+ * 🔮 N6: aquí —y SOLO aquí— se añadirá `if (estaDeVacaciones(residente, dk)) return {ok:false, motivo:'Vacaciones'}`.
+ * Todo lo demás (motor, modal, confirmación) queda intacto.
+ *
+ * Nota: prueba mutando `shifts` y revirtiendo (no deep-copy) porque se llama cientos de
+ * veces; `shifts` siempre es la copia recortada que posee calcularPropuestaMes.
+ * @returns {{ok: boolean, motivo: string}}
+ */
+function _candidatoElegible(residente, dk, svc, shifts) {
+    if (shifts[dk]?.[residente]) return { ok: false, motivo: 'Ya tiene guardia ese día' };
+    const existiaDia = shifts[dk] !== undefined;
+    if (!existiaDia) shifts[dk] = {};
+    shifts[dk][residente] = svc.nombre;
+    let conflictos;
+    try {
+        conflictos = getIllegalShiftsForUser(residente, shifts);
+    } finally {
+        delete shifts[dk][residente];
+        if (!existiaDia) delete shifts[dk];
+    }
+    if (conflictos.length > 0) return { ok: false, motivo: `Descanso: ${conflictos[0]}` };
+    return { ok: true, motivo: '' };
+}
+
+/**
+ * 📋 Cuenta, por servicio, los huecos OBLIGATORIOS que quedan sin cubrir en el mes.
+ * "Obligatorio" = día que dispara subasta, habilitado si el servicio lo requiere, y con
+ * plazas > 0 (plazasPorDia 0 significa ilimitado y queda fuera de la subasta por diseño).
+ * Es un recuento estructural: no evalúa candidatos, así que es barato y sirve para
+ * poblar el selector de servicios sin simular nada.
+ * @returns {{nombre: string, huecos: number}[]} solo servicios con al menos un hueco
+ */
+function contarHuecosPorServicio(y, m, planName) {
+    const planRef = (promoConfig.planes || []).find(p => p.nombre === planName);
+    if (!planRef || !planRef.servicios) return [];
+    const totalDias = getDaysInMonth(y, m);
+    const salida = [];
+
+    [...planRef.servicios]
+        .filter(s => (s.subastaTrigger || []).length > 0)
+        .sort((a, b) => (a.ordenSubasta || 999) - (b.ordenSubasta || 999))
+        .forEach(svc => {
+            let huecos = 0;
+            for (let d = 1; d <= totalDias; d++) {
+                const dk = formatDateKey(y, m, d);
+                if (!svc.subastaTrigger.includes(getDayTag(y, m, d))) continue;
+                if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk, planName)) continue;
+                // Mismo criterio de ocupación que calcularPropuestaMes: los VRE y los
+                // residentes de otros planes no cuentan como plaza cubierta de este plan.
+                let ocupados = 0;
+                for (const u in (state.shifts[dk] || {})) {
+                    if (state.shifts[dk][u] === svc.nombre && !u.startsWith('VRE')
+                        && residentePerteneceAPlan(u, planName, y, m)) ocupados++;
+                }
+                huecos += Math.max(0, getPlazasForDay(svc, dk, planName) - ocupados);
+            }
+            if (huecos > 0) salida.push({ nombre: svc.nombre, huecos });
+        });
+    return salida;
+}
+
+/**
+ * Calcula la propuesta de reparto del mes para los servicios con subastaTrigger del plan
+ * (§8.5), rellenando solo los huecos vacíos. No toca state.shifts: trabaja sobre una
+ * copia simulada. Para cada hueco guarda además la lista de candidatos elegibles y los
+ * motivos de descarte — semilla del informe de viabilidad de N6.
+ * @param {string|null} [soloSvc] - nombre de un servicio para limitar la propuesta a él;
+ *                                  null/omitido = todos los servicios con subasta.
+ * @returns {{filas: Object[], residentes: string[], planNombre: string}|null}
+ */
+function calcularPropuestaMes(y, m, planName, soloSvc = null) {
+    const planRef = (promoConfig.planes || []).find(p => p.nombre === planName);
+    if (!planRef || !planRef.servicios) return null;
+
+    const residentes = getResidentesActivosEnMes(y, m).filter(r =>
+        residentePerteneceAPlan(r, planName, y, m) &&
+        !(state.excluidosSubastas || []).includes(r));
+
+    const totalDias = getDaysInMonth(y, m);
+    // Copia recortada al mes ±5 días: rápida de escanear y segura de mutar (ver _recortarShiftsAlMes)
+    const simulated = _recortarShiftsAlMes(state.shifts, y, m);
+    const filas = [];
+
+    // 📋 soloSvc: limita la propuesta a un único servicio. Así el admin revisa y aplica
+    // servicio a servicio, y cada cálculo parte de asignaciones REALES en vez de las
+    // hipotéticas del servicio anterior (que falseaban los descartes por saliente).
+    const serviciosOrdenados = [...planRef.servicios]
+        .filter(s => (s.subastaTrigger || []).length > 0)
+        .filter(s => soloSvc == null || s.nombre === soloSvc)
+        .sort((a, b) => (a.ordenSubasta || 999) - (b.ordenSubasta || 999));
+
+    for (const svc of serviciosOrdenados) {
+        const { orden } = _ordenarCandidatosPorCriterio(residentes, svc, planRef, y, m);
+        const candidatos = [...orden];
+
+        for (let d = 1; d <= totalDias; d++) {
+            const dk = formatDateKey(y, m, d);
+            if (!svc.subastaTrigger.includes(getDayTag(y, m, d))) continue;
+            if (svc.requiereHabilitacion && !isServiceEnabledOnDate(svc.nombre, dk, planName)) continue;
+
+            // Ocupación actual del plan en ese día/servicio (los de otros planes no cuentan)
+            let ocupados = 0;
+            for (const u in (simulated[dk] || {})) {
+                if (simulated[dk][u] === svc.nombre && !u.startsWith('VRE')
+                    && residentePerteneceAPlan(u, planName, y, m)) ocupados++;
+            }
+            const needed = getPlazasForDay(svc, dk, planName);
+
+            for (let hueco = ocupados; hueco < needed; hueco++) {
+                const evaluados = candidatos.map(r => ({ n: r, ..._candidatoElegible(r, dk, svc, simulated) }));
+                const elegibles = evaluados.filter(e => e.ok).map(e => e.n);
+
+                if (elegibles.length === 0) {
+                    filas.push({
+                        dk, svc: svc.nombre, residente: null, elegibles: [],
+                        descartes: evaluados.map(e => ({ n: e.n, motivo: e.motivo })), tipo: 'imposible'
+                    });
+                    continue;
+                }
+                const elegido = elegibles[0]; // greedy: el primero del orden §8.4
+                if (!simulated[dk]) simulated[dk] = {};
+                simulated[dk][elegido] = svc.nombre;
+                filas.push({ dk, svc: svc.nombre, residente: elegido, elegibles, tipo: 'asignado' });
+                // Fairness: quien recibe pasa al final de la cola
+                candidatos.push(candidatos.splice(candidatos.indexOf(elegido), 1)[0]);
+            }
+        }
+    }
+    return { filas, residentes, planNombre: planName };
+}
+
+/**
+ * Abre el modal de revisión de la propuesta (§8.5). Exclusivo del admin. Nada se escribe
+ * en state.shifts hasta pulsar Confirmar; cada fila es editable.
+ */
+function abrirPropuestaMesModal(y, m, soloSvc) {
+    if (!isAdmin) return alert('⚠️ La propuesta de asignación es exclusiva del administrador.');
+    if (simulatedViewUser !== null) return alert('⚠️ Estás en modo visualización. Sal de la simulación para usar la propuesta.');
+    const planName = getCurrentRotPlan(formatDateKey(y, m, 1));
+
+    // 📋 Paso 1 — elección de servicio. `undefined` = aún no se ha elegido; `null` = todos.
+    // Solo se ofrecen servicios con huecos obligatorios pendientes; si queda uno solo,
+    // se salta el selector para no pedir un clic sin alternativa real.
+    if (soloSvc === undefined) {
+        const conHuecos = contarHuecosPorServicio(y, m, planName);
+        if (conHuecos.length === 0) return alert(`✅ No hay huecos vacíos en ${planName} para ${MONTHS[m]} ${y}. No hay nada que proponer.`);
+        if (conHuecos.length === 1) return abrirPropuestaMesModal(y, m, conHuecos[0].nombre);
+        return abrirSelectorPropuestaModal(y, m, planName, conHuecos);
+    }
+
+    const propuesta = calcularPropuestaMes(y, m, planName, soloSvc);
+    if (!propuesta) return alert('No se ha podido resolver el plan visualizado.');
+    if (propuesta.filas.length === 0) return alert(`✅ No hay huecos vacíos en ${soloSvc == null ? planName : soloSvc} para ${MONTHS[m]} ${y}. No hay nada que proponer.`);
+    _propuestaMes = { ...propuesta, y, m, soloSvc };
+
+    document.getElementById('propuesta-modal')?.remove();
+    const nAsignados = propuesta.filas.filter(f => f.tipo === 'asignado').length;
+    const nImposibles = propuesta.filas.filter(f => f.tipo === 'imposible').length;
+
+    const filasHtml = propuesta.filas.map((f, i) => {
+        const dia = parseInt(f.dk.split('_')[2], 10);
+        if (f.tipo === 'imposible') {
+            return `<div style="display:flex; align-items:center; gap:8px; padding:6px 4px; border-bottom:1px solid #f1f5f9; font-size:0.84rem; background:#fef2f2;">
+                <span style="min-width:34px; color:#64748b;">${dia}</span>
+                <span style="flex:1;"><b>${f.svc}</b></span>
+                <span style="color:#b91c1c; font-size:0.8rem;">🔴 Sin candidato legal (${f.descartes.length} descartados)</span>
+            </div>`;
+        }
+        return `<div style="display:flex; align-items:center; gap:8px; padding:6px 4px; border-bottom:1px solid #f1f5f9; font-size:0.84rem;">
+            <span style="min-width:34px; color:#64748b;">${dia}</span>
+            <span style="flex:1;"><b>${f.svc}</b></span>
+            <select id="prop-fila-${i}" style="margin:0; padding:3px; font-size:0.8rem; max-width:190px;">
+                ${f.elegibles.map(r => `<option value="${r}" ${r === f.residente ? 'selected' : ''}>${r}</option>`).join('')}
+                <option value="">— dejar sin asignar —</option>
+            </select>
+        </div>`;
+    }).join('');
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.id = 'propuesta-modal';
+    modal.innerHTML = `
+        <div class="modal" style="max-width:600px; text-align:left;">
+            <h3 style="margin-bottom:0.3rem;">📋 ${soloSvc == null ? 'Todos los servicios' : escapeHtml(soloSvc)} — ${MONTHS[m]} ${y}</h3>
+            <p style="font-size:0.82rem; color:#64748b; margin-bottom:0.8rem;">
+                Plan <b>${escapeHtml(planName)}</b> · Rellena solo los <b>huecos vacíos</b> ${soloSvc == null ? 'de los servicios con subasta' : 'de este servicio'}, repartiendo por los criterios de justicia ya configurados (menor histórico primero) y respetando los descansos de saliente.
+                <b>Nada se guarda hasta que confirmes</b>, y puedes cambiar cualquier fila.
+            </p>
+            <div style="display:flex; gap:8px; margin-bottom:8px; font-size:0.8rem;">
+                <span style="background:#dcfce7; color:#166534; padding:3px 8px; border-radius:6px;">✅ ${nAsignados} asignables</span>
+                ${nImposibles > 0 ? `<span style="background:#fee2e2; color:#b91c1c; padding:3px 8px; border-radius:6px;">🔴 ${nImposibles} sin candidato</span>` : ''}
+            </div>
+            <div style="max-height:330px; overflow-y:auto; border:1px solid #e2e8f0; border-radius:8px; padding:6px;">${filasHtml}</div>
+            <div style="display:flex; gap:8px; margin-top:12px;">
+                <button class="primary" style="flex:1; background:var(--dark); color:white;" onclick="confirmarPropuestaMes()">✅ Aplicar propuesta</button>
+                <button onclick="document.getElementById('propuesta-modal').remove(); _propuestaMes = null; abrirPropuestaMesModal(${y}, ${m});">↩ Otro servicio</button>
+                <button onclick="document.getElementById('propuesta-modal').remove(); _propuestaMes = null;">Cancelar</button>
+            </div>
+        </div>`;
+    document.body.appendChild(modal);
+}
+
+/**
+ * 📋 Selector previo de la propuesta (§8.5): deja al admin elegir SOBRE QUÉ SERVICIO
+ * lanzarla, listando solo los que tienen huecos obligatorios pendientes este mes.
+ * Repartir servicio a servicio evita que las asignaciones hipotéticas de uno falseen
+ * los descartes por saliente del siguiente.
+ * @param {{nombre: string, huecos: number}[]} conHuecos
+ */
+function abrirSelectorPropuestaModal(y, m, planName, conHuecos) {
+    document.getElementById('propuesta-modal')?.remove();
+    const total = conHuecos.reduce((a, s) => a + s.huecos, 0);
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.id = 'propuesta-modal';
+    modal.innerHTML = `
+        <div class="modal" style="max-width:480px; text-align:left;">
+            <h3 style="margin-bottom:0.3rem;">📋 Proponer asignación — ${MONTHS[m]} ${y}</h3>
+            <p style="font-size:0.82rem; color:#64748b; margin-bottom:0.8rem;">
+                Plan <b>${escapeHtml(planName)}</b> · Elige el servicio sobre el que lanzar la propuesta.
+                Solo aparecen los que tienen <b>huecos obligatorios sin cubrir</b>.
+                Repartir <b>de uno en uno</b> es más fiable: cada cálculo parte de las guardias ya confirmadas.
+            </p>
+            <div id="propuesta-opciones"></div>
+            <div style="display:flex; justify-content:flex-end; margin-top:12px;">
+                <button onclick="document.getElementById('propuesta-modal').remove();">Cancelar</button>
+            </div>
+        </div>`;
+
+    // Los botones se construyen por DOM, no por template: el nombre del servicio es
+    // texto libre del admin y no debe interpolarse ni en HTML ni en un atributo onclick
+    // (un `UCI "Peque"` rompería el atributo; un `<b>` inyectaría markup).
+    const cont = modal.querySelector('#propuesta-opciones');
+    const mkBtn = (etiqueta, huecos, onClick, dashed) => {
+        const b = document.createElement('button');
+        b.setAttribute('style', `display:flex; justify-content:space-between; align-items:center; gap:10px;`
+            + ` width:100%; text-align:left; padding:10px 12px; min-height:44px; font-size:0.86rem;`
+            + (dashed ? ' margin-top:10px; border-style:dashed;' : ' margin-bottom:6px;'));
+        const izq = document.createElement('span');
+        if (dashed) izq.textContent = etiqueta;
+        else { const bo = document.createElement('b'); bo.textContent = etiqueta; izq.appendChild(bo); }
+        const der = document.createElement('span');
+        der.setAttribute('style', 'color:#64748b; font-size:0.8rem; white-space:nowrap;');
+        der.textContent = `${huecos} hueco${huecos === 1 ? '' : 's'}`;
+        b.append(izq, der);
+        b.addEventListener('click', onClick);
+        return b;
+    };
+
+    conHuecos.forEach(s => cont.appendChild(
+        mkBtn(s.nombre, s.huecos, () => abrirPropuestaMesModal(y, m, s.nombre), false)));
+    cont.appendChild(
+        mkBtn('Todos los servicios a la vez', total, () => abrirPropuestaMesModal(y, m, null), true));
+
+    document.body.appendChild(modal);
+}
+
+/** Aplica la propuesta revisada: escribe en state.shifts, notifica y registra los imposibles (N2). */
+async function confirmarPropuestaMes() {
+    if (!_propuestaMes) return;
+    if (!isAdmin) return alert('⚠️ Solo el administrador puede aplicar la propuesta.');
+    const { filas, y, m, planNombre, soloSvc } = _propuestaMes;
+
+    // Recogemos lo que el admin haya dejado en cada desplegable
+    const aplicar = [];
+    filas.forEach((f, i) => {
+        if (f.tipo !== 'asignado') return;
+        const val = document.getElementById(`prop-fila-${i}`)?.value;
+        if (val) aplicar.push({ dk: f.dk, svc: f.svc, residente: val });
+    });
+    if (aplicar.length === 0) return alert('No hay ninguna asignación seleccionada.');
+    if (!confirm(`¿Aplicar ${aplicar.length} guardia(s) de ${soloSvc == null ? 'todos los servicios' : soloSvc} al calendario de ${planNombre} en ${MONTHS[m]} ${y}?`)) return;
+
+    for (const a of aplicar) {
+        if (!state.shifts[a.dk]) state.shifts[a.dk] = {};
+        state.shifts[a.dk][a.residente] = a.svc;
+        const p = globalProfiles.find(gp => gp.nombre_mostrar === a.residente);
+        if (p) insertNotificacion(p.id, 'guardia_forzada', { year: y, month: m, fecha: formatDK(a.dk), servicio: a.svc });
+    }
+    // 🕳️ N2: los huecos que nadie podía cubrir quedan registrados como evidencia
+    filas.filter(f => f.tipo === 'imposible').forEach(f => {
+        registrarHuecoSinCandidato(f.dk, f.svc, planNombre, y, m, f.descartes, 'propuesta');
+    });
+
+    document.getElementById('propuesta-modal')?.remove();
+    _propuestaMes = null;
+    await saveState();
+    renderAll();
+    alert(`✅ Propuesta aplicada: ${aplicar.length} guardia(s) asignadas en ${MONTHS[m]} ${y}.`);
+}
+
 /**
  * 🕳️ N2 — Registra de forma persistente un hueco que la asignación forzosa no pudo
  * cubrir: fecha, servicio, plan, candidatos evaluados con su motivo de descarte y
@@ -5590,6 +6559,13 @@ function registrarHuecoSinCandidato(dk, svcNombre, planNombre, y, m, candidatosE
     }
 }
 
+/**
+ * Asigna automáticamente guardias pendientes de un servicio a los nominados por la subasta.
+ * Respeta las restricciones de saliente y rota la carga entre los candidatos con fairness.
+ * @param {number} y
+ * @param {number} m - 0-indexed
+ * @param {string} targetSvcNombre - nombre del servicio a cubrir
+ */
 async function ejecutarAsignacionForzosa(y, m, targetSvcNombre) {
     const _pvForz = getCurrentRotPlan(formatDateKey(y, m, 1));
     if (!puedeGestionarPlan(_pvForz, y, m)) return alert('⚠️ Solo puedes forzar asignaciones de tu propio plan de guardias.');
@@ -6501,13 +7477,13 @@ function renderPerfilUsuario() {
     const topeVisual = 850;
     const porcentajeCarga = Math.min(100, (horasTotal / topeVisual) * 100);
 
-    let colorBarra = 'var(--pac)';
+    let estadoCarga = 'deficit';
     let estadoTexto = 'Déficit Formativo (Revisar)';
     if (horasTotal >= minHoras && horasTotal <= maxHoras) {
-        colorBarra = 'var(--ped)';
+        estadoCarga = 'ok';
         estadoTexto = 'Rango Legal y Formativo Óptimo';
     } else if (horasTotal > maxHoras) {
-        colorBarra = 'var(--fest)';
+        estadoCarga = 'exceso';
         estadoTexto = 'Exceso (Alerta de Descanso)';
     }
 
@@ -6530,130 +7506,149 @@ function renderPerfilUsuario() {
         return `<option value="${v}" ${v === dMes ? 'selected' : ''}>${m}</option>`; 
     }).join('');
 
-// 5. Inyección del layout limpio en el contenedor principal
-    document.getElementById('contenido-principal').innerHTML = `
-        
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; background: white; padding: 15px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); flex-wrap: wrap; gap: 10px;">
-            <div>
-                <h2 style="margin: 0; color: var(--dark); font-size: 1.5rem;">👤 Mi Perfil</h2>
-                <p style="margin: 4px 0 0 0; color: #64748b; font-size: 0.9rem;">Identidad activa: <span style="font-weight: bold; color: var(--dark);">${uProfile.nombre_mostrar}</span></p>
+// 5. Inyección del layout en el contenedor principal
+    const root = document.getElementById('contenido-principal');
+    _bindPerfilActions(root);
+    // left/width de la barra son dato calculado: se pasan como custom properties, no como style= de presentación.
+    const pct = v => `${((v / topeVisual) * 100).toFixed(2)}%`;
+    root.innerHTML = `
+        <div class="prf-head">
+            <div class="prf-head__info">
+                <h2 class="prf-head__title">👤 Mi Perfil</h2>
+                <p class="prf-head__who">Identidad activa: <strong>${escapeHtml(uProfile.nombre_mostrar)}</strong></p>
             </div>
-            <div style="background: #e0f2fe; color: #0369a1; padding: 6px 12px; border-radius: 20px; font-weight: bold; font-size: 0.85rem;">
-                📍 Plan Actual: ${nombrePlanHoy}
-            </div>
+            <span class="prf-plan">📍 Plan actual: ${escapeHtml(nombrePlanHoy)}</span>
         </div>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
-            
-            <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between;">
+        <div class="prf-grid">
+            <section class="prf-card">
                 <div>
-                    <h3 style="margin-bottom: 12px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">✏️ Datos Personales</h3>
-                    <div style="margin-bottom: 12px;">
-                        <label style="font-size: 0.8rem; font-weight: bold; color: #64748b; display: block; margin-bottom: 4px;">Nombre y Apellidos:</label>
-                        <p style="margin: 0; padding: 8px; border: 1px solid #e2e8f0; border-radius: 6px; background: #f8fafc; color: #475569; font-size: 0.95rem;">${uProfile.nombre_mostrar}</p>
-                    </div>
-                    <p style="font-size: 0.8rem; color: #94a3b8; line-height: 1.4;">El nombre se sincroniza automáticamente desde tu cuenta de Google. Contacta al administrador si necesitas corregirlo.</p>
+                    <h3 class="prf-card__title">✏️ Datos Personales</h3>
+                    <span class="prf-label">Nombre y apellidos</span>
+                    <p class="prf-readonly">${escapeHtml(uProfile.nombre_mostrar)}</p>
+                    <p class="prf-note">El nombre se sincroniza automáticamente desde tu cuenta de Google. Contacta al administrador si necesitas corregirlo.</p>
                 </div>
-            </div>
+            </section>
 
-            <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between;">
+            <section class="prf-card">
                 <div>
-                    <h3 style="margin-bottom: 12px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">🎓 Inicio de Residencia</h3>
-                    <div style="margin-bottom: 12px;">
-                        <label style="font-size: 0.8rem; font-weight: bold; color: #64748b; display: block; margin-bottom: 4px;">Fecha de Inicio Oficial (R1):</label>
-                        <input type="date" id="perfil-fecha-inicio" value="${uProfile.fecha_inicio_residencia || ''}" style="margin:0; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%; background: white;">
-                    </div>
-                    <p style="font-size: 0.8rem; color: #94a3b8; line-height: 1.4;">* Esta es la fecha exacta (con año) en la que empezaste el contrato de R1. Sirve para saber qué plan aplicarte.</p>
+                    <h3 class="prf-card__title">🎓 Inicio de Residencia</h3>
+                    <label class="prf-label" for="perfil-fecha-inicio">Fecha de inicio oficial (R1)</label>
+                    <input type="date" id="perfil-fecha-inicio" class="prf-input" value="${escapeHtml(uProfile.fecha_inicio_residencia || '')}">
+                    <p class="prf-note">Es la fecha exacta (con año) en la que empezaste el contrato de R1. Sirve para saber qué plan aplicarte.</p>
                 </div>
-                <button onclick="guardarFechaInicioPerfil()" style="width:100%; margin-top: 16px; background: var(--merc); color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer;">🔄 Actualizar Inicio</button>
-            </div>
+                <button class="primary prf-action" data-prf-act="guardar-inicio">🔄 Actualizar inicio</button>
+            </section>
 
-            <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between;">
+            <section class="prf-card">
                 <div>
-                    <h3 style="margin-bottom: 12px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">🪪 Datos de Contrato</h3>
-                    <div style="margin-bottom: 12px;">
-                        <label style="font-size: 0.8rem; font-weight: bold; color: #64748b; display: block; margin-bottom: 4px;">Mes de Cambio de Contrato:</label>
-                        <select id="perfil-mes-contrato" style="margin:0; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%; background: white;">
-                            ${mesOptions}
-                        </select>
-                    </div>
-                    <p style="font-size: 0.8rem; color: #94a3b8; line-height: 1.4;">* El mes en que se renueva tu contrato y subes de nivel (R1→R2→R3). El día se fija automáticamente al 1 del mes.</p>
+                    <h3 class="prf-card__title">🪪 Datos de Contrato</h3>
+                    <label class="prf-label" for="perfil-mes-contrato">Mes de cambio de contrato</label>
+                    <select id="perfil-mes-contrato" class="prf-input">${mesOptions}</select>
+                    <p class="prf-note">El mes en que se renueva tu contrato y subes de nivel (R1→R2→R3). El día se fija automáticamente al 1 del mes.</p>
                 </div>
-                <button onclick="guardarFechaContratoPerfil()" style="width:100%; margin-top: 16px; background: var(--adu); color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer;">💾 Actualizar Contrato</button>
-            </div>
-            <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between;">
+                <button class="primary prf-action" data-prf-act="guardar-contrato">💾 Actualizar contrato</button>
+            </section>
+
+            <section class="prf-card">
                 <div>
-                    <h3 style="margin-bottom: 12px; font-size: 1.1rem; color: var(--dark); display: flex; align-items: center; gap: 8px;">🏥 Ausencias y Suspensiones</h3>
-                    <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 15px;">Registra periodos largos de baja médica o rotaciones externas para que el asignador automático te excluya de las ruedas afectadas.</p>
-                    
-                    <div id="lista-bajas-usuario" style="margin-bottom: 15px; max-height: 150px; overflow-y: auto;">
-                        ${misBajas.length === 0 ? '<p style="font-size:0.85rem; color:#94a3b8; font-style: italic;">No tienes ausencias registradas.</p>' : misBajas.map(b => `
-                            <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; padding:8px; border-radius:6px; margin-bottom:6px; border:1px solid #e2e8f0;">
-                                <div style="font-size:0.8rem; line-height:1.3;">
-                                    <b style="color:var(--dark);">${b.motivo}</b><br>
-                                    <span style="color:#64748b;">Del ${formatDK(b.fechaInicio.replace(/-/g,'_'))} al ${formatDK(b.fechaFin.replace(/-/g,'_'))}</span>
+                    <h3 class="prf-card__title">🏥 Ausencias y Suspensiones</h3>
+                    <p class="prf-intro">Registra periodos largos de baja médica o rotaciones externas para que el asignador automático te excluya de las ruedas afectadas.</p>
+                    <div id="lista-bajas-usuario" class="prf-bajas">
+                        ${misBajas.length === 0 ? '<p class="prf-empty">No tienes ausencias registradas.</p>' : misBajas.map(b => `
+                            <div class="prf-baja">
+                                <div class="prf-baja__info">
+                                    <strong class="prf-baja__motivo">${escapeHtml(b.motivo)}</strong>
+                                    <span class="prf-baja__fechas">Del ${formatDK(b.fechaInicio.replace(/-/g,'_'))} al ${formatDK(b.fechaFin.replace(/-/g,'_'))}</span>
                                 </div>
-                                <button class="danger icon-btn" onclick="eliminarBajaPerfil(${b.id})" style="padding:2px 6px; font-size:0.75rem;">X</button>
+                                <button class="danger prf-baja__del" data-prf-act="borrar-baja" data-prf-id="${escapeHtml(String(b.id))}" aria-label="Eliminar ausencia: ${escapeHtml(b.motivo)}">✕</button>
                             </div>
                         `).join('')}
                     </div>
-
-                    <div style="border-top: 1px dashed #cbd5e1; padding-top: 12px;">
-                        <label style="font-size: 0.75rem; font-weight: bold; color: #475569; display: block; margin-bottom: 4px;">Nueva Ausencia:</label>
-                        <div style="display: flex; gap: 6px; margin-bottom: 8px;">
-                            <div style="flex:1;"><span style="font-size:0.7rem; color:#64748b;">Inicio</span><input type="date" id="baja-fecha-inicio" style="margin:0; padding:6px; font-size:0.8rem; width:100%;"></div>
-                            <div style="flex:1;"><span style="font-size:0.7rem; color:#64748b;">Fin</span><input type="date" id="baja-fecha-fin" style="margin:0; padding:6px; font-size:0.8rem; width:100%;"></div>
+                    <div class="prf-new">
+                        <span class="prf-label">Nueva ausencia</span>
+                        <div class="prf-new__dates">
+                            <div class="prf-new__field"><label class="prf-sublabel" for="baja-fecha-inicio">Inicio</label><input type="date" id="baja-fecha-inicio" class="prf-input"></div>
+                            <div class="prf-new__field"><label class="prf-sublabel" for="baja-fecha-fin">Fin</label><input type="date" id="baja-fecha-fin" class="prf-input"></div>
                         </div>
-                        <input type="text" id="baja-motivo" placeholder="Motivo (ej: Rotación Externa, IT...)" style="margin:0; padding:8px; font-size:0.8rem; width:100%; border: 1px solid #cbd5e1; border-radius: 4px;">
+                        <label class="prf-sublabel" for="baja-motivo">Motivo</label>
+                        <input type="text" id="baja-motivo" class="prf-input" placeholder="Ej: Rotación externa, IT…">
                     </div>
                 </div>
-                <button onclick="solicitarBajaPerfil()" style="width:100%; margin-top: 16px; background: var(--dark); color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer;">➕ Añadir Ausencia</button>
-            </div>
-            <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); grid-column: span 2;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; flex-wrap:wrap; gap:10px;">
-                    <h3 style="margin:0; font-size: 1.1rem; color: var(--dark);">⏱️ Auditoría de Carga Laboral (Horas)</h3>
-                    <div style="display:flex; gap:8px; align-items:center;">
-                        <select onchange="setPerfilHorasFiltro(this.value, perfilHorasFiltroM)" style="margin:0; padding:5px 8px; font-size:0.85rem; border:1px solid #cbd5e1; border-radius:6px;">${anioOpcionesHoras}</select>
-                        <select onchange="setPerfilHorasFiltro(perfilHorasFiltroY, this.value)" style="margin:0; padding:5px 8px; font-size:0.85rem; border:1px solid #cbd5e1; border-radius:6px;">${mesOpcionesHoras}</select>
+                <button class="primary prf-action" data-prf-act="nueva-baja">➕ Añadir ausencia</button>
+            </section>
+
+            <section class="prf-card prf-card--wide">
+                <div class="prf-hours-head">
+                    <h3 class="prf-card__title prf-card__title--flush">⏱️ Auditoría de Carga Laboral (Horas)</h3>
+                    <div class="prf-filters">
+                        <select class="prf-input" data-prf-filtro="y" aria-label="Año">${anioOpcionesHoras}</select>
+                        <select class="prf-input" data-prf-filtro="m" aria-label="Mes">${mesOpcionesHoras}</select>
                     </div>
                 </div>
 
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 14px;">
-                    <div style="background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
-                        <span style="font-size: 0.8rem; color: #64748b; font-weight: bold; display: block;">HORAS ${MONTHS[perfilHorasFiltroM].toUpperCase()}</span>
-                        <span style="font-size: 1.8rem; font-weight: bold; color: var(--dark);">${horasMes.toFixed(1)} h</span>
+                <div class="prf-stats">
+                    <div class="prf-stat">
+                        <span class="prf-stat__label">Horas ${MONTHS[perfilHorasFiltroM]}</span>
+                        <span class="prf-stat__value">${horasMes.toFixed(1)} h</span>
                     </div>
-                    <div style="background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
-                        <span style="font-size: 0.8rem; color: #64748b; font-weight: bold; display: block;">GUARDIAS COMPLETAS</span>
-                        <span style="font-size: 1.8rem; font-weight: bold; color: var(--adu);">${completasMes}</span>
+                    <div class="prf-stat">
+                        <span class="prf-stat__label">Guardias completas</span>
+                        <span class="prf-stat__value prf-stat__value--adu">${completasMes}</span>
                     </div>
-                    <div style="background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
-                        <span style="font-size: 0.8rem; color: #64748b; font-weight: bold; display: block;">MEDIAS GUARDIAS (PARTIDAS)</span>
-                        <span style="font-size: 1.8rem; font-weight: bold; color: var(--merc);">${partidasMes}</span>
+                    <div class="prf-stat">
+                        <span class="prf-stat__label">Medias guardias (partidas)</span>
+                        <span class="prf-stat__value prf-stat__value--merc">${partidasMes}</span>
                     </div>
                 </div>
-                <div style="display:flex; gap:24px; font-size:0.85rem; color:#64748b; margin-bottom:18px; flex-wrap:wrap;">
-                    <span>Total ${perfilHorasFiltroY}: <b style="color:var(--dark);">${horasAnio.toFixed(1)} h</b></span>
-                    <span>Total histórico: <b style="color:var(--dark);">${horasTotal.toFixed(1)} h</b></span>
+                <div class="prf-totals">
+                    <span>Total ${perfilHorasFiltroY}: <strong>${horasAnio.toFixed(1)} h</strong></span>
+                    <span>Total histórico: <strong>${horasTotal.toFixed(1)} h</strong></span>
                 </div>
 
-                <div>
-                    <div style="display: flex; justify-content: space-between; font-size: 0.85rem; font-weight: bold; margin-bottom: 6px; color: #475569;">
-                        <span style="color: ${colorBarra};">${estadoTexto}</span>
-                        <span>${horasTotal.toFixed(0)} / ${targetHoras} h (±${tolerancia}h)</span>
+                <div class="prf-load prf-load--${estadoCarga}">
+                    <div class="prf-load__head">
+                        <span class="prf-load__state">${estadoTexto}</span>
+                        <span class="prf-load__count">${horasTotal.toFixed(0)} / ${targetHoras} h (±${tolerancia} h)</span>
                     </div>
-                    <div style="background: #e2e8f0; width: 100%; height: 12px; border-radius: 6px; position: relative; overflow: hidden;">
-                        <div style="position: absolute; left: ${(minHoras/topeVisual)*100}%; width: 2px; height: 100%; background: #94a3b8; z-index: 2;" title="Mínimo Formativo (${minHoras}h)"></div>
-                        <div style="position: absolute; left: ${(maxHoras/topeVisual)*100}%; width: 2px; height: 100%; background: #ef4444; z-index: 2;" title="Tope Máximo (${maxHoras}h)"></div>
-                        <div style="background: ${colorBarra}; width: ${porcentajeCarga}%; height: 100%; transition: width 0.3s ease;"></div>
+                    <div class="prf-load__track" role="img" aria-label="${horasTotal.toFixed(0)} horas acumuladas; rango legal entre ${minHoras} y ${maxHoras}">
+                        <div class="prf-load__mark prf-load__mark--min" style="--x:${pct(minHoras)}" title="Mínimo formativo (${minHoras} h)"></div>
+                        <div class="prf-load__mark prf-load__mark--max" style="--x:${pct(maxHoras)}" title="Tope máximo (${maxHoras} h)"></div>
+                        <div class="prf-load__fill" style="--w:${porcentajeCarga.toFixed(2)}%"></div>
                     </div>
-                    <p style="font-size: 0.75rem; color: #94a3b8; margin-top: 8px; line-height: 1.4;">
-                        * Objetivo: <b>${targetHoras}h</b>. Tolerancia legal: entre <b>${minHoras}h</b> y <b>${maxHoras}h</b>.<br>
+                    <p class="prf-note">
+                        Objetivo: <strong>${targetHoras} h</strong>. Tolerancia legal: entre <strong>${minHoras} h</strong> y <strong>${maxHoras} h</strong>.<br>
                         Por debajo del mínimo el sistema advierte de un posible déficit formativo; por encima del máximo, se incumplen los descansos estipulados.
                     </p>
                 </div>
-            </div>
-            </div> `;
-	}
+            </section>
+        </div>`;
+}
+
+/** Delegado de Mi Perfil: botones con data-prf-act y selectores con data-prf-filtro, sin onclick inline. */
+function _bindPerfilActions(root) {
+    if (!root || root._prfBound) return;
+    root._prfBound = true;
+    root.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-prf-act]');
+        if (!btn || !root.contains(btn)) return;
+        switch (btn.dataset.prfAct) {
+            case 'guardar-inicio':   return guardarFechaInicioPerfil();
+            case 'guardar-contrato': return guardarFechaContratoPerfil();
+            case 'nueva-baja':       return solicitarBajaPerfil();
+            case 'borrar-baja': {
+                // Se busca el id original en vez de convertir el atributo: una baja sin id numérico daría NaN y no se borraría.
+                const baja = (state.bajasLargas || []).find(b => String(b.id) === btn.dataset.prfId);
+                return eliminarBajaPerfil(baja ? baja.id : undefined);
+            }
+        }
+    });
+    root.addEventListener('change', (e) => {
+        const sel = e.target.closest('[data-prf-filtro]');
+        if (!sel || !root.contains(sel)) return;
+        if (sel.dataset.prfFiltro === 'y') setPerfilHorasFiltro(sel.value, perfilHorasFiltroM);
+        else setPerfilHorasFiltro(perfilHorasFiltroY, sel.value);
+    });
+}
 // A) GUARDAR LA FECHA DE CAMBIO DE CONTRATO DESDE EL PERFIL
 /** Persiste el mes de cambio de contrato del usuario (día fijo al 1 del mes, año base 2000). */
 async function guardarFechaContratoPerfil() {
