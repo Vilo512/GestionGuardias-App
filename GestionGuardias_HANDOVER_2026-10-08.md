@@ -137,7 +137,7 @@ El bug declarado era uno; la auditoría estática encontró que **cuatro de las 
 **Verificación:** 29 pruebas de comportamiento que ejecutan el código real extraído de `app.js` con dobles de Supabase — **22 fallan contra la versión previa**, así que discriminan. Más `node --check`, canario, y un listener de `unhandledrejection` confirmando que el rechazo desapareció. El fichero de pruebas quedó en el scratchpad; **no está en el repo** y conviene decidir si se adopta, porque hoy el proyecto no tiene tests.
 
 ### Paso 6 — vistas que faltan
-`renderAdminAjustes` (23 colores), ~~rotación~~ (hecha), `renderAdminCalendar` (16), ~~`renderGruposView`~~ (hecha), `renderAdminHoras` (13), `renderAdminExceptions` (7, **lleva dentro [P-11]**), `renderAdminSeguridad` (2).
+`renderAdminAjustes` (23 colores), ~~rotación~~ (hecha), `renderAdminCalendar` (16), ~~`renderGruposView`~~ (hecha), `renderAdminHoras` (13), `renderAdminExceptions` (7, **lleva dentro [P-11]**), ~~`renderAdminSeguridad`~~ (hecha).
 
 > Las cifras de esta tabla salieron de rangos de líneas estimados a ojo y **algunas estaban mal**: «rotación» se midió como 274 líneas y son 143 repartidas en dos funciones. Antes de abrir cada vista, medirla de verdad acotando por la siguiente declaración de función.
 
@@ -215,6 +215,19 @@ El usuario planteó si se podía subir ya, porque lo que queda es casi todo invi
 
 ✅ **Verificado en producción por el usuario (9-oct):** la app carga con `?v=3.8` y `/CLAUDE.md` da 404.
 
+## 6-octies. Paso 6 — Seguridad (rama `feature/paso6-seguridad`, commits `990a440`, `b4ee181`, merge `c92031f`, v4.0.1)
+
+Clases `.seg-*`, mismas capas que Grupos y Perfil (card `--surface` → fila `--surface-2`, acciones en outline sobre `--bg`). Cero `style=` salvo los dos `display:none` que alterna el JS. **La vista está en `js/calendario.js` (`renderAdminSeguridad`), no en `admin-ajustes.js`** como decían las notas anteriores; su marcado, en `index.html` (`#aview-seguridad`).
+
+- **Delegación:** el botón de borrar pasa de `onclick="adminBorrarPromocionVacia('${p.id}')"` a `data-seg-act` + `_bindSegActions`, enlazado una vez a `#admin-promos-list`. `adminBorrarPromocionVacia` no se tocó. Se escapan servicio, hospital, `<option>` e id: antes se inyectaban tal cual y cualquier usuario puede crear promociones. Probado con `<img onerror>` y `D'Angelo "Sur"`.
+- **Bugs de paso:** guarda de sesión; el error de red dejaba la lista en «Cargando…» (ahora avisa); si la promoción propia no existe se pinta la lista igualmente.
+- **Visual:** botones y campos de 44px, campos a 16px, sin scroll horizontal a 375px. La fila va apilada (servicio, hospital, estado) y la propia se marca con borde azul; el orden es por servicio. Etiqueta a 4px de su campo, 20px entre grupos. Opciones de Estado cortas con la explicación en una nota.
+- `testing-lead`: sin bloqueantes. Aplicados sus tres menores (comentario falso, salida temprana sin promoción propia, dos reglas CSS muertas).
+- `design-reviewer`: sin fallos AA; aplicados los dos de agrupación y la mayoría de sugerencias.
+- **Versión:** se queda en **4.0.1** (PARCHE). El disparador de «feature/ sin subir la MENOR» saltó y el usuario decidió que es un cambio muy menor.
+- **Preexistente, sin tocar:** `todas.sort(...)` muta `todasLasPromociones`; tras borrar un grupo, el render pisa lo que hubiera sin guardar en el formulario.
+- **Sin verificar:** WebKit/iOS, y la política RLS de borrado en Supabase (se confía en el `AUDIT`).
+
 ## 7. Método — lo que funcionó hoy
 
 1. **Medir antes de elegir.** «Empieza por el panel de admin» parecía un punto hasta que se contaron las líneas: eran seis sub-vistas. La medición cambió el plan.
@@ -224,7 +237,7 @@ El usuario planteó si se podía subir ya, porque lo que queda es casi todo invi
 
 ## 8. Arranque rápido de la próxima sesión
 
-**Siguiente: `renderAdminSeguridad`** (ahora en `js/admin-ajustes.js`). **El reparto de `app.js` en `js/` está hecho (v4.0.0, 9-oct):** 15 scripts, verificado byte a byte y en el harness. Fusionado a BETA (`40d2df8`) y comprobado en staging con sesión real por el usuario: todo funciona. Sin pendientes del reparto. El plan queda en la historia de git (`GestionGuardias_REPARTO.md`). `app.js` ya no existe: donde este handover dice `app.js`, léase `js/`.
+**Siguiente: `renderAdminCalendar`** (`js/calendario.js` o `js/admin-calendario.js`: localizar con `grep` y medirla acotando por la siguiente declaración de función, antes de abrirla). Seguridad quedó hecha el 9-oct (§6-octies). **El reparto de `app.js` en `js/` está hecho (v4.0.0, 9-oct):** 15 scripts, verificado byte a byte y en el harness. Fusionado a BETA (`40d2df8`) y comprobado en staging con sesión real por el usuario: todo funciona. Sin pendientes del reparto. El plan queda en la historia de git (`GestionGuardias_REPARTO.md`). `app.js` ya no existe: donde este handover dice `app.js`, léase `js/`.
 
 > **9-oct, tarde (histórico): el reparto estaba planificado, no ejecutado.**
 > - **Decidido:** 15 scripts clásicos en `js/`; disparador nuevo de 1.500 líneas por archivo; versionado `MAYOR.MENOR.PARCHE` (el reparto abre la 4.0.0); la regla de herramientas se separa en editar a mano y mover por script.
@@ -239,8 +252,8 @@ El usuario planteó si se podía subir ya, porque lo que queda es casi todo invi
 ### Cola del Paso 6 — decidida por el usuario el 8-oct
 
 1. ~~**`renderPerfilUsuario`** (Mi Perfil)~~ — hecho
-2. **`renderAdminSeguridad`** ← **la próxima sesión empieza aquí**
-3. **`renderAdminCalendar`**
+2. ~~**`renderAdminSeguridad`**~~ — hecho (§6-octies)
+3. **`renderAdminCalendar`** ← **la próxima sesión empieza aquí**
 
 > **⚠️ Disparador cruzado:** tras Mi Perfil, `app.js` tiene **8.001 líneas** (umbral 8.000). Hay que proponer el reparto por motores en varios `<script>` y que decida el usuario, antes de abrir Seguridad. La migración de Perfil sumó 19 líneas netas: la función de eventos nueva más la corrección del borrado.
 
