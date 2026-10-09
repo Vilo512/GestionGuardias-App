@@ -324,13 +324,14 @@
 
                 <label class="seg-label" for="edit-promo-hospital">Hospital:</label>
                 <select id="edit-promo-hospital" class="seg-input" onchange="onEditPromoHospitalChange()"></select>
-                <input type="text" id="edit-promo-hospital-nuevo" class="seg-input" aria-label="Nombre del hospital nuevo" placeholder="Nombre COMPLETO y oficial del hospital nuevo" style="display:none;">
+                <input type="text" id="edit-promo-hospital-nuevo" class="seg-input" aria-label="Nombre del hospital nuevo" placeholder="Nombre completo y oficial" style="display:none;">
 
                 <label class="seg-label" for="edit-promo-activa">Estado:</label>
                 <select id="edit-promo-activa" class="seg-input">
-                    <option value="true">🟢 Abierta — visible en el onboarding, admite solicitudes</option>
-                    <option value="false">🔒 Cerrada — no aparece en el onboarding (los miembros actuales siguen con normalidad)</option>
+                    <option value="true">🟢 Abierta</option>
+                    <option value="false">🔒 Cerrada</option>
                 </select>
+                <p class="seg-hint"><b>Abierta:</b> aparece en el onboarding y admite solicitudes. <b>Cerrada:</b> no aparece en el onboarding; los miembros actuales siguen con normalidad.</p>
 
                 <button class="primary seg-save" onclick="adminUpdatePromoDetails()">Guardar Cambios</button>
             </div>
