@@ -224,7 +224,7 @@ El usuario planteó si se podía subir ya, porque lo que queda es casi todo invi
 
 ## 8. Arranque rápido de la próxima sesión
 
-**Siguiente: `renderAdminSeguridad`** (ahora en `js/admin-ajustes.js`). **El reparto de `app.js` en `js/` está hecho (v4.0.0, 9-oct):** 15 scripts, verificado byte a byte y en el harness. Pendiente: merge a BETA (previa confirmación de rama) y el Paso 6 del plan en staging con sesión real. El plan queda en la historia de git (`GestionGuardias_REPARTO.md`). `app.js` ya no existe: donde este handover dice `app.js`, léase `js/`.
+**Siguiente: `renderAdminSeguridad`** (ahora en `js/admin-ajustes.js`). **El reparto de `app.js` en `js/` está hecho (v4.0.0, 9-oct):** 15 scripts, verificado byte a byte y en el harness. Fusionado a BETA (`40d2df8`) y comprobado en staging con sesión real por el usuario: todo funciona. Sin pendientes del reparto. El plan queda en la historia de git (`GestionGuardias_REPARTO.md`). `app.js` ya no existe: donde este handover dice `app.js`, léase `js/`.
 
 > **9-oct, tarde (histórico): el reparto estaba planificado, no ejecutado.**
 > - **Decidido:** 15 scripts clásicos en `js/`; disparador nuevo de 1.500 líneas por archivo; versionado `MAYOR.MENOR.PARCHE` (el reparto abre la 4.0.0); la regla de herramientas se separa en editar a mano y mover por script.
