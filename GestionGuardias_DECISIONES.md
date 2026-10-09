@@ -45,6 +45,24 @@ Detalle operativo en `CLAUDE.md` §Control de versiones.
 
 ---
 
+## 4. Editar a mano, mover por script
+
+*Cerrada, motivo verificado. Última revisión: 2026-10-09.*
+
+**Antes:** «No uses Python para modificar archivos del proyecto». Entró el 2026-05-27 (`8ffb336`) en los prompts de los cinco agentes, sin motivo escrito. Era estado heredado, igual que el punto 2.
+
+**Motivo de la regla nueva:** detrás de la prohibición había dos riesgos reales, y ninguno era Python en sí:
+1. **Reescrituras que nadie revisa.** Un buscar y reemplazar por script en todo `app.js` cambia cosas que no se ven. La herramienta de edición enseña cada cambio como antes → después. Esto sigue prohibido.
+2. **La codificación en Windows.** Python sin `encoding='utf-8'` y `Set-Content`/`Out-File` de PowerShell 5.1 pueden escribir en la página de códigos del sistema y romper las ñ y las tildes sin avisar. `sed`, `cat` y `git` en Git Bash copian los bytes tal cual.
+
+**Mover código sin cambiarlo** no tiene ninguno de los dos riesgos y se puede comprobar de forma exacta. Al revés, copiarlo a mano obliga al modelo a reescribir miles de líneas, que es caro y abre la puerta a errores de copia. Salió al plantear el reparto de `app.js` por motores (punto 2).
+
+**Disparadores:**
+- Un movimiento por script no pasa la verificación byte a byte.
+- Aparecen tildes rotas en un archivo del proyecto.
+
+---
+
 ## Cómo añadir una decisión
 
 Solo llega aquí lo que se decidió **explícitamente y con motivo**. Si no se puede citar cuándo y por qué se decidió, no es una decisión: es estado heredado, y se anota como tal.
