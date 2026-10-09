@@ -18,7 +18,7 @@ App de asignación de guardias médicas. Vanilla JS sin build step: `index.html`
 **Una sesión = un punto.** No encadenar puntos: cada turno re-envía el historial entero y la calidad cae al final.
 
 1. **Apertura.** §11 y §9 del handover más reciente. Nada más. Si el usuario ya dice qué toca, ni eso.
-2. **Contexto bajo demanda.** La sección del PRD y la zona de `app.js` que haga falta, cuando haga falta. Nunca lecturas completas "por contexto".
+2. **Contexto bajo demanda.** La sección del PRD y el archivo de `js/` que haga falta, cuando haga falta. Nunca lecturas completas "por contexto".
 3. **Ejecución.** Rama temporal → `testing-lead` → merge a BETA.
 4. **Cierre, siempre.** Actualizar pendientes del handover y dejar en una frase qué toca después. El handover se escribe al terminar un punto, no cuando el contexto está saturado.
 
@@ -79,7 +79,7 @@ Los residentes usan esto en el móvil, a las 3 de la mañana. La legibilidad y e
 
 ## Validación
 
-Antes de fusionar a BETA, invoca `testing-lead` con los fragmentos de código relevantes en el brief: trabaja sobre lo que le incluyas, no explora `app.js` a ciegas. Para iteraciones visuales, `design-reviewer` con el CSS/HTML.
+Antes de fusionar a BETA, invoca `testing-lead` con los fragmentos de código relevantes en el brief: trabaja sobre lo que le incluyas, no explora `js/` a ciegas. Para iteraciones visuales, `design-reviewer` con el CSS/HTML.
 
 No abras subagentes para planificar: arrancan en frío y re-derivan contexto ya cargado.
 
