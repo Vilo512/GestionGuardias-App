@@ -224,7 +224,17 @@ El usuario planteó si se podía subir ya, porque lo que queda es casi todo invi
 
 ## 8. Arranque rápido de la próxima sesión
 
-**El merge a `main` se hizo el 9-oct (§6-septies) y producción ya tiene el estado de BETA. La próxima sesión tiene que decidir el disparador de las 8.000 líneas, es decir, si `app.js` se reparte por motores en varios `<script>` (abajo). Después viene `renderAdminSeguridad`.**
+**Siguiente: ejecutar `GestionGuardias_REPARTO.md` con Sonnet, intensidad media.** Ese documento basta: no hace falta leer nada más. Después viene `renderAdminSeguridad`.
+
+> **9-oct, tarde: el reparto está planificado, no ejecutado.**
+> - **Decidido:** 15 scripts clásicos en `js/`; disparador nuevo de 1.500 líneas por archivo; versionado `MAYOR.MENOR.PARCHE` (el reparto abre la 4.0.0); la regla de herramientas se separa en editar a mano y mover por script.
+> - **Ensayado entero:** el reparto sale exacto byte a byte, los 15 archivos pasan `node --check`, y en el harness cargan las 242 funciones, las 6 utilidades `window.*` y la pantalla de ayuda sin sesión.
+> - **Hallazgos:** la única llamada al cargar es `initApp();`, que pasa a `arranque.js`; `sed` sin `-b` quita los `\r`; `.vercelignore` necesita `!/js/`.
+> - **Backup:** etiqueta `pre-reparto-v3.8` sobre `a13549b` y copia local ignorada en `_backup/` (con `LEEME.md`).
+> - **Sin probar:** el flujo con sesión real. Se prueba en staging tras el merge (Paso 6 del plan).
+> - De paso: el aviso `Multiple GoTrueClient instances` de la consola viene de `initApp`, que crea un cliente nuevo de Supabase en cada `visibilitychange`. Ya existía y no es del reparto. Triado como **[P-16]**, al final de la cola.
+
+**El merge a `main` se hizo el 9-oct (§6-septies) y producción ya tiene el estado de BETA.**
 
 ### Cola del Paso 6 — decidida por el usuario el 8-oct
 
@@ -252,8 +262,8 @@ Medición del 8-oct, contando `style="` hasta la siguiente declaración de funci
 
 ### Recordatorios del ciclo
 
-- **Disparador cruzado:** `app.js` tiene **8.001 líneas**. Ver el aviso de arriba.
-- Subir el `?v=` de `app.js` y `style.css` en `index.html`. Van por **`3.8`**.
+- **Disparador cruzado:** `app.js` tiene **8.001 líneas**. Respondido con el plan de reparto (arriba).
+- Subir el `?v=` en `index.html`. Van por **`3.8`**; el reparto los pasa a **`4.0.0`** (`CLAUDE.md` § Versionado).
 - `node --check` no basta: canario en navegador.
 - Banco de pruebas de comportamiento en el scratchpad (`p01-test.js`). **No está en el repo**; pendiente de decidir si se adopta.
 - Servidor de pruebas: entrada `gg-harness` en `.claude/launch.json` (puerto 8126).

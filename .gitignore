@@ -12,6 +12,12 @@
 backups calendarios/
 *.xlsx
 
+# ── Copias de seguridad locales ──────────────────────────────
+# Instantáneas del código antes de cambios arriesgados (el reparto de
+# app.js, por ejemplo). Cada una lleva un LEEME con el commit y la
+# etiqueta de git equivalente, que es la copia que sobrevive al disco.
+_backup/
+
 # ── Bancos de pruebas locales ────────────────────────────────
 _harness-calendario.html
 
