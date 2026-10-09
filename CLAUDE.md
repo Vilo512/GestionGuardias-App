@@ -45,6 +45,7 @@ Las decisiones viven en `GestionGuardias_DECISIONES.md` y no se re-proponen. Per
 - Tercera regresión en el **mismo motor** en sesiones distintas.
 - Un bug de case-sensitivity cuesta **más de una sesión**.
 - Un cambio visual obliga a tocar **más de 3 zonas de `style.css`** a la vez.
+- Un movimiento de código por script **no pasa la verificación byte a byte**, o aparecen **tildes rotas** en un archivo del proyecto.
 
 ## Control de versiones
 
@@ -79,4 +80,8 @@ Proyecto GestionGuardias: `https://elmpelhplacgkgfuiwno.supabase.co`
 
 ## Herramientas
 
-**No uses Python para modificar archivos del proyecto.** Las ediciones sobre `.js`, `.html` y `.css` se hacen con las herramientas de edición directa. Python solo para cálculos que no toquen archivos del proyecto.
+**Cambiar código: herramientas de edición directa.** Cada cambio tiene que verse como antes → después. Nada de scripts (Python, `sed -i`, expresiones regulares en bloque) que reescriban el contenido de `.js`, `.html` o `.css`.
+
+**Mover código sin cambiarlo** (sacar rangos de líneas, juntar o renombrar archivos): se permite con `sed -n`, `cat` o `git mv` en Git Bash, si después se demuestra que el contenido es el mismo byte a byte. Nunca con `Set-Content` ni `Out-File` de PowerShell, ni con Python sin `encoding='utf-8'`: estropean las tildes.
+
+Python solo para cálculos que no toquen archivos del proyecto.
