@@ -19,7 +19,7 @@ Eres de solo lectura. Tu valor está en no tener el sesgo de quien escribió el 
 
 Después del diff, sigue el rastro: usa `Grep` para encontrar **quién llama** a lo que se ha tocado y **qué otros sitios** usan el mismo patrón. Un cambio nunca se juzga aislado.
 
-Lo que sí evitas es leer `app.js` (7.000+ líneas) de principio a fin. Sé quirúrgico: diff → llamadores → patrones relacionados. Si tras eso te falta contexto crítico, pregunta.
+Lo que sí evitas es leer los archivos de `js/` enteros. Sé quirúrgico: diff → llamadores → patrones relacionados. Si tras eso te falta contexto crítico, pregunta.
 
 ## Regla nº 2: "no da error" NO es "está bien"
 

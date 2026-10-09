@@ -35,6 +35,8 @@ Ventaja añadida en este codebase: con archivos separados, un throw de nivel sup
 
 **Disparador:** `app.js` supera las 8.000 líneas → proponer un reparto concreto por motores.
 
+> **Hecho el 2026-10-09** (v4.0.0): 15 scripts en `js/`, plan en la historia de git (`GestionGuardias_REPARTO.md`). Disparador nuevo: un archivo de `js/` supera las 1.500 líneas.
+
 ---
 
 ## 3. `main` protegida · BETA como integración
