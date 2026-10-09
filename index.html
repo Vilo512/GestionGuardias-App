@@ -7,7 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-<link rel="stylesheet" href="style.css?v=4.0.0">
+<link rel="stylesheet" href="style.css?v=4.0.1">
 </head>
 <body>
 
@@ -316,36 +316,37 @@
         <div id="aview-seguridad" style="display:none;">
           <h3>Ajustes de la Promoción</h3>
           
-          <div style="margin-top: 1.5rem; padding: 1.5rem; border: 1px solid #cbd5e1; border-radius: 8px; background: #f8fafc;">
-            <p style="font-size: 0.85rem; color: #475569; margin-bottom: 1rem;">Edita las propiedades de tu especialidad: nombre, hospital al que pertenece y si admite nuevas altas.</p>
-            <div style="display:flex; flex-direction:column; gap:10px;">
-                <label style="font-weight:bold; font-size:0.9rem;">Especialidad:</label>
-                <input type="text" id="edit-promo-servicio" placeholder="Ej. Traumatología" style="padding:8px; border:1px solid #cbd5e1; border-radius:4px;">
+          <div class="seg-card">
+            <p class="seg-note">Edita las propiedades de tu especialidad: nombre, hospital al que pertenece y si admite nuevas altas.</p>
+            <div class="seg-form">
+                <label class="seg-label" for="edit-promo-servicio">Especialidad:</label>
+                <input type="text" id="edit-promo-servicio" class="seg-input" placeholder="Ej. Traumatología">
 
-                <label style="font-weight:bold; font-size:0.9rem;">Hospital:</label>
-                <select id="edit-promo-hospital" onchange="onEditPromoHospitalChange()" style="padding:8px; border:1px solid #cbd5e1; border-radius:4px;"></select>
-                <input type="text" id="edit-promo-hospital-nuevo" placeholder="Nombre COMPLETO y oficial del hospital nuevo" style="display:none; padding:8px; border:1px solid #cbd5e1; border-radius:4px;">
+                <label class="seg-label" for="edit-promo-hospital">Hospital:</label>
+                <select id="edit-promo-hospital" class="seg-input" onchange="onEditPromoHospitalChange()"></select>
+                <input type="text" id="edit-promo-hospital-nuevo" class="seg-input" aria-label="Nombre del hospital nuevo" placeholder="Nombre completo y oficial" style="display:none;">
 
-                <label style="font-weight:bold; font-size:0.9rem;">Estado:</label>
-                <select id="edit-promo-activa" style="padding:8px; border:1px solid #cbd5e1; border-radius:4px;">
-                    <option value="true">🟢 Abierta — visible en el onboarding, admite solicitudes</option>
-                    <option value="false">🔒 Cerrada — no aparece en el onboarding (los miembros actuales siguen con normalidad)</option>
+                <label class="seg-label" for="edit-promo-activa">Estado:</label>
+                <select id="edit-promo-activa" class="seg-input">
+                    <option value="true">🟢 Abierta</option>
+                    <option value="false">🔒 Cerrada</option>
                 </select>
+                <p class="seg-hint"><b>Abierta:</b> aparece en el onboarding y admite solicitudes. <b>Cerrada:</b> no aparece en el onboarding; los miembros actuales siguen con normalidad.</p>
 
-                <button class="primary" style="background:var(--dark); max-width:200px; margin-top:5px;" onclick="adminUpdatePromoDetails()">Guardar Cambios</button>
+                <button class="primary seg-save" onclick="adminUpdatePromoDetails()">Guardar Cambios</button>
             </div>
           </div>
 
-          <div style="margin-top: 1.5rem; padding: 1.5rem; border: 1px solid #cbd5e1; border-radius: 8px; background: #f8fafc;">
-            <h4 style="margin-top:0;">🏥 Todas las especialidades registradas</h4>
-            <p style="font-size: 0.85rem; color: #475569; margin-bottom: 1rem;">Los grupos <b>vacíos</b> (sin ningún perfil vinculado) pueden borrarse desde aquí — el servidor rechaza el borrado si tienen miembros, así que la especialidad activa nunca corre peligro.</p>
-            <div id="admin-promos-list"><p style="color:#64748b; font-size:0.85rem;">Cargando...</p></div>
+          <div class="seg-card">
+            <h4 class="seg-title">🏥 Todas las especialidades registradas</h4>
+            <p class="seg-note">Los grupos <b>vacíos</b> (sin ningún perfil vinculado) pueden borrarse desde aquí — el servidor rechaza el borrado si tienen miembros, así que la especialidad activa nunca corre peligro.</p>
+            <div id="admin-promos-list"><p class="seg-muted">Cargando...</p></div>
           </div>
 
-          <div style="margin-top: 2rem; padding: 1.5rem; border: 2px dashed #ef4444; border-radius: 8px; background: #fef2f2;">
-            <h4 style="color:#b91c1c; margin-top:0;">⚠️ Zona de Peligro</h4>
-            <p style="font-size: 0.85rem; color: #7f1d1d; margin-bottom: 1rem;">[SÓLO SI TE HAS EQUIVOCADO EN LA CREACIÓN.] Borrar esta promoción eliminará permanentemente todos los calendarios, guardias y reglas. Esta acción <b>NO se puede deshacer</b>. </p>
-            <button class="danger" style="background: #ef4444; color: white;" onclick="adminDeletePromotion()">🗑️ Borrar Promoción y Calendarios</button>
+          <div class="seg-card seg-card--danger">
+            <h4 class="seg-title">⚠️ Zona de Peligro</h4>
+            <p class="seg-note">[SÓLO SI TE HAS EQUIVOCADO EN LA CREACIÓN.] Borrar esta promoción eliminará permanentemente todos los calendarios, guardias y reglas. Esta acción <b>NO se puede deshacer</b>. </p>
+            <button class="danger seg-delete" onclick="adminDeletePromotion()">🗑️ Borrar Promoción y Calendarios</button>
           </div>
         </div>
 
@@ -391,20 +392,20 @@
     <!-- Orden de carga: nucleo.js primero (estado y cliente Supabase) y arranque.js
          el último (llama a initApp() cuando ya están definidas todas las funciones).
          El orden del resto no afecta: solo declaran funciones. -->
-    <script src="js/nucleo.js?v=4.0.0"></script>
-    <script src="js/sesion.js?v=4.0.0"></script>
-    <script src="js/motores.js?v=4.0.0"></script>
-    <script src="js/turno.js?v=4.0.0"></script>
-    <script src="js/grupos.js?v=4.0.0"></script>
-    <script src="js/calendario.js?v=4.0.0"></script>
-    <script src="js/mercadillo.js?v=4.0.0"></script>
-    <script src="js/exportacion.js?v=4.0.0"></script>
-    <script src="js/admin-ajustes.js?v=4.0.0"></script>
-    <script src="js/admin-calendario.js?v=4.0.0"></script>
-    <script src="js/admin-cuentas.js?v=4.0.0"></script>
-    <script src="js/rotacion-editor.js?v=4.0.0"></script>
-    <script src="js/propuesta.js?v=4.0.0"></script>
-    <script src="js/perfil.js?v=4.0.0"></script>
-    <script src="js/arranque.js?v=4.0.0"></script>
+    <script src="js/nucleo.js?v=4.0.1"></script>
+    <script src="js/sesion.js?v=4.0.1"></script>
+    <script src="js/motores.js?v=4.0.1"></script>
+    <script src="js/turno.js?v=4.0.1"></script>
+    <script src="js/grupos.js?v=4.0.1"></script>
+    <script src="js/calendario.js?v=4.0.1"></script>
+    <script src="js/mercadillo.js?v=4.0.1"></script>
+    <script src="js/exportacion.js?v=4.0.1"></script>
+    <script src="js/admin-ajustes.js?v=4.0.1"></script>
+    <script src="js/admin-calendario.js?v=4.0.1"></script>
+    <script src="js/admin-cuentas.js?v=4.0.1"></script>
+    <script src="js/rotacion-editor.js?v=4.0.1"></script>
+    <script src="js/propuesta.js?v=4.0.1"></script>
+    <script src="js/perfil.js?v=4.0.1"></script>
+    <script src="js/arranque.js?v=4.0.1"></script>
 </body>
 </html>

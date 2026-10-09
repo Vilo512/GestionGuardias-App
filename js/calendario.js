@@ -66,35 +66,57 @@ function navAdmin(sub) {
  * especialidades con borrado de grupos vacíos.
  */
 async function renderAdminSeguridad() {
+    // Guarda de sesión: sin perfil no hay promoción propia que pintar.
+    if (!currentUserProfile) return;
+    const listEl = document.getElementById('admin-promos-list');
+    _bindSegActions(listEl);
+
     const { data: todas, error } = await supabaseClient.from('promociones').select('*');
-    if (error || !todas) return;
+    if (error || !todas) {
+        // Antes se salía en silencio y la lista se quedaba en «Cargando...».
+        if (listEl) listEl.innerHTML = '<p class="seg-error">No se pudieron cargar las especialidades. Revisa la conexión y vuelve a entrar en esta pestaña.</p>';
+        return;
+    }
     todasLasPromociones = todas;
     const promo = todas.find(p => p.id === currentUserProfile.promocion_id);
-    if (!promo) return;
 
-    document.getElementById('edit-promo-servicio').value = promo.servicio || '';
-    document.getElementById('edit-promo-activa').value = promo.activa === false ? 'false' : 'true';
+    // Sin promoción propia (borrada o promocion_id desfasado) el formulario se queda
+    // como está, pero la lista de especialidades se pinta igualmente.
+    if (promo) {
+        document.getElementById('edit-promo-servicio').value = promo.servicio || '';
+        document.getElementById('edit-promo-activa').value = promo.activa === false ? 'false' : 'true';
 
-    const hospitales = [...new Set(todas.map(p => p.hospital))].sort();
-    const selHosp = document.getElementById('edit-promo-hospital');
-    selHosp.innerHTML = hospitales.map(h => `<option value="${h}" ${h === promo.hospital ? 'selected' : ''}>${h}</option>`).join('')
-        + '<option value="__NUEVO__">➕ Otro hospital (crear nuevo)...</option>';
-    onEditPromoHospitalChange();
+        const hospitales = [...new Set(todas.map(p => p.hospital))].sort();
+        const selHosp = document.getElementById('edit-promo-hospital');
+        selHosp.innerHTML = hospitales.map(h => `<option value="${escapeHtml(h)}" ${h === promo.hospital ? 'selected' : ''}>${escapeHtml(h)}</option>`).join('')
+            + '<option value="__NUEVO__">➕ Otro hospital (crear nuevo)...</option>';
+        onEditPromoHospitalChange();
+    }
 
     // Listado global de especialidades (grupos vacíos borrables; el servidor verifica)
-    const listEl = document.getElementById('admin-promos-list');
     if (listEl) {
         listEl.innerHTML = todas
-            .sort((a, b) => (a.hospital + a.servicio).localeCompare(b.hospital + b.servicio))
+            .sort((a, b) => (a.servicio + a.hospital).localeCompare(b.servicio + b.hospital))
             .map(p => {
                 const esMia = p.id === currentUserProfile.promocion_id;
                 const estado = p.activa === false ? '🔒 Cerrada' : '🟢 Abierta';
-                return `<div style="background:white; border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-                    <span style="font-size:0.88rem;"><b>${p.servicio}</b> <span style="color:#64748b;">— ${p.hospital}</span> <span style="font-size:0.75rem; color:#94a3b8;">· ${estado}${esMia ? ' · (la tuya)' : ''}</span></span>
-                    ${!esMia ? `<button class="danger icon-btn" style="padding:3px 8px; font-size:0.78rem;" onclick="adminBorrarPromocionVacia('${p.id}')">🗑️ Borrar si está vacía</button>` : ''}
+                return `<div class="seg-row${esMia ? ' seg-row--mine' : ''}">
+                    <span class="seg-row__info"><b class="seg-row__svc">${escapeHtml(p.servicio)}</b><span class="seg-row__hosp">${escapeHtml(p.hospital)}</span><span class="seg-row__state">${estado}${esMia ? ' · (la tuya)' : ''}</span></span>
+                    ${!esMia ? `<button class="danger seg-row__del" data-seg-act="borrar" data-seg-id="${escapeHtml(p.id)}" aria-label="Borrar ${escapeHtml(p.servicio)} de ${escapeHtml(p.hospital)} si está vacía">🗑️ Borrar si está vacía</button>` : ''}
                 </div>`;
             }).join('');
     }
+}
+
+/** Delegado de clics de la lista de especialidades: el botón lleva data-seg-act, sin onclick interpolado. */
+function _bindSegActions(root) {
+    if (!root || root._segBound) return;
+    root._segBound = true;
+    root.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-seg-act]');
+        if (!btn || !root.contains(btn)) return;
+        if (btn.dataset.segAct === 'borrar') return adminBorrarPromocionVacia(btn.dataset.segId);
+    });
 }
 
 /** Muestra el campo de hospital nuevo del panel de Seguridad solo si se eligió "crear nuevo". */

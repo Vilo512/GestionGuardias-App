@@ -822,6 +822,41 @@
   .prf-load__mark--max { background: var(--fest-d); }
 
   /* ============================================================
+     PASO 6 · Seguridad (ajustes de la promoción · solo Dueño)
+     Capas: card --surface → filas --surface-2. Texto secundario a
+     --text-2 (en --surface-2 --text-3 cae a 4.1:1). Los botones de
+     acento van en outline sobre --bg: --fest-d no llega a 4.5:1
+     sobre --surface-2 (4.36). La zona de peligro marca el riesgo
+     con el borde discontinuo, no con el color del título.
+     ============================================================ */
+  .seg-card { margin-top: var(--sp-5); padding: var(--sp-5); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); }
+  .seg-card--danger { margin-top: var(--sp-6); border: 2px dashed var(--fest-d); }
+  .seg-title { margin: 0 0 var(--sp-2); color: var(--text); font-size: 1rem; }
+  .seg-note { font-size: 1rem; line-height: 1.45; color: var(--text-2); margin-bottom: var(--sp-4); }
+  .seg-card--danger .seg-note { color: var(--text); }
+  .seg-hint { font-size: 0.875rem; line-height: 1.45; color: var(--text-2); margin-top: calc(var(--sp-1) * -1); }
+  .seg-muted { color: var(--text-2); font-size: 1rem; }
+  .seg-error { color: var(--fest-d); font-weight: 600; }
+  /* La etiqueta va a 4px de SU campo y los grupos se separan 20px: con un gap
+     uniforme de 12px no se distinguía a qué campo pertenecía cada etiqueta. */
+  .seg-form { display: flex; flex-direction: column; gap: var(--sp-1); }
+  .seg-label { font-weight: 700; font-size: 1rem; color: var(--text); margin-top: var(--sp-4); }
+  .seg-label:first-child { margin-top: 0; }
+  .seg-input { margin: 0; min-height: 44px; font-size: 16px; border-color: var(--border-input); }
+  .seg-input::placeholder { color: var(--text-2); opacity: 1; }
+  .seg-input + .seg-input { margin-top: var(--sp-2); }
+  button.seg-save { min-height: 44px; max-width: 200px; margin-top: var(--sp-1); font-size: 1rem; }
+  button.seg-delete { min-height: 44px; background: var(--bg); font-size: 1rem; font-weight: 600; }
+
+  .seg-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--sp-2) var(--sp-3); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-3); margin-bottom: var(--sp-2); }
+  /* «La tuya» se marca con el borde, como .grp-card--current, no con texto al final de la línea. */
+  .seg-row--mine { border-left: 4px solid var(--adu-d); }
+  .seg-row__info { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 1rem; color: var(--text); overflow-wrap: anywhere; }
+  .seg-row__hosp { font-size: 0.9rem; }
+  .seg-row__state { font-size: 0.875rem; color: var(--text-2); }
+  button.seg-row__del { min-height: 44px; background: var(--bg); font-size: 0.9rem; font-weight: 600; white-space: nowrap; }
+
+  /* ============================================================
      RESPONSIVE — el calendario se juzga primero en móvil
      ============================================================ */
   @media (max-width: 640px) {
@@ -914,6 +949,14 @@
     .hrs-table .hrs-num--main { font-size: 1.05rem; }
     .hrs-table td.hrs-num::before { content: attr(data-label); display: block; font-size: 0.875rem; font-weight: 400; color: var(--text-2); white-space: normal; }
     .hrs-table .hrs-num--muted { color: var(--text); }
+
+    /* Seguridad: menos aire en las cards; guardar y borrar a ancho completo
+       y el borrado de cada especialidad bajo su nombre, no apretado a la derecha. */
+    .seg-card { padding: var(--sp-4); }
+    button.seg-save { max-width: none; }
+    button.seg-delete { width: 100%; }
+    .seg-row { flex-direction: column; align-items: stretch; }
+    button.seg-row__del { width: 100%; }
 
     /* Mi Perfil: menos aire en las cards, y cada cifra del mes en una fila
        etiqueta–valor en vez de tres bloques de 1.8rem apilados. */
